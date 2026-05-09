@@ -2,12 +2,13 @@
  * App — root Router with all application routes.
  *
  * Route structure:
- *   /            → redirect to /clients
+ *   /            → public landing page (brand + sign-in CTA)
  *   /sign-in     → public sign-in page
  *   /clients     → protected clients list (requires auth)
  *   *            → 404 fallback
  */
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { Landing } from "@/routes/Landing";
 import { SignIn } from "@/routes/SignIn";
 import { Clients } from "@/routes/Clients";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
@@ -17,6 +18,7 @@ export function App() {
     <BrowserRouter>
       <Routes>
         {/* Public routes */}
+        <Route path="/" element={<Landing />} />
         <Route path="/sign-in" element={<SignIn />} />
 
         {/* Protected routes — wrapped in ProtectedRoute which renders <Outlet /> */}
@@ -24,8 +26,6 @@ export function App() {
           <Route path="/clients" element={<Clients />} />
         </Route>
 
-        {/* Root redirect */}
-        <Route path="/" element={<Navigate to="/clients" replace />} />
 
         {/* 404 fallback */}
         <Route
