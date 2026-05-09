@@ -31,14 +31,17 @@ Both deploy automatically via Amplify branch deploys.
 
 ## Status
 
-Pre-implementation. Architecture approved (2026-05-08); folders scaffolded;
-V1 Postgres schema defined in Drizzle; FastAPI service skeleton implemented
-and tested (32/32 passing) with Pydantic models mirroring the schema;
-Amplify Gen 2 backend defined (Cognito User Pool + `receipts` and
-`documents` S3 buckets); `infra/` CDK stacks (Aurora Serverless v2 + API
-Gateway + FastAPI Lambda) defined and synthesised. Next: initialise
-`apps/web/`, generate the first Drizzle migration, write the legacy CSV
-import script, and run `cdk deploy` on `infra/` to provision Aurora.
+In progress. Architecture approved (2026-05-08); folders scaffolded; V1
+Postgres schema defined in Drizzle; FastAPI service skeleton with Pydantic
+mirror (32/32 passing); Amplify Gen 2 backend deployed to `main` and `dev`
+in `326543321262 / ca-central-1` (Cognito + receipts/documents S3); `infra/`
+CDK stacks deployed to `main` (Aurora Serverless v2 + API Gateway HTTP API
++ FastAPI Lambda); `apps/web` initialised (Vite + React + TS + Tailwind v4
++ shadcn-equivalent components + aws-amplify v6 sign-in + protected
+`/clients` route, 15/15 tests passing). Next: generate the first Drizzle
+migration and apply it via the Data API; write the FastAPI `app/db.py` so
+`/business/clients` returns real data; write `scripts/import-legacy.ts`
+and run against `main` Aurora; deploy `infra/` to `dev`.
 
 ## Tooling expectations (when we start coding)
 

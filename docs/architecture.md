@@ -347,7 +347,7 @@ architecture is approved.
 ## Next steps
 
 1. Scaffold the monorepo (folders + minimal config). **← this turn**
-2. Initialise `apps/web/` with Vite + React + TS + Tailwind + shadcn/ui.
+2. Initialise `apps/web/` with Vite + React + TS + Tailwind + shadcn/ui. *(done 2026-05-08)*
 3. Initialise `services/api/` with FastAPI + uv + Mangum. *(done 2026-05-08)*
 4. Define the V1 Postgres schema in Drizzle, generate first migration.
 5. Stand up `amplify/` (auth + storage). *(done 2026-05-08)*

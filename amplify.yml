@@ -13,15 +13,25 @@ backend:
         - npx --yes --package=@aws-amplify/backend-cli@1.8.2 ampx pipeline-deploy --branch $AWS_BRANCH --app-id $AWS_APP_ID
 frontend:
   phases:
+    preBuild:
+      commands:
+        # corepack/pnpm may already be enabled from the backend phase; safe to re-run.
+        - corepack enable
+        - corepack prepare pnpm@9.12.0 --activate
+        - pnpm install --filter '@helm/web...' --frozen-lockfile
     build:
       commands:
-        - mkdir -p dist
-        - printf '%s' '<!doctype html><meta charset="utf-8"><title>Helm</title><h1>Helm</h1><p>Backend deployed; web app coming soon.</p>' > dist/index.html
+        # Vite reads VITE_* env vars at build time. The four required values
+        # (VITE_API_URL, VITE_AWS_REGION, VITE_COGNITO_USER_POOL_ID,
+        # VITE_COGNITO_USER_POOL_CLIENT_ID) must be set per branch in the
+        # Amplify Console under App settings → Environment variables.
+        - pnpm --filter @helm/web build
   artifacts:
-    baseDirectory: dist
+    baseDirectory: apps/web/dist
     files:
       - '**/*'
   cache:
     paths:
       - node_modules/**/*
       - amplify/node_modules/**/*
+      - apps/web/node_modules/**/*
