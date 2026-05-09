@@ -25,15 +25,19 @@ frontend:
         # (VITE_API_URL, VITE_AWS_REGION, VITE_COGNITO_USER_POOL_ID,
         # VITE_COGNITO_USER_POOL_CLIENT_ID) must be set per branch in the
         # Amplify Console under App settings → Environment variables.
-        # NODE_OPTIONS bumps Node's heap from the default ~4 GB so rollup
-        # can fit aws-amplify's tree-shaking pass without OOMing.
-        - NODE_OPTIONS="--max-old-space-size=12288" pnpm --filter @helm/web build
+        # NODE_OPTIONS bumps Node's heap above the default ~4 GB so rollup
+        # has headroom for aws-amplify's tree-shaking pass. With SWC (not
+        # Babel) and reportCompressedSize:false, 6 GB is plenty.
+        - NODE_OPTIONS="--max-old-space-size=6144" pnpm --filter @helm/web build
   artifacts:
     baseDirectory: apps/web/dist
     files:
       - '**/*'
   cache:
+    # Cache pnpm's content-addressed store rather than the resolved
+    # node_modules trees. Caching node_modules/**/* follows pnpm's
+    # hardlinks and writes millions of tiny files, which thrashes both
+    # disk and memory on the build agent. Caching the store gives pnpm
+    # what it actually wants: a place to hardlink from.
     paths:
-      - node_modules/**/*
-      - amplify/node_modules/**/*
-      - apps/web/node_modules/**/*
+      - ~/.local/share/pnpm/store/v3/**/*
