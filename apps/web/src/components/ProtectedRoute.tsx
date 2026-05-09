@@ -3,7 +3,7 @@
  *
  * On mount it calls getCurrentUser() from aws-amplify/auth. If the call
  * resolves (user is signed in) the children are rendered; if it rejects
- * (no session) the user is redirected to /sign-in.
+ * (no session) the user is redirected to / (the public sign-in page).
  *
  * A loading state is shown while the async check is in flight to avoid
  * a flash of the protected content before the redirect.
@@ -42,7 +42,7 @@ export function ProtectedRoute() {
   }
 
   if (authState === "unauthenticated") {
-    return <Navigate to="/sign-in" replace />;
+    return <Navigate to="/" replace />;
   }
 
   return <Outlet />;

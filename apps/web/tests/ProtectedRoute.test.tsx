@@ -2,7 +2,7 @@
  * Tests for src/components/ProtectedRoute.tsx
  *
  * Covers:
- * - Redirects to /sign-in when no authenticated user exists.
+ * - Redirects to / (the public sign-in page) when no authenticated user.
  * - Renders child routes when a user is authenticated.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -19,7 +19,7 @@ function renderWithRoutes(initialPath = "/protected") {
   return render(
     <MemoryRouter initialEntries={[initialPath]}>
       <Routes>
-        <Route path="/sign-in" element={<div>Sign In Page</div>} />
+        <Route path="/" element={<div>Sign In Page</div>} />
         <Route element={<ProtectedRoute />}>
           <Route path="/protected" element={<div>Protected Content</div>} />
         </Route>
@@ -37,7 +37,7 @@ describe("ProtectedRoute", () => {
     vi.clearAllMocks();
   });
 
-  it("redirects to /sign-in when no user is authenticated", async () => {
+  it("redirects to / when no user is authenticated", async () => {
     vi.mocked(getCurrentUser).mockRejectedValue(
       new Error("No current user"),
     );
