@@ -62,6 +62,11 @@ export interface ClientRead {
   updated_at: string;
 }
 
-/** Mirrors ClientCreate in services/api/app/models/clients.py */
+/**
+ * Mirrors ClientCreate in services/api/app/models/clients.py.
+ *
+ * Inherits all data fields from ClientRead except server-generated ones.
+ * ``is_active`` is included here so PUT requests can toggle archive status.
+ */
 export interface ClientCreate
   extends Omit<ClientRead, "id" | "created_at" | "updated_at"> {}

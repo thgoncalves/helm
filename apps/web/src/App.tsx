@@ -6,10 +6,13 @@
  *   /sign-in     → redirect to /  (kept for backwards compat)
  *
  * Protected (require an authenticated Cognito session):
- *   /account-type → choose Personal or Business
- *   /personal     → Personal dashboard placeholder
- *   /business     → redirect to /clients (the only Business page so far)
- *   /clients      → Clients list (existing)
+ *   /account-type     → choose Personal or Business
+ *   /personal         → Personal dashboard placeholder
+ *   /business         → redirect to /clients
+ *   /clients          → Clients list
+ *   /clients/new      → New client form
+ *   /clients/:id      → Client detail (read-only)
+ *   /clients/:id/edit → Edit client form
  *
  * The post-sign-in flow is: SignIn → /account-type → /personal | /business.
  */
@@ -18,6 +21,8 @@ import { SignIn } from "@/routes/SignIn";
 import { AccountType } from "@/routes/AccountType";
 import { Personal } from "@/routes/Personal";
 import { Clients } from "@/routes/Clients";
+import { ClientDetail } from "@/routes/ClientDetail";
+import { NewClient, EditClient } from "@/routes/ClientForm";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 
 export function App() {
@@ -37,6 +42,9 @@ export function App() {
             element={<Navigate to="/clients" replace />}
           />
           <Route path="/clients" element={<Clients />} />
+          <Route path="/clients/new" element={<NewClient />} />
+          <Route path="/clients/:id" element={<ClientDetail />} />
+          <Route path="/clients/:id/edit" element={<EditClient />} />
         </Route>
 
         {/* 404 */}
