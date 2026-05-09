@@ -24,6 +24,19 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { HelmIcon } from "@/components/HelmIcon";
+
+function BrandMark() {
+  return (
+    <div className="mb-6 flex flex-col items-center">
+      <HelmIcon
+        className="h-14 w-14 text-foreground"
+        aria-hidden="true"
+      />
+      <h1 className="mt-2 text-2xl font-bold tracking-tight">Helm</h1>
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -90,7 +103,7 @@ export function SignIn() {
       }
 
       if (result.isSignedIn) {
-        navigate("/clients", { replace: true });
+        navigate("/account-type", { replace: true });
       }
     } catch (err: unknown) {
       const message =
@@ -107,7 +120,7 @@ export function SignIn() {
       });
 
       if (result.isSignedIn) {
-        navigate("/clients", { replace: true });
+        navigate("/account-type", { replace: true });
       }
     } catch (err: unknown) {
       const message =
@@ -122,7 +135,8 @@ export function SignIn() {
 
   if (challenge) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-background px-4">
+      <main className="flex min-h-screen flex-col items-center justify-center bg-background px-4 py-10">
+        <BrandMark />
         <Card className="w-full max-w-sm">
           <CardHeader>
             <CardTitle>Set a new password</CardTitle>
@@ -192,10 +206,11 @@ export function SignIn() {
   // ---------------------------------------------------------------------------
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-background px-4">
+    <main className="flex min-h-screen flex-col items-center justify-center bg-background px-4 py-10">
+      <BrandMark />
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle>Sign in to Helm</CardTitle>
+          <CardTitle>Sign in</CardTitle>
           <CardDescription>
             Enter your email and password to continue.
           </CardDescription>
