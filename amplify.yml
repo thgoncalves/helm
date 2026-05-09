@@ -1,0 +1,23 @@
+version: 1
+backend:
+  phases:
+    build:
+      commands:
+        - corepack enable
+        - corepack prepare pnpm@9.12.0 --activate
+        - pnpm install --filter '@helm/amplify...' --frozen-lockfile
+        - pnpm --filter @helm/amplify exec ampx pipeline-deploy --branch $AWS_BRANCH --app-id $AWS_APP_ID
+frontend:
+  phases:
+    build:
+      commands:
+        - mkdir -p dist
+        - printf '%s' '<!doctype html><meta charset="utf-8"><title>Helm</title><h1>Helm</h1><p>Backend deployed; web app coming soon.</p>' > dist/index.html
+  artifacts:
+    baseDirectory: dist
+    files:
+      - '**/*'
+  cache:
+    paths:
+      - node_modules/**/*
+      - amplify/node_modules/**/*
