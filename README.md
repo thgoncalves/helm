@@ -33,9 +33,11 @@ Both deploy automatically via Amplify branch deploys.
 
 Pre-implementation. Architecture approved (2026-05-08); folders scaffolded;
 V1 Postgres schema defined in Drizzle; FastAPI service skeleton implemented
-and tested (32/32 passing) with Pydantic models mirroring the schema. Next:
-initialise `apps/web/`, generate the first Drizzle migration, and stand up
-`amplify/` + `infra/`.
+and tested (32/32 passing) with Pydantic models mirroring the schema;
+Amplify Gen 2 backend defined (Cognito User Pool + `receipts` and
+`documents` S3 buckets). Next: initialise `apps/web/`, generate the first
+Drizzle migration, and stand up `infra/` (Aurora + API Gateway + FastAPI
+Lambda).
 
 ## Tooling expectations (when we start coding)
 

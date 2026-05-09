@@ -163,10 +163,15 @@ models for marginal cost savings. One DB is simpler.
 
 Two buckets per environment, defined in Amplify Gen 2 storage:
 
-- `helm-receipts-{env}` — receipt images, private per user (path:
-  `private/{cognito-sub}/...`).
-- `helm-documents-{env}` — generated PDFs (timesheets, invoices),
-  CSV imports staged for processing.
+- `receipts` (logical name; Amplify generates the actual bucket name like
+  `amplify-helm-{branch}-receipts-{hash}`) — receipt images, private per
+  Cognito identity at `receipts/{entity_id}/*`. Marked as the default
+  storage resource.
+- `documents` — generated PDFs (timesheets, invoices) and CSV imports,
+  private per Cognito identity at `documents/{entity_id}/*`.
+
+`{entity_id}` is the Cognito Identity Pool identity ID (not the User Pool
+sub), resolved at runtime by Amplify Storage.
 
 Frontend uploads directly to S3 using Cognito-issued credentials (Amplify
 Storage). We do not round-trip image bytes through Lambda.
@@ -345,7 +350,7 @@ architecture is approved.
 2. Initialise `apps/web/` with Vite + React + TS + Tailwind + shadcn/ui.
 3. Initialise `services/api/` with FastAPI + uv + Mangum. *(done 2026-05-08)*
 4. Define the V1 Postgres schema in Drizzle, generate first migration.
-5. Stand up `amplify/` (auth + storage + hosting wiring).
+5. Stand up `amplify/` (auth + storage). *(done 2026-05-08)*
 6. Stand up `infra/` (API Gateway + Lambda + Aurora).
 7. Wire `scripts/gen-api-types.sh` to regenerate `packages/shared/api-types`.
 8. Write `scripts/import-legacy.ts` and run against dev Aurora.

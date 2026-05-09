@@ -1,0 +1,21 @@
+{
+  "name": "@helm/amplify",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "sandbox": "ampx sandbox",
+    "deploy": "ampx pipeline-deploy"
+  },
+  "dependencies": {
+    "@aws-amplify/backend": "^1.22.0",
+    "aws-cdk-lib": "^2.253.1",
+    "constructs": "^10.6.0"
+  },
+  "devDependencies": {
+    "@aws-amplify/backend-cli": "^1.8.2",
+    "aws-cdk": "^2.1121.0",
+    "typescript": "^5.5.0"
+  }
+}
