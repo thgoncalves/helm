@@ -29,6 +29,12 @@ class ClientBase(BaseModel):
         hourly_rate: Default billing rate in the client's currency. Optional.
         timesheet_frequency: How often timesheets are submitted.
             Defaults to ``"monthly"``.
+        contract_value: Total monetary value of the active contract (used to
+            compute remaining $/hours on the timesheet page). Optional.
+        contract_currency: ISO currency code for ``contract_value``.
+            Defaults to ``"CAD"``.
+        default_task_description: Default line-item text printed on every
+            populated row of the exported PDF timesheet. Optional.
     """
 
     name: str
@@ -45,6 +51,9 @@ class ClientBase(BaseModel):
     is_active: bool = True
     hourly_rate: Decimal | None = None
     timesheet_frequency: str | None = "monthly"
+    contract_value: Decimal | None = None
+    contract_currency: str | None = "CAD"
+    default_task_description: str | None = None
 
 
 class ClientCreate(ClientBase):
@@ -92,3 +101,6 @@ class ClientUpdate(BaseModel):
     is_active: bool | None = None
     hourly_rate: Decimal | None = None
     timesheet_frequency: str | None = None
+    contract_value: Decimal | None = None
+    contract_currency: str | None = None
+    default_task_description: str | None = None

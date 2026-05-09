@@ -1,16 +1,16 @@
 """pytest configuration and shared fixtures.
 
-The router talks to Aurora through :mod:`app.db`; tests substitute that
-module's ``fetch_all`` / ``fetch_one`` / ``execute`` helpers with a tiny
-in-memory store. The store is reseeded before each test so mutations
-don't leak across cases.
+Routers talk to Aurora through :mod:`app.db`; tests substitute that module's
+``fetch_all`` / ``fetch_one`` / ``execute`` helpers with tiny in-memory stores
+(one per table). Stores are reseeded before each test so mutations don't leak
+across cases.
 
-Substring-matching the SQL is enough because ``app/routers/clients.py``
-only emits a small handful of distinct queries; if a future router adds a
-new pattern, extend the dispatch below.
+Substring-matching the SQL is enough because the routers only emit a small,
+known set of patterns; if a future router adds a new pattern, extend the
+dispatch below.
 """
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
@@ -21,7 +21,7 @@ from fastapi.testclient import TestClient
 from app import db as db_module
 from app.main import app
 
-# Deterministic UUIDs referenced by tests/test_clients_router.py.
+# Deterministic UUIDs referenced across test files.
 SEED_ID_1 = UUID("00000000-0000-0000-0000-000000000001")  # Sulpetro
 SEED_ID_2 = UUID("00000000-0000-0000-0000-000000000002")  # Wenco
 SEED_ID_3 = UUID("00000000-0000-0000-0000-000000000003")  # Nutrien (archived)
@@ -30,7 +30,7 @@ SEED_ID_CP = UUID("3729f4b7-0506-4222-b4f5-5030a711762a")  # CP (archived)
 _SEED_TIME = datetime(2022, 3, 1, 9, 0, 0, tzinfo=timezone.utc)
 
 
-def _seed_store() -> dict[UUID, dict[str, Any]]:
+def _seed_clients() -> dict[UUID, dict[str, Any]]:
     """Build a fresh in-memory store mirroring the legacy seed clients."""
     base: dict[str, Any] = {
         "address_line1": None,
@@ -38,6 +38,9 @@ def _seed_store() -> dict[UUID, dict[str, Any]]:
         "postal_code": None,
         "tax_id": None,
         "notes": None,
+        "contract_value": None,
+        "contract_currency": "CAD",
+        "default_task_description": None,
         "created_at": _SEED_TIME,
         "updated_at": _SEED_TIME,
     }
@@ -54,6 +57,7 @@ def _seed_store() -> dict[UUID, dict[str, Any]]:
             "is_active": True,
             "hourly_rate": Decimal("100.00"),
             "timesheet_frequency": "monthly",
+            "default_task_description": "Consulting services in ETL, ML and AI",
         },
         SEED_ID_2: {
             **base,
@@ -67,6 +71,7 @@ def _seed_store() -> dict[UUID, dict[str, Any]]:
             "is_active": True,
             "hourly_rate": Decimal("95.38"),
             "timesheet_frequency": "monthly",
+            "contract_value": Decimal("190000.00"),
         },
         SEED_ID_3: {
             **base,
@@ -97,22 +102,50 @@ def _seed_store() -> dict[UUID, dict[str, Any]]:
     }
 
 
+def _seed_settings() -> dict[str, str]:
+    return {
+        "user_full_name": "Thiago Gonçalves Pinto",
+        "user_email": "th.goncalves@gmail.com",
+        "user_phone": "(647) 321 7834",
+        "company_name": "2441735 ALBERTA INC.",
+    }
+
+
 @pytest.fixture(autouse=True)
 def fake_data_api(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Replace ``app.db`` helpers with an in-memory dict-backed fake."""
-    store: dict[UUID, dict[str, Any]] = _seed_store()
+    """Replace ``app.db`` helpers with in-memory dict-backed fakes."""
+    clients_store: dict[UUID, dict[str, Any]] = _seed_clients()
+    # time_entries keyed by (client_id, work_date) for the V1 unique invariant.
+    time_entries: dict[tuple[UUID, date], dict[str, Any]] = {}
+    settings_store: dict[str, str] = _seed_settings()
+
+    def _between(work_date: date, params: dict[str, Any]) -> bool:
+        return params["start"] <= work_date <= params["end"]
 
     def fetch_all(
         sql: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
         sql = sql.strip()
+        params = params or {}
         if "WHERE is_active = TRUE" in sql:
             return sorted(
-                (r for r in store.values() if r["is_active"]),
+                (r for r in clients_store.values() if r["is_active"]),
                 key=lambda r: r["name"],
             )
         if sql.startswith("SELECT * FROM clients ORDER BY name"):
-            return sorted(store.values(), key=lambda r: r["name"])
+            return sorted(clients_store.values(), key=lambda r: r["name"])
+        if sql.startswith("SELECT * FROM time_entries"):
+            return [
+                row
+                for (cid, wd), row in time_entries.items()
+                if cid == params["client_id"] and _between(wd, params)
+            ]
+        if sql.startswith("SELECT work_date, hours FROM time_entries"):
+            return [
+                {"work_date": row["work_date"], "hours": row["hours"]}
+                for (cid, wd), row in time_entries.items()
+                if cid == params["client_id"] and _between(wd, params)
+            ]
         raise NotImplementedError(f"fake fetch_all doesn't handle: {sql[:80]}")
 
     def fetch_one(
@@ -121,24 +154,110 @@ def fake_data_api(monkeypatch: pytest.MonkeyPatch) -> None:
         sql = sql.strip()
         params = params or {}
         if sql.startswith("SELECT * FROM clients WHERE id"):
-            return store.get(params["id"])
+            return clients_store.get(params["id"])
         if sql.startswith("INSERT INTO clients"):
             row = dict(params)
-            store[row["id"]] = row
+            clients_store[row["id"]] = row
             return row
         if sql.startswith("UPDATE clients"):
             cid = params["id"]
-            existing = store.get(cid)
+            existing = clients_store.get(cid)
             if existing is None:
                 return None
             merged = {**existing, **params}
-            store[cid] = merged
+            clients_store[cid] = merged
             return merged
+        if sql.startswith("SELECT value FROM settings"):
+            value = settings_store.get(params["key"])
+            return {"value": value} if value is not None else None
+        if "COALESCE(SUM(hours), 0)" in sql and "BETWEEN" in sql:
+            total = sum(
+                (
+                    row["hours"]
+                    for (cid, wd), row in time_entries.items()
+                    if cid == params["client_id"] and _between(wd, params)
+                ),
+                Decimal(0),
+            )
+            return {"hours": total}
+        if "COALESCE(SUM(hours), 0)" in sql:
+            # Lifetime total for the client.
+            total = sum(
+                (
+                    row["hours"]
+                    for (cid, _wd), row in time_entries.items()
+                    if cid == params["client_id"]
+                ),
+                Decimal(0),
+            )
+            return {"hours": total}
         raise NotImplementedError(f"fake fetch_one doesn't handle: {sql[:80]}")
 
     def execute(
         sql: str, params: dict[str, Any] | None = None
     ) -> dict[str, Any]:
+        sql = sql.strip()
+        params = params or {}
+        if sql.startswith("DELETE FROM time_entries") and "NOT IN" in sql:
+            # The router builds the NOT IN list inline (no params for the
+            # dates). Strip out any uninvoiced row in the period that is not
+            # in the literal list — which we recover by parsing.
+            literal_segment = sql.split("NOT IN (", 1)[1].split(")", 1)[0]
+            kept_dates = {
+                date.fromisoformat(s.strip().strip("'"))
+                for s in literal_segment.split(",")
+                if s.strip()
+            }
+            keys_to_delete = [
+                (cid, wd)
+                for (cid, wd), row in time_entries.items()
+                if cid == params["client_id"]
+                and _between(wd, params)
+                and row["invoice_id"] is None
+                and wd not in kept_dates
+            ]
+            for k in keys_to_delete:
+                del time_entries[k]
+            return {}
+        if sql.startswith("DELETE FROM time_entries") and "work_date = :work_date" in sql:
+            key = (params["client_id"], params["work_date"])
+            row = time_entries.get(key)
+            if row is not None and row["invoice_id"] is None:
+                del time_entries[key]
+            return {}
+        if sql.startswith("DELETE FROM time_entries") and "BETWEEN" in sql:
+            # Wipe the whole period (uninvoiced only).
+            keys_to_delete = [
+                (cid, wd)
+                for (cid, wd), row in time_entries.items()
+                if cid == params["client_id"]
+                and _between(wd, params)
+                and row["invoice_id"] is None
+            ]
+            for k in keys_to_delete:
+                del time_entries[k]
+            return {}
+        if sql.startswith("INSERT INTO time_entries"):
+            # Postgres numeric(5,2) normalises to two decimal places; mimic
+            # that so JSON output is stable across tests.
+            quantised = Decimal(params["hours"]).quantize(Decimal("0.01"))
+            key = (params["client_id"], params["work_date"])
+            existing = time_entries.get(key)
+            if existing is None:
+                time_entries[key] = {
+                    "id": params["id"],
+                    "client_id": params["client_id"],
+                    "work_date": params["work_date"],
+                    "hours": quantised,
+                    "invoice_id": None,
+                    "created_at": params["now"],
+                    "updated_at": params["now"],
+                }
+            elif existing["invoice_id"] is None:
+                # ON CONFLICT DO UPDATE path.
+                existing["hours"] = quantised
+                existing["updated_at"] = params["now"]
+            return {}
         raise NotImplementedError(f"fake execute doesn't handle: {sql[:80]}")
 
     monkeypatch.setattr(db_module, "fetch_all", fetch_all)
@@ -150,3 +269,12 @@ def fake_data_api(monkeypatch: pytest.MonkeyPatch) -> None:
 def client() -> TestClient:
     """Return a synchronous FastAPI test client."""
     return TestClient(app)
+
+
+# Re-exported helpers so individual tests can poke at fixtures if needed.
+__all__ = [
+    "SEED_ID_1",
+    "SEED_ID_2",
+    "SEED_ID_3",
+    "SEED_ID_CP",
+]

@@ -23,6 +23,7 @@ import { Personal } from "@/routes/Personal";
 import { Clients } from "@/routes/Clients";
 import { ClientDetail } from "@/routes/ClientDetail";
 import { NewClient, EditClient } from "@/routes/ClientForm";
+import { Timesheets } from "@/routes/Timesheets";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 
 export function App() {
@@ -45,6 +46,7 @@ export function App() {
           <Route path="/clients/new" element={<NewClient />} />
           <Route path="/clients/:id" element={<ClientDetail />} />
           <Route path="/clients/:id/edit" element={<EditClient />} />
+          <Route path="/timesheets" element={<Timesheets />} />
         </Route>
 
         {/* 404 */}

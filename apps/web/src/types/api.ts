@@ -56,6 +56,15 @@ export interface ClientRead {
   hourly_rate: number | string | null;
   /** How often timesheets are submitted. */
   timesheet_frequency: string | null;
+  /**
+   * Total monetary value of the active contract (used to compute
+   * remaining $/hours on the timesheet page). Decimal serialised as string.
+   */
+  contract_value: number | string | null;
+  /** ISO currency code for ``contract_value`` (default ``"CAD"``). */
+  contract_currency: string | null;
+  /** Default task description printed on every populated PDF row. */
+  default_task_description: string | null;
   /** ISO 8601 UTC timestamp when the record was created. */
   created_at: string;
   /** ISO 8601 UTC timestamp when the record was last updated. */
@@ -70,3 +79,41 @@ export interface ClientRead {
  */
 export interface ClientCreate
   extends Omit<ClientRead, "id" | "created_at" | "updated_at"> {}
+
+// ---------------------------------------------------------------------------
+// Time entries — mirrors TimeEntryRead
+// ---------------------------------------------------------------------------
+
+/** Mirrors TimeEntryRead in services/api/app/models/time_entries.py */
+export interface TimeEntryRead {
+  id: string;
+  client_id: string;
+  /** Calendar date (YYYY-MM-DD). */
+  work_date: string;
+  /** Hours worked, e.g. ``"7.50"`` (Decimal serialised as string). */
+  hours: number | string;
+  /** Invoice this entry is included on; ``null`` if uninvoiced. */
+  invoice_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Timesheet summary — mirrors TimesheetSummary
+// ---------------------------------------------------------------------------
+
+/** Mirrors TimesheetSummary in services/api/app/routers/timesheets.py */
+export interface TimesheetSummary {
+  client_id: string;
+  period_start: string;
+  period_end: string;
+  hourly_rate: number | string | null;
+  contract_value: number | string | null;
+  contract_currency: string | null;
+  period_hours: number | string;
+  period_amount: number | string;
+  contract_hours_logged: number | string;
+  contract_amount_logged: number | string;
+  contract_remaining_hours: number | string | null;
+  contract_remaining_amount: number | string | null;
+}

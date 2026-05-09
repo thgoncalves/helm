@@ -56,6 +56,17 @@ const clientSchema = z.object({
       return Number.isNaN(n) ? null : v;
     }),
   timesheet_frequency: z.string().nullable().optional(),
+  contract_value: z
+    .string()
+    .nullable()
+    .optional()
+    .transform((v) => {
+      if (v === "" || v === null || v === undefined) return null;
+      const n = Number(v);
+      return Number.isNaN(n) ? null : v;
+    }),
+  contract_currency: z.string().nullable().optional(),
+  default_task_description: z.string().nullable().optional(),
   is_active: z.boolean().optional(),
 });
 
@@ -83,6 +94,12 @@ function toFormValues(client: ClientRead): ClientFormValues {
         ? String(client.hourly_rate)
         : "",
     timesheet_frequency: client.timesheet_frequency ?? "monthly",
+    contract_value:
+      client.contract_value !== null && client.contract_value !== undefined
+        ? String(client.contract_value)
+        : "",
+    contract_currency: client.contract_currency ?? "CAD",
+    default_task_description: client.default_task_description ?? "",
     is_active: client.is_active,
   };
 }
@@ -102,6 +119,9 @@ function toApiPayload(values: ClientFormValues): ClientCreate {
     notes: values.notes || null,
     hourly_rate: values.hourly_rate ?? null,
     timesheet_frequency: values.timesheet_frequency ?? "monthly",
+    contract_value: values.contract_value ?? null,
+    contract_currency: values.contract_currency || "CAD",
+    default_task_description: values.default_task_description || null,
     is_active: values.is_active ?? true,
   };
 }
@@ -324,6 +344,56 @@ function ClientFormInner({ mode, defaultValues, clientId }: ClientFormProps) {
           </CardContent>
         </Card>
 
+        {/* Contract */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Contract</CardTitle>
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-1">
+              <Label htmlFor="contract_value">Contract Value</Label>
+              <div className="relative">
+                <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-muted-foreground">
+                  $
+                </span>
+                <Input
+                  id="contract_value"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="Not set"
+                  className="pl-6"
+                  {...register("contract_value")}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="contract_currency">Currency</Label>
+              <Input
+                id="contract_currency"
+                maxLength={3}
+                placeholder="CAD"
+                {...register("contract_currency")}
+              />
+            </div>
+
+            <div className="sm:col-span-2 space-y-1">
+              <Label htmlFor="default_task_description">
+                Default Task Description (PDF)
+              </Label>
+              <Input
+                id="default_task_description"
+                placeholder="e.g. Consulting services in ETL, ML and AI"
+                {...register("default_task_description")}
+              />
+              <p className="text-xs text-muted-foreground">
+                Printed on every populated row of the exported timesheet PDF.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Active/Archived toggle — edit mode only */}
         {mode === "edit" && (
           <Card>
@@ -385,6 +455,9 @@ const newClientDefaults: ClientFormValues = {
   notes: "",
   hourly_rate: "",
   timesheet_frequency: "monthly",
+  contract_value: "",
+  contract_currency: "CAD",
+  default_task_description: "",
   is_active: true,
 };
 
