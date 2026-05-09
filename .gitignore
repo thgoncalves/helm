@@ -216,3 +216,30 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Legacy PyQt5 app data — real client info, payments, tax records.
+# Kept locally for migration reference; never committed.
+old_database/
+*.csv.bak.*
+
+# macOS
+.DS_Store
+
+# Node / TypeScript
+node_modules/
+.pnpm-store/
+dist/
+.turbo/
+.vite/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Amplify
+.amplify/
+amplify_outputs.json
+amplifyconfiguration.json
+
