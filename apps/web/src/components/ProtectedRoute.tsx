@@ -1,39 +1,21 @@
 /**
  * ProtectedRoute — wraps routes that require an authenticated session.
  *
- * On mount it calls getCurrentUser() from aws-amplify/auth. If the call
- * resolves (user is signed in) the children are rendered; if it rejects
- * (no session) the user is redirected to / (the public sign-in page).
+ * Reads `authStatus` from the Amplify Authenticator context (provided at
+ * the app root in main.tsx). The state machine is the source of truth, so
+ * we don't need to roll our own getCurrentUser() polling.
  *
- * A loading state is shown while the async check is in flight to avoid
- * a flash of the protected content before the redirect.
+ *   configuring     → still resolving the cached session; show loading
+ *   authenticated   → render children
+ *   unauthenticated → redirect to / (the public sign-in page)
  */
-import { useEffect, useState } from "react";
 import { Navigate, Outlet } from "react-router-dom";
-import { getCurrentUser } from "aws-amplify/auth";
-
-type AuthState = "loading" | "authenticated" | "unauthenticated";
+import { useAuthenticator } from "@aws-amplify/ui-react";
 
 export function ProtectedRoute() {
-  const [authState, setAuthState] = useState<AuthState>("loading");
+  const { authStatus } = useAuthenticator((c) => [c.authStatus]);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    getCurrentUser()
-      .then(() => {
-        if (!cancelled) setAuthState("authenticated");
-      })
-      .catch(() => {
-        if (!cancelled) setAuthState("unauthenticated");
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  if (authState === "loading") {
+  if (authStatus === "configuring") {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <p className="text-muted-foreground">Loading…</p>
@@ -41,7 +23,7 @@ export function ProtectedRoute() {
     );
   }
 
-  if (authState === "unauthenticated") {
+  if (authStatus !== "authenticated") {
     return <Navigate to="/" replace />;
   }
 

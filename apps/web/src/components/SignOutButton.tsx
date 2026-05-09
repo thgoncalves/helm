@@ -1,28 +1,27 @@
 /**
- * SignOutButton — signs the user out of Cognito and clears the React Query
- * cache so no stale authenticated data lingers after sign-out.
+ * SignOutButton — uses the Authenticator's signOut so its state machine
+ * flips authStatus, which causes ProtectedRoute (also wired to the
+ * Authenticator context) to redirect on the next render. Also clears the
+ * React Query cache so no stale authenticated data lingers.
  */
-import { signOut } from "aws-amplify/auth";
+import { useAuthenticator } from "@aws-amplify/ui-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 
 export function SignOutButton() {
+  const { signOut } = useAuthenticator((c) => [c.signOut]);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
-  async function handleSignOut() {
-    try {
-      await signOut();
-      queryClient.clear();
-      navigate("/sign-in", { replace: true });
-    } catch (err) {
-      console.error("Sign-out failed:", err);
-    }
+  function handleSignOut() {
+    signOut();
+    queryClient.clear();
+    navigate("/", { replace: true });
   }
 
   return (
-    <Button variant="outline" size="sm" onClick={() => void handleSignOut()}>
+    <Button variant="outline" size="sm" onClick={handleSignOut}>
       Sign out
     </Button>
   );

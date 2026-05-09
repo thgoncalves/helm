@@ -10,10 +10,13 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Authenticator } from "@aws-amplify/ui-react";
 
 import { configureAmplify } from "@/lib/amplify";
 import { App } from "./App";
+import "@aws-amplify/ui-react/styles.css";
 import "./index.css";
+import "./amplify-theme.css";
 
 // Configure Amplify before rendering. This is synchronous and will throw
 // with a clear message if any required env var is absent.
@@ -37,7 +40,9 @@ if (!rootElement) {
 createRoot(rootElement).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <App />
+      <Authenticator.Provider>
+        <App />
+      </Authenticator.Provider>
     </QueryClientProvider>
   </StrictMode>,
 );

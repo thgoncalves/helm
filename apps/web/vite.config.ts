@@ -24,6 +24,7 @@ export default defineConfig({
       output: {
         manualChunks: {
           amplify: ["aws-amplify", "aws-amplify/auth"],
+          "amplify-ui": ["@aws-amplify/ui-react"],
           react: ["react", "react-dom", "react-router-dom"],
         },
       },
