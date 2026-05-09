@@ -8,7 +8,9 @@ backend:
         - pnpm install --filter '@helm/amplify...' --frozen-lockfile
         # Run ampx from the repo root (not via `pnpm --filter exec`, which sets
         # cwd to amplify/ and breaks ampx's `amplify/backend.ts` file convention).
-        - ./amplify/node_modules/.bin/ampx pipeline-deploy --branch $AWS_BRANCH --app-id $AWS_APP_ID
+        # ampx also requires `npm_config_user_agent` to detect the package
+        # manager — set it explicitly when invoking the binary directly.
+        - npm_config_user_agent="pnpm/9.12.0 npm/? node/v22 linux x64" ./amplify/node_modules/.bin/ampx pipeline-deploy --branch $AWS_BRANCH --app-id $AWS_APP_ID
 frontend:
   phases:
     build:
