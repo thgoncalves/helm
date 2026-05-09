@@ -25,7 +25,9 @@ frontend:
         # (VITE_API_URL, VITE_AWS_REGION, VITE_COGNITO_USER_POOL_ID,
         # VITE_COGNITO_USER_POOL_CLIENT_ID) must be set per branch in the
         # Amplify Console under App settings → Environment variables.
-        - pnpm --filter @helm/web build
+        # NODE_OPTIONS bumps Node's heap from the default ~4 GB so rollup
+        # can fit aws-amplify's tree-shaking pass without OOMing.
+        - NODE_OPTIONS="--max-old-space-size=12288" pnpm --filter @helm/web build
   artifacts:
     baseDirectory: apps/web/dist
     files:

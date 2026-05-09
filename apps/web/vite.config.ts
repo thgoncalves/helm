@@ -11,6 +11,21 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  build: {
+    // Source maps double rollup memory and aren't useful in production.
+    sourcemap: false,
+    // Split aws-amplify (the largest dep) into its own chunk so rollup
+    // processes it separately. Reduces peak memory during tree-shaking
+    // and silences the 500 kB chunk-size warning.
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          amplify: ["aws-amplify", "aws-amplify/auth"],
+          react: ["react", "react-dom", "react-router-dom"],
+        },
+      },
+    },
+  },
   test: {
     globals: true,
     environment: "jsdom",
