@@ -14,7 +14,10 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+# lib/ and lib64/ removed — they're stale Python-distribution patterns
+# from the original template, and they conflict with infra/lib/ (CDK source).
+# Modern Python builds put outputs under dist/. Virtualenv lib/ subdirs are
+# already covered by the venv/, .venv/, env/ entries below.
 lib64/
 parts/
 sdist/
@@ -242,4 +245,8 @@ dist/
 .amplify/
 amplify_outputs.json
 amplifyconfiguration.json
+
+# CDK
+cdk.out/
+.cdk.staging/
 

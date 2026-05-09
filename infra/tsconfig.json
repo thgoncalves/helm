@@ -1,0 +1,13 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "outDir": "cdk.out",
+    "rootDir": ".",
+    "lib": ["ES2022"],
+    "types": ["node"]
+  },
+  "include": ["bin/**/*", "lib/**/*", "config/**/*"],
+  "exclude": ["node_modules", "cdk.out"]
+}

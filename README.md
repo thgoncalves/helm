@@ -35,9 +35,10 @@ Pre-implementation. Architecture approved (2026-05-08); folders scaffolded;
 V1 Postgres schema defined in Drizzle; FastAPI service skeleton implemented
 and tested (32/32 passing) with Pydantic models mirroring the schema;
 Amplify Gen 2 backend defined (Cognito User Pool + `receipts` and
-`documents` S3 buckets). Next: initialise `apps/web/`, generate the first
-Drizzle migration, and stand up `infra/` (Aurora + API Gateway + FastAPI
-Lambda).
+`documents` S3 buckets); `infra/` CDK stacks (Aurora Serverless v2 + API
+Gateway + FastAPI Lambda) defined and synthesised. Next: initialise
+`apps/web/`, generate the first Drizzle migration, write the legacy CSV
+import script, and run `cdk deploy` on `infra/` to provision Aurora.
 
 ## Tooling expectations (when we start coding)
 

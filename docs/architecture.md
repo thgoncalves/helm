@@ -351,7 +351,7 @@ architecture is approved.
 3. Initialise `services/api/` with FastAPI + uv + Mangum. *(done 2026-05-08)*
 4. Define the V1 Postgres schema in Drizzle, generate first migration.
 5. Stand up `amplify/` (auth + storage). *(done 2026-05-08)*
-6. Stand up `infra/` (API Gateway + Lambda + Aurora).
+6. Stand up `infra/` (API Gateway + Lambda + Aurora). *(done 2026-05-08)*
 7. Wire `scripts/gen-api-types.sh` to regenerate `packages/shared/api-types`.
 8. Write `scripts/import-legacy.ts` and run against dev Aurora.
 9. Verify dashboards against historical data on dev.
