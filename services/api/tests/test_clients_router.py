@@ -37,15 +37,15 @@ class TestListClients:
         ids = [c["id"] for c in response.json()]
         assert SEED_ID_3 not in ids
 
-    def test_include_archived_returns_all_three(
+    def test_include_archived_returns_all_seeds(
         self, client: TestClient
     ) -> None:
-        """GET /business/clients?include_archived=true returns all 3 clients."""
+        """GET /business/clients?include_archived=true returns all 4 seed clients."""
         response = client.get("/business/clients/?include_archived=true")
         assert response.status_code == 200
         data = response.json()
         assert isinstance(data, list)
-        assert len(data) == 3
+        assert len(data) == 4
 
     def test_archived_list_includes_nutrien(self, client: TestClient) -> None:
         """include_archived=true result contains Nutrien (is_active=False)."""

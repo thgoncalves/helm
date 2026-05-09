@@ -27,6 +27,9 @@ router = APIRouter(tags=["clients"], dependencies=[Depends(get_current_user)])
 _SEED_ID_1 = UUID("00000000-0000-0000-0000-000000000001")
 _SEED_ID_2 = UUID("00000000-0000-0000-0000-000000000002")
 _SEED_ID_3 = UUID("00000000-0000-0000-0000-000000000003")
+# CP keeps its real legacy UUID so the eventual import_legacy script does
+# not collide / duplicate this row.
+_SEED_ID_CP = UUID("3729f4b7-0506-4222-b4f5-5030a711762a")
 
 # ---------------------------------------------------------------------------
 # In-memory store — dict keyed by UUID, module-scoped so it persists across
@@ -38,8 +41,8 @@ def _build_seed_store() -> dict[UUID, ClientRead]:
     """Build the initial seeded client dictionary.
 
     Returns:
-        A dict mapping UUID → ClientRead for the three seed clients derived
-        from the legacy data: Sulpetro, Wenco, Nutrien.
+        A dict mapping UUID → ClientRead for the four seed clients derived
+        from the legacy data: Sulpetro, Wenco, Nutrien, CP.
     """
     seed_time = datetime(2022, 3, 1, 9, 0, 0, tzinfo=timezone.utc)
     return {
@@ -97,6 +100,25 @@ def _build_seed_store() -> dict[UUID, ClientRead]:
             is_active=False,
             hourly_rate=None,
             timesheet_frequency="monthly",
+            created_at=seed_time,
+            updated_at=seed_time,
+        ),
+        _SEED_ID_CP: ClientRead(
+            id=_SEED_ID_CP,
+            name="CP",
+            email=None,
+            phone=None,
+            address_line1=None,
+            address_line2=None,
+            city=None,
+            state=None,
+            postal_code=None,
+            country="Canada",
+            tax_id=None,
+            notes=None,
+            is_active=False,
+            hourly_rate=Decimal("95.00"),
+            timesheet_frequency="weekly",
             created_at=seed_time,
             updated_at=seed_time,
         ),
