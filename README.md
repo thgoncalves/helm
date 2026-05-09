@@ -32,7 +32,10 @@ Both deploy automatically via Amplify branch deploys.
 ## Status
 
 Pre-implementation. Architecture approved (2026-05-08); folders scaffolded;
-no app code yet. Next: initialise `apps/web/`, `services/api/`, and `db/`.
+V1 Postgres schema defined in Drizzle; FastAPI service skeleton implemented
+and tested (32/32 passing) with Pydantic models mirroring the schema. Next:
+initialise `apps/web/`, generate the first Drizzle migration, and stand up
+`amplify/` + `infra/`.
 
 ## Tooling expectations (when we start coding)
 

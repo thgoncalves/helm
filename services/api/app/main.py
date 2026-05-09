@@ -1,0 +1,57 @@
+"""FastAPI application entry point.
+
+Constructs the FastAPI app, configures CORS, mounts routers, and exposes
+a Mangum handler for AWS Lambda.
+"""
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from mangum import Mangum
+
+from app.routers import clients as clients_router
+
+app = FastAPI(
+    title="Helm API",
+    version="0.0.0",
+    description=(
+        "Business and personal finance API for the Helm application. "
+        "Deployed to AWS Lambda via Mangum behind API Gateway with a "
+        "Cognito JWT authoriser."
+    ),
+)
+
+# ---------------------------------------------------------------------------
+# CORS — permissive for development. Tighten in production via config.
+# ---------------------------------------------------------------------------
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ---------------------------------------------------------------------------
+# Routers
+# ---------------------------------------------------------------------------
+app.include_router(clients_router.router, prefix="/business/clients")
+
+# ---------------------------------------------------------------------------
+# Health check
+# ---------------------------------------------------------------------------
+
+
+@app.get("/health", tags=["ops"], summary="Health check")
+async def health() -> dict[str, str]:
+    """Return a simple liveness probe response.
+
+    Returns:
+        ``{"status": "ok"}`` — always, as long as the process is alive.
+    """
+    return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# Lambda handler — module-level so Lambda can find it as ``app.main.handler``.
+# ---------------------------------------------------------------------------
+handler = Mangum(app)

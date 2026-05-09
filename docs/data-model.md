@@ -83,6 +83,40 @@ settings  (key/value, no FKs)
    DO NOTHING` so the script is idempotent for repeated runs against dev.
 6. After import, validate row counts and FK integrity.
 
+## Pydantic mirror (services/api)
+
+Pydantic models in [`services/api/app/models/`](../services/api/app/models)
+mirror these tables 1:1. Each module defines four classes:
+
+- `<Name>Base` — all data fields (no id, no timestamps).
+- `<Name>Create` — POST body shape. Currently equals `Base`.
+- `<Name>Read` — full row including `id` and timestamps where applicable.
+- `<Name>Update` — all fields optional, for PATCH.
+
+Type mapping (Drizzle → Pydantic):
+
+| Drizzle | Pydantic |
+|---|---|
+| `uuid` | `UUID` |
+| `text`, `varchar` | `str` |
+| `numeric` | `Decimal` |
+| `integer` | `int` |
+| `boolean` | `bool` |
+| `date` | `datetime.date` |
+| `timestamp with time zone` | `datetime` (timezone-aware) |
+
+Required vs optional matches Drizzle `.notNull()`. There is no codegen —
+when the Drizzle schema changes, update the Pydantic models manually in
+the same change. Drift between the two is the main maintenance risk.
+
+Quirks worth knowing:
+
+- **`invoice_line_items`** — no `created_at` / `updated_at` (matches
+  Drizzle); lifecycle is cascade-managed via the parent invoice. The
+  `Read` model only adds `id`.
+- **`settings`** — PK is `key` (text), not `id`. No `created_at` in the
+  Drizzle schema; `SettingRead` exposes only `updated_at`.
+
 ## What's not modelled yet (V2)
 
 To be added when we build the Personal side and the Receipts feature:

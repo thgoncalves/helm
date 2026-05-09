@@ -1,6 +1,6 @@
 # Helm — Architecture Proposal
 
-> Status: **proposed, awaiting approval**.
+> Status: **approved 2026-05-08**. See "Decisions locked" near the bottom.
 > Scope: V1 deployable architecture. Future-only concerns are flagged.
 
 ## TL;DR
@@ -343,7 +343,7 @@ architecture is approved.
 
 1. Scaffold the monorepo (folders + minimal config). **← this turn**
 2. Initialise `apps/web/` with Vite + React + TS + Tailwind + shadcn/ui.
-3. Initialise `services/api/` with FastAPI + uv + Mangum.
+3. Initialise `services/api/` with FastAPI + uv + Mangum. *(done 2026-05-08)*
 4. Define the V1 Postgres schema in Drizzle, generate first migration.
 5. Stand up `amplify/` (auth + storage + hosting wiring).
 6. Stand up `infra/` (API Gateway + Lambda + Aurora).
