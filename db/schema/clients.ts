@@ -31,6 +31,14 @@ export const clients = pgTable(
     hourlyRate: numeric('hourly_rate', { precision: 10, scale: 2 }),
     timesheetFrequency: varchar('timesheet_frequency', { length: 20 }).default('monthly'),
 
+    // Total contract value in `contractCurrency` (V1: one active contract per
+    // client). Used to compute "remaining $ / hours" on the timesheet page.
+    contractValue: numeric('contract_value', { precision: 15, scale: 2 }),
+    contractCurrency: varchar('contract_currency', { length: 3 }).default('CAD'),
+    // Default line-item description that shows up on every populated row of
+    // the exported PDF timesheet (e.g. "Consulting services in ETL, ML and AI").
+    defaultTaskDescription: text('default_task_description'),
+
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
