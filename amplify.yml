@@ -6,7 +6,9 @@ backend:
         - corepack enable
         - corepack prepare pnpm@9.12.0 --activate
         - pnpm install --filter '@helm/amplify...' --frozen-lockfile
-        - pnpm --filter @helm/amplify exec ampx pipeline-deploy --branch $AWS_BRANCH --app-id $AWS_APP_ID
+        # Run ampx from the repo root (not via `pnpm --filter exec`, which sets
+        # cwd to amplify/ and breaks ampx's `amplify/backend.ts` file convention).
+        - ./amplify/node_modules/.bin/ampx pipeline-deploy --branch $AWS_BRANCH --app-id $AWS_APP_ID
 frontend:
   phases:
     build:
