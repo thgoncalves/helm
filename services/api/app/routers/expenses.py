@@ -115,13 +115,19 @@ async def create_expense(body: ExpenseCreateRequest) -> ExpenseCreateResponse:
     )
     assert row is not None
 
+    # Don't bind Content-Type into the signed URL. iOS Safari and
+    # Chrome on Android sometimes massage the Content-Type header
+    # between the form-upload event and the actual fetch (e.g.
+    # ``image/heic`` → ``image/jpeg`` after a transparent conversion),
+    # which makes the signature mismatch and S3 rejects the PUT with
+    # a 403 that surfaces as "Load failed" on Safari.
+    #
+    # We still record the client-supplied content_type in the DB so the
+    # processor knows what it's dealing with — it's just not part of
+    # the URL signature.
     upload_url = aws.s3().generate_presigned_url(
         ClientMethod="put_object",
-        Params={
-            "Bucket": bucket,
-            "Key": s3_key,
-            "ContentType": body.content_type or "application/octet-stream",
-        },
+        Params={"Bucket": bucket, "Key": s3_key},
         ExpiresIn=_UPLOAD_EXPIRY_SEC,
     )
     return ExpenseCreateResponse(

@@ -152,13 +152,19 @@ export function Expenses() {
       );
       // Direct upload to S3 via the presigned URL — Lambda's body limit
       // doesn't apply since we never proxy the file through the API.
+      //
+      // Don't set Content-Type ourselves: the browser sets it from
+      // the File object, and our presigned URL doesn't bind it into
+      // the signature (so any value is fine).
       const putResponse = await fetch(created.upload_url, {
         method: "PUT",
-        headers: { "Content-Type": file.type || "application/octet-stream" },
         body: file,
       });
       if (!putResponse.ok) {
-        throw new Error(`Upload failed: ${putResponse.status}`);
+        const errBody = await putResponse.text().catch(() => "");
+        throw new Error(
+          `S3 upload failed (${putResponse.status}): ${errBody.slice(0, 200)}`,
+        );
       }
       return created.expense;
     },
