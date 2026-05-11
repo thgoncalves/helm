@@ -19,18 +19,14 @@
  *   │ Invoice # │ Client │ Date │ Total │ GST Amount                      │
  *   └─────────────────────────────────────────────────────────────────────┘
  *
- *   [View Invoices] [Edit Payment] [Link Invoices] [Delete Payment]
- *
- * Selection model:
- *   Selecting a row in the upper table enables Edit/Link/Delete/View.
- *   "View Invoices" jumps to the Edit page (which also lists linked
- *   invoices). "Link Invoices" jumps to the Link dialog at
- *   /taxes/:id/link.
+ * Clicking a GST payment row navigates straight to /taxes/:id, where the
+ * user can edit, run the Link/Unlink dialog, or delete the payment.
+ * Clicking an unpaid-invoice row navigates to that invoice.
  */
 import { useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
-import { apiFetch, ApiError } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 import type {
   TaxPaymentListRow,
   TaxSummary,
@@ -53,8 +49,6 @@ function formatDate(iso: string): string {
 
 export function Taxes() {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [paymentSearch, setPaymentSearch] = useState("");
   const [unpaidSearch, setUnpaidSearch] = useState("");
 
@@ -75,19 +69,6 @@ export function Taxes() {
     queryKey: ["tax-unpaid-invoices"],
     queryFn: () =>
       apiFetch<UnpaidInvoice[]>("/business/tax-payments/unpaid-invoices"),
-  });
-
-  const deleteMutation = useMutation<void, ApiError, string>({
-    mutationFn: (id) =>
-      apiFetch(`/business/tax-payments/${id}`, { method: "DELETE" }),
-    onSuccess: () => {
-      setSelectedId(null);
-      void queryClient.invalidateQueries({ queryKey: ["tax-summary"] });
-      void queryClient.invalidateQueries({ queryKey: ["tax-payments"] });
-      void queryClient.invalidateQueries({
-        queryKey: ["tax-unpaid-invoices"],
-      });
-    },
   });
 
   const filteredPayments = useMemo(() => {
@@ -116,18 +97,6 @@ export function Taxes() {
     }
     return rows;
   }, [unpaid, unpaidSearch]);
-
-  function handleDelete() {
-    if (!selectedId) return;
-    if (
-      !window.confirm(
-        "Delete this GST payment? Linked invoices will reappear in 'Invoices with Unpaid GST'.",
-      )
-    ) {
-      return;
-    }
-    deleteMutation.mutate(selectedId);
-  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -265,18 +234,11 @@ export function Taxes() {
                   </thead>
                   <tbody>
                     {filteredPayments.map((p) => {
-                      const isSelected = p.id === selectedId;
                       return (
                         <tr
                           key={p.id}
-                          className={
-                            "cursor-pointer border-b last:border-0 " +
-                            (isSelected
-                              ? "bg-sky-50"
-                              : "hover:bg-accent/40")
-                          }
-                          onClick={() => setSelectedId(p.id)}
-                          onDoubleClick={() => navigate(`/taxes/${p.id}`)}
+                          className="cursor-pointer border-b last:border-0 hover:bg-accent/40"
+                          onClick={() => navigate(`/taxes/${p.id}`)}
                         >
                           <td className="px-4 py-2 whitespace-nowrap">
                             {formatDate(p.payment_date)}
@@ -376,37 +338,6 @@ export function Taxes() {
           </CardContent>
         </Card>
 
-        {/* Footer buttons */}
-        <div className="mt-3 flex justify-end gap-2">
-          <Button
-            variant="outline"
-            onClick={() => selectedId && navigate(`/taxes/${selectedId}`)}
-            disabled={!selectedId}
-          >
-            View Invoices
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => selectedId && navigate(`/taxes/${selectedId}`)}
-            disabled={!selectedId}
-          >
-            Edit Payment
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => selectedId && navigate(`/taxes/${selectedId}/link`)}
-            disabled={!selectedId}
-          >
-            Link Invoices
-          </Button>
-          <Button
-            variant="destructive"
-            onClick={handleDelete}
-            disabled={!selectedId || deleteMutation.isPending}
-          >
-            {deleteMutation.isPending ? "Deleting…" : "Delete Payment"}
-          </Button>
-        </div>
       </main>
     </div>
   );

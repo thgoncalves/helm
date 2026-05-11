@@ -4,7 +4,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const apiFetchMock = vi.fn();
@@ -86,8 +86,14 @@ function renderPage() {
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
-        <Taxes />
+      <MemoryRouter initialEntries={["/taxes"]}>
+        <Routes>
+          <Route path="/taxes" element={<Taxes />} />
+          <Route
+            path="/taxes/:id"
+            element={<div data-testid="edit-page" />}
+          />
+        </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -134,21 +140,9 @@ describe("Taxes landing page", () => {
     expect(row!).toHaveTextContent("$123.50");
   });
 
-  it("footer Edit/Link/Delete buttons require a selected row", async () => {
+  it("clicking a GST payment row navigates to its edit page", async () => {
     renderPage();
-    await screen.findByText("95F20-8364485");
-    const editBtn = screen.getByRole("button", { name: /Edit Payment/ });
-    const linkBtn = screen.getByRole("button", { name: /Link Invoices/ });
-    const deleteBtn = screen.getByRole("button", { name: /Delete Payment/ });
-    expect(editBtn).toBeDisabled();
-    expect(linkBtn).toBeDisabled();
-    expect(deleteBtn).toBeDisabled();
-
-    await userEvent.click(screen.getByText("95F20-8364485"));
-    await waitFor(() => {
-      expect(editBtn).not.toBeDisabled();
-      expect(linkBtn).not.toBeDisabled();
-      expect(deleteBtn).not.toBeDisabled();
-    });
+    await userEvent.click(await screen.findByText("95F20-8364485"));
+    expect(await screen.findByTestId("edit-page")).toBeInTheDocument();
   });
 });

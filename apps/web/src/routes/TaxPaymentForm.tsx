@@ -141,9 +141,33 @@ function TaxPaymentFormInner({
     },
   });
 
+  const deleteMutation = useMutation<void, ApiError, void>({
+    mutationFn: () =>
+      apiFetch(`/business/tax-payments/${paymentId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["tax-summary"] });
+      void queryClient.invalidateQueries({ queryKey: ["tax-payments"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["tax-unpaid-invoices"],
+      });
+      navigate("/taxes");
+    },
+  });
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     saveMutation.mutate();
+  }
+
+  function handleDelete() {
+    if (
+      !window.confirm(
+        "Delete this GST payment? Linked invoices will reappear in 'Invoices with Unpaid GST'.",
+      )
+    ) {
+      return;
+    }
+    deleteMutation.mutate();
   }
 
   return (
@@ -376,21 +400,35 @@ function TaxPaymentFormInner({
             </p>
           )}
 
-          <div className="flex justify-end gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => navigate("/taxes")}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              className="bg-blue-600 hover:bg-blue-700 text-white"
-              disabled={saveMutation.isPending}
-            >
-              {saveMutation.isPending ? "Saving…" : "Save"}
-            </Button>
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              {mode === "edit" && (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={handleDelete}
+                  disabled={deleteMutation.isPending}
+                >
+                  {deleteMutation.isPending ? "Deleting…" : "Delete"}
+                </Button>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => navigate("/taxes")}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+                disabled={saveMutation.isPending}
+              >
+                {saveMutation.isPending ? "Saving…" : "Save"}
+              </Button>
+            </div>
           </div>
         </form>
       </main>
