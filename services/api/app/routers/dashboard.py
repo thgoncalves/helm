@@ -25,6 +25,7 @@ V1's largest), so this trades raw speed for testability — the fake DB
 in tests doesn't have to emulate GROUP BY across half a dozen joins.
 """
 
+import asyncio
 from calendar import monthrange
 from datetime import date, datetime
 from decimal import Decimal
@@ -228,13 +229,32 @@ async def get_dashboard() -> DashboardResponse:
     prev_fy_start, prev_fy_end = _fy_bounds(fy_start_year - 1)
     prev_fy_today = _shift_one_year(today)
 
-    # ---- Pull raw data ----------------------------------------------------
-    # All of this is small (V1 = ~100 invoices, ~100 payments, ~10 transfers).
-    invoices = db.fetch_all("SELECT * FROM invoices")
-    payments = db.fetch_all("SELECT * FROM payments_received")
-    transfers = db.fetch_all("SELECT * FROM transfers")
-    clients = db.fetch_all("SELECT id, name FROM clients")
-    tax_links = db.fetch_all("SELECT invoice_id FROM invoice_tax_links")
+    # ---- Pull raw data (in parallel) -------------------------------------
+    # All of this is small (V1 = ~100 invoices, ~100 payments, ~10
+    # transfers). The bottleneck is round-trip latency to the RDS Data
+    # API — ~100-200ms per call on a warm Lambda, and Aurora can be
+    # auto-paused on the first request after idle, adding 10-20s of
+    # resume latency to whichever query goes first.
+    #
+    # ``db.fetch_all`` is a blocking boto3 call, so ``asyncio.to_thread``
+    # runs each on the default thread pool and ``gather`` lets them
+    # overlap. On a warm Aurora this drops the dashboard wall time from
+    # ~5×roundtrip to ~1×roundtrip.
+    (
+        invoices,
+        payments,
+        transfers,
+        clients,
+        tax_links,
+    ) = await asyncio.gather(
+        asyncio.to_thread(db.fetch_all, "SELECT * FROM invoices"),
+        asyncio.to_thread(db.fetch_all, "SELECT * FROM payments_received"),
+        asyncio.to_thread(db.fetch_all, "SELECT * FROM transfers"),
+        asyncio.to_thread(db.fetch_all, "SELECT id, name FROM clients"),
+        asyncio.to_thread(
+            db.fetch_all, "SELECT invoice_id FROM invoice_tax_links"
+        ),
+    )
 
     client_name_by_id: dict[UUID, str] = {c["id"]: c["name"] for c in clients}
     linked_invoice_ids: set[UUID] = {l["invoice_id"] for l in tax_links}
