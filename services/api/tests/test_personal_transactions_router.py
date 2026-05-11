@@ -38,7 +38,7 @@ def _insert_tx(account_id: str, *, posted: str, amount: str, description: str) -
             :id, :account_id, :import_id, :posted_date, :description,
             :amount, :balance, :external_id, :now
         )
-        ON CONFLICT ON CONSTRAINT personal_transactions_dedup_idx
+        ON CONFLICT (account_id, posted_date, amount, description)
         DO NOTHING
         """,
         {
