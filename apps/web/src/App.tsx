@@ -34,6 +34,7 @@ import { LinkTaxInvoices } from "@/routes/LinkTaxInvoices";
 import { Transfers } from "@/routes/Transfers";
 import { NewTransfer, EditTransfer } from "@/routes/TransferForm";
 import { Settings } from "@/routes/Settings";
+import { Dashboard } from "@/routes/Dashboard";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { ThemeSync } from "@/components/ThemeSync";
 
@@ -52,8 +53,9 @@ export function App() {
           <Route path="/personal" element={<Personal />} />
           <Route
             path="/business"
-            element={<Navigate to="/clients" replace />}
+            element={<Navigate to="/dashboard" replace />}
           />
+          <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/clients" element={<Clients />} />
           <Route path="/clients/new" element={<NewClient />} />
           <Route path="/clients/:id" element={<ClientDetail />} />

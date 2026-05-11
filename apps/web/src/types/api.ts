@@ -357,6 +357,83 @@ export interface TransferTaxRates {
   personal_rate: number | string;
 }
 
+// ---------------------------------------------------------------------------
+// Dashboard
+// ---------------------------------------------------------------------------
+
+export interface KPI {
+  value: number | string;
+  prev_value: number | string | null;
+  delta_pct: number | string | null;
+  detail: string | null;
+}
+
+export interface DashboardKPIs {
+  fy_invoiced: KPI;
+  fy_received: KPI;
+  outstanding: KPI;
+  invoice_count: KPI;
+  gst_collected: KPI;
+  gst_owed: KPI;
+  transfers_fy: KPI;
+  tax_exposure: KPI;
+}
+
+export interface ClientSliceAmount {
+  client_id: string;
+  client_name: string;
+  amount: number | string;
+}
+
+export interface MonthlyRevenuePoint {
+  month: string;
+  total: number | string;
+  by_client: ClientSliceAmount[];
+}
+
+export interface TopClient {
+  client_id: string;
+  client_name: string;
+  total: number | string;
+}
+
+export interface CashFlowPoint {
+  month: string;
+  invoiced: number | string;
+  received: number | string;
+}
+
+export interface QuarterlyPoint {
+  quarter: string;
+  invoiced: number | string;
+  received: number | string;
+}
+
+export interface FYIncomePoint {
+  fy_label: string;
+  invoiced: number | string;
+  received: number | string;
+}
+
+export interface AgingBucket {
+  label: string;
+  count: number;
+  amount: number | string;
+}
+
+export interface DashboardResponse {
+  fy_start: string;
+  fy_end: string;
+  today: string;
+  kpis: DashboardKPIs;
+  monthly_revenue: MonthlyRevenuePoint[];
+  top_clients: TopClient[];
+  cash_flow: CashFlowPoint[];
+  quarterly: QuarterlyPoint[];
+  by_fiscal_year: FYIncomePoint[];
+  aging: AgingBucket[];
+}
+
 /** Mirrors TimesheetSummary in services/api/app/routers/timesheets.py */
 export interface TimesheetSummary {
   client_id: string;

@@ -40,6 +40,7 @@ interface NavItem {
 }
 
 const NAV_ITEMS: readonly NavItem[] = [
+  { to: "/dashboard", label: "Dashboard", matchPrefixes: ["/dashboard"] },
   { to: "/clients", label: "Clients", matchPrefixes: ["/clients"] },
   { to: "/timesheets", label: "Timesheets", matchPrefixes: ["/timesheets"] },
   { to: "/invoices", label: "Invoices", matchPrefixes: ["/invoices"] },
@@ -67,7 +68,7 @@ export function AppHeader() {
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3">
         <div className="flex min-w-0 items-center gap-6">
           <Link
-            to="/clients"
+            to="/dashboard"
             className="flex shrink-0 items-center gap-2 text-foreground"
             aria-label="Helm home"
           >
