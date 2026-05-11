@@ -452,7 +452,7 @@ export function Timesheets() {
                 summary?.contract_remaining_amount !== undefined && (
                   <div className="text-sm">
                     <span className="text-muted-foreground">Remaining:</span>{" "}
-                    <span className="font-semibold text-emerald-700">
+                    <span className="font-semibold text-emerald-600 dark:text-emerald-400">
                       {formatCAD(num(summary.contract_remaining_amount))}
                     </span>{" "}
                     <span className="text-muted-foreground">
@@ -506,9 +506,11 @@ export function Timesheets() {
                     const weekAmount = weekHours * rate;
                     return (
                       <tr key={week.cells[0]?.iso ?? `week-${wi}`}>
-                        <td className="border-r bg-sky-50 px-3 py-3 align-top">
-                          <div className="font-bold">{weekHours} hrs</div>
-                          <div className="mt-1 text-xs font-semibold text-emerald-700">
+                        <td className="border-r bg-muted/50 px-3 py-3 align-top">
+                          <div className="font-bold text-foreground">
+                            {weekHours} hrs
+                          </div>
+                          <div className="mt-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
                             {formatCAD(weekAmount)}
                           </div>
                         </td>
@@ -518,7 +520,7 @@ export function Timesheets() {
                           const cellBg = !cell.inMonth
                             ? "bg-muted/40 text-muted-foreground"
                             : cell.isWeekend
-                              ? "bg-amber-50"
+                              ? "bg-muted/30"
                               : "";
                           return (
                             <td
@@ -527,7 +529,7 @@ export function Timesheets() {
                             >
                               <div className="flex flex-col gap-1 px-2 py-2">
                                 <div
-                                  className={`text-right text-xs ${isToday ? "font-bold text-sky-600" : ""}`}
+                                  className={`text-right text-xs ${isToday ? "font-bold text-primary" : "text-muted-foreground"}`}
                                 >
                                   {cell.dayOfMonth === 1 || !cell.inMonth
                                     ? cell.date.toLocaleDateString("en-CA", {
@@ -546,12 +548,12 @@ export function Timesheets() {
                                   onBlur={handleCellBlur}
                                   disabled={!cell.inMonth || !clientId}
                                   className={
-                                    "h-9 w-full rounded-md border bg-background px-2 py-1 text-right text-sm " +
+                                    "h-9 w-full rounded-md border border-input bg-background px-2 py-1 text-right text-sm text-foreground " +
                                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring " +
-                                    (isToday ? "ring-2 ring-sky-400 " : "") +
+                                    (isToday ? "ring-2 ring-ring " : "") +
                                     (cell.inMonth
                                       ? ""
-                                      : "cursor-not-allowed bg-muted/30 ")
+                                      : "cursor-not-allowed bg-muted/30 text-muted-foreground ")
                                   }
                                 />
                               </div>
@@ -579,7 +581,7 @@ export function Timesheets() {
                   Total Hours: {monthTotalHours}
                 </span>{" "}
                 |{" "}
-                <span className="font-semibold text-emerald-700">
+                <span className="font-semibold text-emerald-600 dark:text-emerald-400">
                   Total Amount: {formatCAD(monthTotalAmount)}
                 </span>
               </p>

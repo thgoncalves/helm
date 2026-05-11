@@ -1,7 +1,10 @@
 @import "tailwindcss";
 
-/* Wire up the .dark class as the dark variant (Tailwind v4 syntax). */
-@custom-variant dark (&:is(.dark *));
+/* Wire up the .dark class (and our named dark themes) as the dark variant
+ * (Tailwind v4 syntax). This lets `dark:` utilities respond to either the
+ * generic .dark class or our themed dark palettes (Catppuccin Mocha,
+ * Tokyo Night). */
+@custom-variant dark (&:is(.dark *, .theme-catppuccin *, .theme-tokyo-night *));
 
 /*
  * Map shadcn's CSS custom properties to Tailwind v4 design tokens so that
