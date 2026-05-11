@@ -205,6 +205,16 @@ def fake_data_api(monkeypatch: pytest.MonkeyPatch) -> None:
                 {"key": k, "value": v}
                 for k, v in sorted(settings_store.items())
             ]
+        if sql.startswith("SELECT * FROM payments_received") and "WHERE" not in sql:
+            # Dashboard / bulk read of all payments.
+            return list(payments_store.values())
+        if sql.startswith("SELECT id, name FROM clients"):
+            return [
+                {"id": c["id"], "name": c["name"]}
+                for c in clients_store.values()
+            ]
+        if sql.startswith("SELECT invoice_id FROM invoice_tax_links"):
+            return [{"invoice_id": l["invoice_id"]} for l in invoice_tax_links]
         if sql.startswith("SELECT * FROM transfers"):
             rows = list(transfers_store.values())
             if "from_date" in params:
