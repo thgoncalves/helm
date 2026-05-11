@@ -198,6 +198,12 @@ function PaymentFormInner({
               <Link to="/payments" className="font-medium">
                 Payments
               </Link>
+              <Link
+                to="/taxes"
+                className="text-muted-foreground hover:text-foreground"
+              >
+                Taxes
+              </Link>
             </nav>
           </div>
           <SignOutButton />

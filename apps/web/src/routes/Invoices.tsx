@@ -197,6 +197,12 @@ export function Invoices() {
               >
                 Payments
               </Link>
+              <Link
+                to="/taxes"
+                className="text-muted-foreground hover:text-foreground"
+              >
+                Taxes
+              </Link>
             </nav>
           </div>
           <SignOutButton />

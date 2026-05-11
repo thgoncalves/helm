@@ -28,6 +28,9 @@ import { Invoices } from "@/routes/Invoices";
 import { NewInvoice, EditInvoice } from "@/routes/InvoiceForm";
 import { Payments } from "@/routes/Payments";
 import { NewPayment, EditPayment } from "@/routes/PaymentForm";
+import { Taxes } from "@/routes/Taxes";
+import { NewTaxPayment, EditTaxPayment } from "@/routes/TaxPaymentForm";
+import { LinkTaxInvoices } from "@/routes/LinkTaxInvoices";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 
 export function App() {
@@ -57,6 +60,10 @@ export function App() {
           <Route path="/payments" element={<Payments />} />
           <Route path="/payments/new" element={<NewPayment />} />
           <Route path="/payments/:id" element={<EditPayment />} />
+          <Route path="/taxes" element={<Taxes />} />
+          <Route path="/taxes/new" element={<NewTaxPayment />} />
+          <Route path="/taxes/:id" element={<EditTaxPayment />} />
+          <Route path="/taxes/:id/link" element={<LinkTaxInvoices />} />
         </Route>
 
         {/* 404 */}

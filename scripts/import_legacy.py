@@ -45,6 +45,8 @@ CLIENTS_CSV = LEGACY_DIR / "clients.csv"
 INVOICES_CSV = LEGACY_DIR / "invoices.csv"
 INVOICE_LINE_ITEMS_CSV = LEGACY_DIR / "invoice_line_items.csv"
 PAYMENTS_RECEIVED_CSV = LEGACY_DIR / "payments_received.csv"
+TAX_PAYMENTS_CSV = LEGACY_DIR / "tax_payments.csv"
+INVOICE_TAX_LINKS_CSV = LEGACY_DIR / "invoice_tax_links.csv"
 
 
 # ---------------------------------------------------------------------------
@@ -379,6 +381,96 @@ def import_payments_received(
     return inserted, skipped
 
 
+INSERT_TAX_PAYMENT_SQL = """
+INSERT INTO tax_payments (
+    id, tax_id, payment_date, amount, payment_method,
+    payment_reference, fiscal_year, notes,
+    created_at, updated_at
+) VALUES (
+    :id, :tax_id, :payment_date, :amount, :payment_method,
+    :payment_reference, :fiscal_year, :notes,
+    :created_at, :updated_at
+)
+ON CONFLICT (id) DO NOTHING
+""".strip()
+
+
+INSERT_INVOICE_TAX_LINK_SQL = """
+INSERT INTO invoice_tax_links (
+    id, invoice_id, tax_payment_id, tax_id, gst_amount, created_at
+) VALUES (
+    :id, :invoice_id, :tax_payment_id, :tax_id, :gst_amount, :created_at
+)
+ON CONFLICT (id) DO NOTHING
+""".strip()
+
+
+def import_tax_payments(
+    client: Any, *, resource_arn: str, secret_arn: str, database: str
+) -> tuple[int, int]:
+    """Import tax_payments.csv. Returns (inserted, skipped) counts."""
+    inserted = 0
+    skipped = 0
+    with TAX_PAYMENTS_CSV.open(newline="") as f:
+        reader = csv.DictReader(f)
+        for raw in reader:
+            row = {
+                "id": UUID(raw["payment_id"]),
+                "tax_id": UUID(raw["tax_id"]) if raw["tax_id"] else None,
+                "payment_date": parse_optional_date(raw["payment_date"]),
+                "amount": Decimal(raw["amount"]),
+                "payment_method": parse_optional_str(raw["payment_method"]),
+                "payment_reference": parse_optional_str(raw["payment_reference"]),
+                "fiscal_year": parse_optional_str(raw["fiscal_year"]),
+                "notes": parse_optional_str(raw["notes"]),
+                "created_at": parse_iso_utc(raw["created_at"]),
+                "updated_at": parse_iso_utc(raw["updated_at"]),
+            }
+            response = client.execute_statement(
+                resourceArn=resource_arn,
+                secretArn=secret_arn,
+                database=database,
+                sql=INSERT_TAX_PAYMENT_SQL,
+                parameters=[to_param(k, v) for k, v in row.items()],
+            )
+            if response.get("numberOfRecordsUpdated", 0) > 0:
+                inserted += 1
+            else:
+                skipped += 1
+    return inserted, skipped
+
+
+def import_invoice_tax_links(
+    client: Any, *, resource_arn: str, secret_arn: str, database: str
+) -> tuple[int, int]:
+    """Import invoice_tax_links.csv. Returns (inserted, skipped) counts."""
+    inserted = 0
+    skipped = 0
+    with INVOICE_TAX_LINKS_CSV.open(newline="") as f:
+        reader = csv.DictReader(f)
+        for raw in reader:
+            row = {
+                "id": UUID(raw["link_id"]),
+                "invoice_id": UUID(raw["invoice_id"]),
+                "tax_payment_id": UUID(raw["tax_payment_id"]),
+                "tax_id": UUID(raw["tax_id"]) if raw["tax_id"] else None,
+                "gst_amount": Decimal(raw["gst_amount"]),
+                "created_at": parse_iso_utc(raw["created_at"]),
+            }
+            response = client.execute_statement(
+                resourceArn=resource_arn,
+                secretArn=secret_arn,
+                database=database,
+                sql=INSERT_INVOICE_TAX_LINK_SQL,
+                parameters=[to_param(k, v) for k, v in row.items()],
+            )
+            if response.get("numberOfRecordsUpdated", 0) > 0:
+                inserted += 1
+            else:
+                skipped += 1
+    return inserted, skipped
+
+
 def import_invoice_line_items(
     client: Any, *, resource_arn: str, secret_arn: str, database: str
 ) -> tuple[int, int]:
@@ -454,6 +546,20 @@ def main() -> int:
             rds, resource_arn=resource_arn, secret_arn=secret_arn, database=database
         )
         print(f"✓ payments_received — {inserted} inserted, {skipped} skipped")
+
+    if TAX_PAYMENTS_CSV.exists():
+        print(f"→ importing {TAX_PAYMENTS_CSV.relative_to(REPO_ROOT)}")
+        inserted, skipped = import_tax_payments(
+            rds, resource_arn=resource_arn, secret_arn=secret_arn, database=database
+        )
+        print(f"✓ tax_payments — {inserted} inserted, {skipped} skipped")
+
+    if INVOICE_TAX_LINKS_CSV.exists():
+        print(f"→ importing {INVOICE_TAX_LINKS_CSV.relative_to(REPO_ROOT)}")
+        inserted, skipped = import_invoice_tax_links(
+            rds, resource_arn=resource_arn, secret_arn=secret_arn, database=database
+        )
+        print(f"✓ invoice_tax_links — {inserted} inserted, {skipped} skipped")
 
     return 0
 

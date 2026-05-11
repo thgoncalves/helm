@@ -27,6 +27,10 @@ export const invoiceTaxLinks = pgTable(
   },
   (t) => [
     uniqueIndex('invoice_tax_links_unique').on(t.invoiceId, t.taxPaymentId),
+    // V1 business rule: GST for an invoice is paid in full as part of a
+    // single tax_payment. Enforces "Invoices with Unpaid GST" = invoices
+    // whose tax_amount > 0 and have no row in this table.
+    uniqueIndex('invoice_tax_links_invoice_unique').on(t.invoiceId),
     index('invoice_tax_links_tax_payment_idx').on(t.taxPaymentId),
   ],
 );
