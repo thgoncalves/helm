@@ -1,39 +1,43 @@
 import { type SVGProps } from "react";
 
 /**
- * Ship's helm — the brand mark.
+ * Ship's helm — the Helm brand mark.
  *
- * Color comes from `currentColor`; size from className/style. 8-spoke
- * traditional wheel with handle knobs at the spoke ends.
+ * SVG, single-color via `currentColor`, designed to read cleanly at any
+ * size from 16px to 64px. Pass ``className`` to set size and colour
+ * (e.g. ``text-foreground``, ``text-primary``) — the icon inherits the
+ * current text colour, so it adapts to every theme automatically.
+ *
+ * Construction (24×24 viewBox):
+ * - Outer rim — stroke circle.
+ * - 8-arm spoke pattern — 4 lines through the centre, each extending
+ *   ~2 units past the rim. The protrusions double as handle pegs, which
+ *   keeps the silhouette readable when separate handle dots would just
+ *   look like noise at small sizes.
+ * - Solid hub at the centre.
  */
 export function HelmIcon(props: SVGProps<SVGSVGElement>) {
   return (
-    <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" {...props}>
-      <g stroke="currentColor" strokeWidth="5" strokeLinecap="round">
-        <line x1="100" y1="10" x2="100" y2="190" />
-        <line x1="10" y1="100" x2="190" y2="100" />
-        <line x1="36" y1="36" x2="164" y2="164" />
-        <line x1="36" y1="164" x2="164" y2="36" />
-      </g>
-      <circle
-        cx="100"
-        cy="100"
-        r="65"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="8"
-      />
-      <circle cx="100" cy="100" r="14" fill="currentColor" />
-      <g fill="currentColor">
-        <circle cx="100" cy="10" r="8" />
-        <circle cx="100" cy="190" r="8" />
-        <circle cx="10" cy="100" r="8" />
-        <circle cx="190" cy="100" r="8" />
-        <circle cx="36" cy="36" r="8" />
-        <circle cx="164" cy="164" r="8" />
-        <circle cx="36" cy="164" r="8" />
-        <circle cx="164" cy="36" r="8" />
-      </g>
+    <svg
+      viewBox="0 0 24 24"
+      xmlns="http://www.w3.org/2000/svg"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      {...props}
+    >
+      {/* Outer rim */}
+      <circle cx="12" cy="12" r="8" />
+      {/* Spokes (4 lines through centre = 8 visible arms; protrusions = handles) */}
+      <line x1="12" y1="2" x2="12" y2="22" />
+      <line x1="2" y1="12" x2="22" y2="12" />
+      <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
+      <line x1="19.07" y1="4.93" x2="4.93" y2="19.07" />
+      {/* Hub */}
+      <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
     </svg>
   );
 }
