@@ -31,7 +31,7 @@
  * weekly subtotal so weekly billing makes sense for first/last rows.
  */
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiFetchBlob, ApiError } from "@/lib/api";
 import type {
@@ -50,7 +50,7 @@ import {
 } from "@/lib/timesheet";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { SignOutButton } from "@/components/SignOutButton";
+import { AppHeader } from "@/components/AppHeader";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -327,55 +327,7 @@ export function Timesheets() {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="border-b">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
-          <div className="flex items-center gap-6">
-            <h1 className="text-xl font-semibold">Helm</h1>
-            <nav className="flex gap-4 text-sm">
-              <Link
-                to="/clients"
-                className="text-muted-foreground hover:text-foreground"
-              >
-                Clients
-              </Link>
-              <Link to="/timesheets" className="font-medium">
-                Timesheets
-              </Link>
-              <Link
-                to="/invoices"
-                className="text-muted-foreground hover:text-foreground"
-              >
-                Invoices
-              </Link>
-              <Link
-                to="/payments"
-                className="text-muted-foreground hover:text-foreground"
-              >
-                Payments
-              </Link>
-              <Link
-                to="/taxes"
-                className="text-muted-foreground hover:text-foreground"
-              >
-                Taxes
-              </Link>
-              <Link
-                to="/transfers"
-                className="text-muted-foreground hover:text-foreground"
-              >
-                Transfers
-              </Link>
-              <Link
-                to="/settings"
-                className="text-muted-foreground hover:text-foreground"
-              >
-                Settings
-              </Link>
-            </nav>
-          </div>
-          <SignOutButton />
-        </div>
-      </header>
+      <AppHeader />
 
       <main className="mx-auto max-w-6xl px-4 py-6">
         {/* Page title + actions */}
