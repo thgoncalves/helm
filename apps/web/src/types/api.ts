@@ -238,6 +238,75 @@ export interface InvoiceOption {
   status: string;
 }
 
+// ---------------------------------------------------------------------------
+// Tax payments (GST)
+// ---------------------------------------------------------------------------
+
+export interface TaxPaymentRead {
+  id: string;
+  tax_id: string | null;
+  payment_date: string;
+  amount: number | string;
+  payment_method: string | null;
+  payment_reference: string | null;
+  fiscal_year: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TaxSummary {
+  gst_unpaid: number | string;
+  unpaid_income: number | string;
+  total_gst_paid: number | string;
+}
+
+export interface TaxPaymentListRow {
+  id: string;
+  payment_date: string;
+  amount: number | string;
+  payment_method: string | null;
+  payment_reference: string | null;
+  notes: string | null;
+  invoice_count: number;
+  income: number | string;
+}
+
+export interface LinkableInvoice {
+  invoice_id: string;
+  invoice_number: string;
+  client_id: string;
+  client_name: string;
+  issue_date: string;
+  total: number | string;
+  tax_amount: number | string;
+  is_linked: boolean;
+}
+
+export interface UnpaidInvoice {
+  invoice_id: string;
+  invoice_number: string;
+  client_id: string;
+  client_name: string;
+  issue_date: string;
+  total: number | string;
+  tax_amount: number | string;
+}
+
+export interface TaxPaymentWithLinks {
+  payment: TaxPaymentRead;
+  linked_invoices: LinkableInvoice[];
+}
+
+export interface TaxPaymentCreate {
+  payment_date: string;
+  amount: number | string;
+  payment_method: string | null;
+  payment_reference: string | null;
+  notes: string | null;
+  invoice_ids: string[];
+}
+
 /** Mirrors TimesheetSummary in services/api/app/routers/timesheets.py */
 export interface TimesheetSummary {
   client_id: string;

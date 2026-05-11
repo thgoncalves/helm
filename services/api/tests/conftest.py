@@ -129,6 +129,8 @@ def fake_data_api(monkeypatch: pytest.MonkeyPatch) -> None:
     invoices_store: dict[UUID, dict[str, Any]] = {}
     invoice_line_items: list[dict[str, Any]] = []
     payments_store: dict[UUID, dict[str, Any]] = {}
+    tax_payments_store: dict[UUID, dict[str, Any]] = {}
+    invoice_tax_links: list[dict[str, Any]] = []
     settings_store: dict[str, str] = _seed_settings()
 
     def _between(work_date: date, params: dict[str, Any]) -> bool:
@@ -225,6 +227,133 @@ def fake_data_api(monkeypatch: pytest.MonkeyPatch) -> None:
                 rows,
                 key=lambda r: (r["payment_date"], r["created_at"]),
                 reverse=True,
+            )
+        if "FROM tax_payments p" in sql and "LEFT JOIN invoice_tax_links" in sql:
+            # List GST payments enriched with counts/income.
+            rows: list[dict[str, Any]] = []
+            for p in tax_payments_store.values():
+                linked = [
+                    l for l in invoice_tax_links if l["tax_payment_id"] == p["id"]
+                ]
+                income = Decimal(0)
+                for l in linked:
+                    inv = invoices_store.get(l["invoice_id"])
+                    if inv is not None and isinstance(inv["total"], Decimal):
+                        income += inv["total"]
+                rows.append(
+                    {
+                        "id": p["id"],
+                        "payment_date": p["payment_date"],
+                        "amount": p["amount"],
+                        "payment_method": p["payment_method"],
+                        "payment_reference": p["payment_reference"],
+                        "notes": p["notes"],
+                        "invoice_count": len(linked),
+                        "income": income,
+                    }
+                )
+            return sorted(rows, key=lambda r: r["payment_date"], reverse=True)
+        if "FROM invoice_tax_links l" in sql and "JOIN invoices i" in sql:
+            # Linked invoices for a single tax_payment.
+            out: list[dict[str, Any]] = []
+            for l in invoice_tax_links:
+                if l["tax_payment_id"] != params["payment_id"]:
+                    continue
+                inv = invoices_store.get(l["invoice_id"])
+                if inv is None:
+                    continue
+                cli = clients_store.get(inv["client_id"])
+                if cli is None:
+                    continue
+                out.append(
+                    {
+                        "invoice_id": inv["id"],
+                        "invoice_number": inv["invoice_number"],
+                        "client_id": inv["client_id"],
+                        "issue_date": inv["issue_date"],
+                        "total": inv["total"],
+                        "tax_amount": inv["tax_amount"],
+                        "client_name": cli["name"],
+                    }
+                )
+            return sorted(
+                out, key=lambda r: (r["issue_date"], r["invoice_number"])
+            )
+        if (
+            "FROM invoices i" in sql
+            and "JOIN clients c" in sql
+            and "WHERE i.tax_amount > 0" in sql
+            and "NOT EXISTS" in sql
+        ):
+            # Unpaid invoices feed.
+            out = []
+            linked_ids = {l["invoice_id"] for l in invoice_tax_links}
+            for inv in invoices_store.values():
+                if not isinstance(inv["tax_amount"], Decimal):
+                    continue
+                if inv["tax_amount"] <= 0:
+                    continue
+                if inv["id"] in linked_ids:
+                    continue
+                cli = clients_store.get(inv["client_id"])
+                if cli is None:
+                    continue
+                out.append(
+                    {
+                        "invoice_id": inv["id"],
+                        "invoice_number": inv["invoice_number"],
+                        "client_id": inv["client_id"],
+                        "issue_date": inv["issue_date"],
+                        "total": inv["total"],
+                        "tax_amount": inv["tax_amount"],
+                        "client_name": cli["name"],
+                    }
+                )
+            return sorted(
+                out,
+                key=lambda r: (r["issue_date"], r["invoice_number"]),
+                reverse=True,
+            )
+        if (
+            "FROM invoices i" in sql
+            and "LEFT JOIN invoice_tax_links l" in sql
+        ):
+            # Linkable invoices for the Link/Unlink dialog.
+            payment_id = params["payment_id"]
+            out = []
+            for inv in invoices_store.values():
+                if not isinstance(inv["tax_amount"], Decimal):
+                    continue
+                if inv["tax_amount"] <= 0:
+                    continue
+                link = next(
+                    (
+                        l
+                        for l in invoice_tax_links
+                        if l["invoice_id"] == inv["id"]
+                    ),
+                    None,
+                )
+                linked_payment_id = link["tax_payment_id"] if link else None
+                if linked_payment_id is not None and linked_payment_id != payment_id:
+                    continue
+                cli = clients_store.get(inv["client_id"])
+                if cli is None:
+                    continue
+                out.append(
+                    {
+                        "invoice_id": inv["id"],
+                        "invoice_number": inv["invoice_number"],
+                        "client_id": inv["client_id"],
+                        "issue_date": inv["issue_date"],
+                        "total": inv["total"],
+                        "tax_amount": inv["tax_amount"],
+                        "client_name": cli["name"],
+                        "linked_payment_id": linked_payment_id,
+                    }
+                )
+            return sorted(
+                out, key=lambda r: (r["issue_date"], r["invoice_number"])
             )
         if "FROM invoices i" in sql and "JOIN clients c" in sql and "LEFT JOIN payments_received p" in sql:
             # invoice-options endpoint
@@ -358,6 +487,58 @@ def fake_data_api(monkeypatch: pytest.MonkeyPatch) -> None:
             return {"id": inv["id"]}
         if sql.startswith("SELECT * FROM payments_received WHERE id"):
             return payments_store.get(params["id"])
+        if sql.startswith("SELECT * FROM tax_payments WHERE id"):
+            return tax_payments_store.get(params["id"])
+        if "FROM invoices i" in sql and "WHERE i.tax_amount > 0" in sql and "NOT EXISTS" in sql and "SUM" in sql:
+            # Summary KPIs: gst_unpaid + unpaid_income.
+            linked_ids = {l["invoice_id"] for l in invoice_tax_links}
+            gst_unpaid = Decimal(0)
+            unpaid_income = Decimal(0)
+            for inv in invoices_store.values():
+                if not isinstance(inv["tax_amount"], Decimal):
+                    continue
+                if inv["tax_amount"] <= 0:
+                    continue
+                if inv["id"] in linked_ids:
+                    continue
+                gst_unpaid += inv["tax_amount"]
+                if isinstance(inv["total"], Decimal):
+                    unpaid_income += inv["total"]
+            return {"gst_unpaid": gst_unpaid, "unpaid_income": unpaid_income}
+        if "FROM tax_payments" in sql and "SUM(amount)" in sql:
+            total = sum(
+                (
+                    p["amount"]
+                    for p in tax_payments_store.values()
+                    if isinstance(p["amount"], Decimal)
+                ),
+                Decimal(0),
+            )
+            return {"total_gst_paid": total}
+        if sql.startswith("SELECT tax_amount FROM invoices"):
+            inv = invoices_store.get(params["id"])
+            if inv is None:
+                return None
+            return {"tax_amount": inv["tax_amount"]}
+        if sql.startswith("INSERT INTO tax_payments"):
+            row = {**params}
+            if isinstance(row.get("amount"), Decimal):
+                row["amount"] = row["amount"].quantize(Decimal("0.01"))
+            row.setdefault("tax_id", None)
+            row.setdefault("fiscal_year", None)
+            tax_payments_store[row["id"]] = row
+            return row
+        if sql.startswith("UPDATE tax_payments"):
+            existing = tax_payments_store.get(params["id"])
+            if existing is None:
+                return None
+            for k, v in params.items():
+                if k == "id":
+                    continue
+                existing[k] = v
+            if isinstance(existing.get("amount"), Decimal):
+                existing["amount"] = existing["amount"].quantize(Decimal("0.01"))
+            return existing
         if sql.startswith("INSERT INTO payments_received"):
             row = {**params}
             # Real PG numeric(15,2) quantises to 2dp; mimic so JSON is stable.
@@ -449,6 +630,35 @@ def fake_data_api(monkeypatch: pytest.MonkeyPatch) -> None:
             return {}
         if sql.startswith("DELETE FROM payments_received"):
             payments_store.pop(params["id"], None)
+            return {}
+        if sql.startswith("DELETE FROM invoice_tax_links"):
+            invoice_tax_links[:] = [
+                l
+                for l in invoice_tax_links
+                if l["tax_payment_id"] != params["payment_id"]
+            ]
+            return {}
+        if sql.startswith("INSERT INTO invoice_tax_links"):
+            # Enforce the unique-on-invoice_id constraint.
+            if any(
+                l["invoice_id"] == params["invoice_id"] for l in invoice_tax_links
+            ):
+                raise RuntimeError(
+                    f"duplicate key on invoice_tax_links_invoice_unique: "
+                    f"{params['invoice_id']}"
+                )
+            invoice_tax_links.append(
+                {
+                    "id": params["id"],
+                    "invoice_id": params["invoice_id"],
+                    "tax_payment_id": params["payment_id"],
+                    "gst_amount": params["gst_amount"],
+                    "created_at": params["now"],
+                }
+            )
+            return {}
+        if sql.startswith("DELETE FROM tax_payments"):
+            tax_payments_store.pop(params["id"], None)
             return {}
         if sql.startswith("DELETE FROM invoice_line_items"):
             nonlocal_id = params["invoice_id"]
