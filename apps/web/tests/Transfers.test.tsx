@@ -4,7 +4,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const apiFetchMock = vi.fn();
@@ -89,8 +89,14 @@ function renderPage() {
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
-        <Transfers />
+      <MemoryRouter initialEntries={["/transfers"]}>
+        <Routes>
+          <Route path="/transfers" element={<Transfers />} />
+          <Route
+            path="/transfers/:id"
+            element={<div data-testid="edit-page" />}
+          />
+        </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -135,17 +141,9 @@ describe("Transfers landing page", () => {
     expect(row!).toHaveTextContent("$4,225.00");
   });
 
-  it("Edit/Delete footer buttons need a selected row", async () => {
+  it("clicking a transfer row navigates to its edit page", async () => {
     renderPage();
-    const cell = await screen.findByText("$13,000.00");
-    const editBtn = screen.getByRole("button", { name: /^Edit$/ });
-    const deleteBtn = screen.getByRole("button", { name: /^Delete$/ });
-    expect(editBtn).toBeDisabled();
-    expect(deleteBtn).toBeDisabled();
-    await userEvent.click(cell);
-    await waitFor(() => {
-      expect(editBtn).not.toBeDisabled();
-      expect(deleteBtn).not.toBeDisabled();
-    });
+    await userEvent.click(await screen.findByText("$13,000.00"));
+    expect(await screen.findByTestId("edit-page")).toBeInTheDocument();
   });
 });

@@ -9,12 +9,12 @@
  *     Tax Estimates  — Est. Company Tax · Est. Personal Tax · Tax Exposure
  *   Search input.
  *   Table: Date · Amount · Category · Method · Est. Company Tax · Est. Personal Tax.
- *   Footer: Edit · Delete (require row selection).
+ *   Click a row → navigate to /transfers/:id (Delete lives on the edit form).
  */
 import { useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
-import { apiFetch, ApiError } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 import type {
   TransferRead,
   TransferSummary,
@@ -52,7 +52,6 @@ function formatDate(iso: string): string {
 
 export function Transfers() {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const today = useMemo(() => new Date(), []);
   const currentFy = useMemo(() => fiscalYearForDate(today), [today]);
   // Show "All" + 7 most recent fiscal years.
@@ -65,7 +64,6 @@ export function Transfers() {
   // "all" or a fiscal-year start year.
   const [fy, setFy] = useState<string>(String(currentFy));
   const [search, setSearch] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const range = useMemo(() => {
     if (fy === "all") return { from: null, to: null };
@@ -104,16 +102,6 @@ export function Transfers() {
       ),
   });
 
-  const deleteMutation = useMutation<void, ApiError, string>({
-    mutationFn: (id) =>
-      apiFetch(`/business/transfers/${id}`, { method: "DELETE" }),
-    onSuccess: () => {
-      setSelectedId(null);
-      void queryClient.invalidateQueries({ queryKey: ["transfers"] });
-      void queryClient.invalidateQueries({ queryKey: ["transfers-summary"] });
-    },
-  });
-
   const filtered = useMemo(() => {
     let rows = transfers ?? [];
     if (search.trim()) {
@@ -129,11 +117,6 @@ export function Transfers() {
     return rows;
   }, [transfers, search]);
 
-  function handleDelete() {
-    if (!selectedId) return;
-    if (!window.confirm("Delete this transfer?")) return;
-    deleteMutation.mutate(selectedId);
-  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -312,20 +295,11 @@ export function Transfers() {
                   </thead>
                   <tbody>
                     {filtered.map((t) => {
-                      const isSelected = t.id === selectedId;
                       return (
                         <tr
                           key={t.id}
-                          className={
-                            "cursor-pointer border-b last:border-0 " +
-                            (isSelected
-                              ? "bg-sky-50"
-                              : "hover:bg-accent/40")
-                          }
-                          onClick={() => setSelectedId(t.id)}
-                          onDoubleClick={() =>
-                            navigate(`/transfers/${t.id}`)
-                          }
+                          className="cursor-pointer border-b last:border-0 hover:bg-accent/40"
+                          onClick={() => navigate(`/transfers/${t.id}`)}
                         >
                           <td className="px-4 py-2 whitespace-nowrap">
                             {formatDate(t.transfer_date)}
@@ -351,24 +325,6 @@ export function Transfers() {
           </CardContent>
         </Card>
 
-        <div className="mt-3 flex justify-end gap-2">
-          <Button
-            variant="outline"
-            onClick={() =>
-              selectedId && navigate(`/transfers/${selectedId}`)
-            }
-            disabled={!selectedId}
-          >
-            Edit
-          </Button>
-          <Button
-            variant="destructive"
-            onClick={handleDelete}
-            disabled={!selectedId || deleteMutation.isPending}
-          >
-            {deleteMutation.isPending ? "Deleting…" : "Delete"}
-          </Button>
-        </div>
       </main>
     </div>
   );

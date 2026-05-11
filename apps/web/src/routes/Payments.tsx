@@ -6,13 +6,13 @@
  *   - From/To pickers + Apply button.
  *   - Search across invoice #, client, reference, notes.
  *   - Table: Date, Invoice #, Client, Gross, Deduction, Net, Method, Reference.
- *   - Click a row to select; Edit + Delete buttons in the footer act on it.
+ *   - Click a row → navigate to /payments/:id (Delete lives on the edit form).
  *   - "Record Payment" button → /payments/new.
  */
 import { useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
-import { apiFetch, ApiError } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 import type { PaymentListRow } from "@/types/api";
 import {
   fiscalYearEnd,
@@ -68,7 +68,6 @@ function formatDate(iso: string | null): string {
 
 export function Payments() {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const today = useMemo(() => new Date(), []);
   const initial = presetRange("this", today);
 
@@ -78,7 +77,6 @@ export function Payments() {
   const [appliedFrom, setAppliedFrom] = useState(initial.from ?? "");
   const [appliedTo, setAppliedTo] = useState(initial.to ?? "");
   const [search, setSearch] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const apiQueryString = useMemo(() => {
     const qs = new URLSearchParams();
@@ -93,16 +91,6 @@ export function Payments() {
       apiFetch<PaymentListRow[]>(
         `/business/payments/${apiQueryString ? `?${apiQueryString}` : ""}`,
       ),
-  });
-
-  const deleteMutation = useMutation<void, ApiError, string>({
-    mutationFn: async (id) =>
-      apiFetch(`/business/payments/${id}`, { method: "DELETE" }),
-    onSuccess: () => {
-      setSelectedId(null);
-      void queryClient.invalidateQueries({ queryKey: ["payments"] });
-      void queryClient.invalidateQueries({ queryKey: ["invoices"] });
-    },
   });
 
   function applyPreset(next: FyPreset) {
@@ -134,22 +122,6 @@ export function Payments() {
     }
     return rows;
   }, [data, search]);
-
-  function handleDelete() {
-    if (!selectedId) return;
-    const row = (data ?? []).find((p) => p.id === selectedId);
-    const label = row
-      ? `${formatDate(row.payment_date)} · ${row.invoice_number} · ${formatCAD(num(row.amount))}`
-      : "this payment";
-    if (
-      !window.confirm(
-        `Delete ${label}?\nThe invoice's status will revert to "sent" if this was the payment that closed it.`,
-      )
-    ) {
-      return;
-    }
-    deleteMutation.mutate(selectedId);
-  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -306,19 +278,12 @@ export function Payments() {
                   </thead>
                   <tbody>
                     {filtered.map((p) => {
-                      const isSelected = p.id === selectedId;
                       const deduction = num(p.deduction_amount);
                       return (
                         <tr
                           key={p.id}
-                          className={
-                            "cursor-pointer border-b last:border-0 " +
-                            (isSelected
-                              ? "bg-sky-50"
-                              : "hover:bg-accent/40")
-                          }
-                          onClick={() => setSelectedId(p.id)}
-                          onDoubleClick={() => navigate(`/payments/${p.id}`)}
+                          className="cursor-pointer border-b last:border-0 hover:bg-accent/40"
+                          onClick={() => navigate(`/payments/${p.id}`)}
                         >
                           <td className="px-4 py-2 whitespace-nowrap">
                             {formatDate(p.payment_date)}
@@ -354,25 +319,6 @@ export function Payments() {
           </CardContent>
         </Card>
 
-        {/* Action footer */}
-        <div className="mt-3 flex justify-end gap-2">
-          <Button
-            variant="outline"
-            onClick={() =>
-              selectedId && navigate(`/payments/${selectedId}`)
-            }
-            disabled={!selectedId}
-          >
-            Edit
-          </Button>
-          <Button
-            variant="destructive"
-            onClick={handleDelete}
-            disabled={!selectedId || deleteMutation.isPending}
-          >
-            {deleteMutation.isPending ? "Deleting…" : "Delete"}
-          </Button>
-        </div>
       </main>
     </div>
   );

@@ -177,9 +177,26 @@ function TransferFormInner({ mode, transferId, initialState }: InnerProps) {
     },
   });
 
+  const deleteMutation = useMutation<void, ApiError, void>({
+    mutationFn: () =>
+      apiFetch(`/business/transfers/${transferId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["transfers"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["transfers-summary"],
+      });
+      navigate("/transfers");
+    },
+  });
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     saveMutation.mutate();
+  }
+
+  function handleDelete() {
+    if (!window.confirm("Delete this transfer?")) return;
+    deleteMutation.mutate();
   }
 
   return (
@@ -422,21 +439,35 @@ function TransferFormInner({ mode, transferId, initialState }: InnerProps) {
             </p>
           )}
 
-          <div className="flex justify-end gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => navigate("/transfers")}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              className="bg-blue-600 hover:bg-blue-700 text-white"
-              disabled={saveMutation.isPending}
-            >
-              {saveMutation.isPending ? "Saving…" : "Save"}
-            </Button>
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              {mode === "edit" && (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={handleDelete}
+                  disabled={deleteMutation.isPending}
+                >
+                  {deleteMutation.isPending ? "Deleting…" : "Delete"}
+                </Button>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => navigate("/transfers")}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+                disabled={saveMutation.isPending}
+              >
+                {saveMutation.isPending ? "Saving…" : "Save"}
+              </Button>
+            </div>
           </div>
         </form>
       </main>

@@ -4,7 +4,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const apiFetchMock = vi.fn();
@@ -65,8 +65,14 @@ function renderPage() {
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
-        <Payments />
+      <MemoryRouter initialEntries={["/payments"]}>
+        <Routes>
+          <Route path="/payments" element={<Payments />} />
+          <Route
+            path="/payments/:id"
+            element={<div data-testid="edit-page" />}
+          />
+        </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -136,20 +142,11 @@ describe("Payments landing page", () => {
     expect(screen.getByText("INV-2026-0025")).toBeInTheDocument();
   });
 
-  it("Edit/Delete buttons are disabled until a row is selected", async () => {
-    setupApi([makePayment({ id: "1" })]);
+  it("clicking a row navigates to the payment's edit page", async () => {
+    setupApi([makePayment({ id: "abc-123" })]);
     renderPage();
-    await screen.findByText("INV-2026-0010");
-    const editBtn = screen.getByRole("button", { name: /^Edit$/ });
-    const deleteBtn = screen.getByRole("button", { name: /^Delete$/ });
-    expect(editBtn).toBeDisabled();
-    expect(deleteBtn).toBeDisabled();
-
-    await userEvent.click(screen.getByText("INV-2026-0010"));
-    await waitFor(() => {
-      expect(editBtn).not.toBeDisabled();
-      expect(deleteBtn).not.toBeDisabled();
-    });
+    await userEvent.click(await screen.findByText("INV-2026-0010"));
+    expect(await screen.findByTestId("edit-page")).toBeInTheDocument();
   });
 
   it("defaults filter to the current fiscal year", async () => {

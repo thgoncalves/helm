@@ -165,9 +165,31 @@ function PaymentFormInner({
     },
   });
 
+  const deleteMutation = useMutation<void, ApiError, void>({
+    mutationFn: () =>
+      apiFetch(`/business/payments/${paymentId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["payments"] });
+      void queryClient.invalidateQueries({ queryKey: ["invoices"] });
+      void queryClient.invalidateQueries({ queryKey: ["invoice-options"] });
+      navigate("/payments");
+    },
+  });
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     saveMutation.mutate();
+  }
+
+  function handleDelete() {
+    if (
+      !window.confirm(
+        "Delete this payment? The invoice's status will revert to \"sent\" if this was the payment that closed it.",
+      )
+    ) {
+      return;
+    }
+    deleteMutation.mutate();
   }
 
   return (
@@ -392,21 +414,35 @@ function PaymentFormInner({
             </p>
           )}
 
-          <div className="flex justify-end gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => navigate("/payments")}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              className="bg-blue-600 hover:bg-blue-700 text-white"
-              disabled={saveMutation.isPending || !state.invoice_id}
-            >
-              {saveMutation.isPending ? "Saving…" : "Save"}
-            </Button>
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              {mode === "edit" && (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={handleDelete}
+                  disabled={deleteMutation.isPending}
+                >
+                  {deleteMutation.isPending ? "Deleting…" : "Delete"}
+                </Button>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => navigate("/payments")}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+                disabled={saveMutation.isPending || !state.invoice_id}
+              >
+                {saveMutation.isPending ? "Saving…" : "Save"}
+              </Button>
+            </div>
           </div>
         </form>
       </main>
