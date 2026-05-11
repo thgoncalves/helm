@@ -205,17 +205,19 @@ export function LinkTaxInvoices() {
                             className="h-4 w-4"
                           />
                         </td>
-                        <td className="px-2 py-2 font-medium">
+                        <td className="whitespace-nowrap px-2 py-2 font-medium">
                           {row.invoice_number}
                         </td>
-                        <td className="px-2 py-2">{row.client_name}</td>
-                        <td className="px-2 py-2 text-muted-foreground">
+                        <td className="whitespace-nowrap px-2 py-2">
+                          {row.client_name}
+                        </td>
+                        <td className="whitespace-nowrap px-2 py-2 text-muted-foreground">
                           {formatDate(row.issue_date)}
                         </td>
-                        <td className="px-2 py-2 text-right">
+                        <td className="whitespace-nowrap px-2 py-2 text-right">
                           {formatCAD(num(row.total))}
                         </td>
-                        <td className="px-2 py-2 text-right font-semibold">
+                        <td className="whitespace-nowrap px-2 py-2 text-right font-semibold">
                           {formatCAD(num(row.tax_amount))}
                         </td>
                       </tr>
@@ -256,7 +258,6 @@ export function LinkTaxInvoices() {
             Cancel
           </Button>
           <Button
-            className="bg-blue-600 hover:bg-blue-700 text-white"
             onClick={() => saveMutation.mutate()}
             disabled={saveMutation.isPending}
           >

@@ -389,7 +389,6 @@ function PaymentFormInner({
               </Button>
               <Button
                 type="submit"
-                className="bg-blue-600 hover:bg-blue-700 text-white"
                 disabled={saveMutation.isPending || !state.invoice_id}
               >
                 {saveMutation.isPending ? "Saving…" : "Save"}

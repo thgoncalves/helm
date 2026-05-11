@@ -417,7 +417,6 @@ export function Settings() {
             <div className="flex justify-end">
               <Button
                 type="submit"
-                className="bg-emerald-600 hover:bg-emerald-700 text-white"
                 disabled={!hasChanges || saveMutation.isPending}
               >
                 {saveMutation.isPending ? "Saving…" : "Save Settings"}

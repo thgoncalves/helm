@@ -272,7 +272,7 @@ function TaxPaymentFormInner({
                   </p>
                 ) : (
                   <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
+                    <table className="w-full min-w-[640px] text-sm">
                       <thead>
                         <tr className="border-b bg-muted/40 text-left">
                           <th className="px-2 py-2 w-10 font-semibold">#</th>
@@ -296,20 +296,22 @@ function TaxPaymentFormInner({
                               navigate(`/invoices/${l.invoice_id}`)
                             }
                           >
-                            <td className="px-2 py-2 text-muted-foreground">
+                            <td className="whitespace-nowrap px-2 py-2 text-muted-foreground">
                               {idx + 1}
                             </td>
-                            <td className="px-2 py-2 font-medium">
+                            <td className="whitespace-nowrap px-2 py-2 font-medium">
                               {l.invoice_number}
                             </td>
-                            <td className="px-2 py-2">{l.client_name}</td>
-                            <td className="px-2 py-2 text-muted-foreground">
+                            <td className="whitespace-nowrap px-2 py-2">
+                              {l.client_name}
+                            </td>
+                            <td className="whitespace-nowrap px-2 py-2 text-muted-foreground">
                               {l.issue_date}
                             </td>
-                            <td className="px-2 py-2 text-right">
+                            <td className="whitespace-nowrap px-2 py-2 text-right">
                               {formatCAD(num(l.total))}
                             </td>
-                            <td className="px-2 py-2 text-right font-semibold">
+                            <td className="whitespace-nowrap px-2 py-2 text-right font-semibold">
                               {formatCAD(num(l.tax_amount))}
                             </td>
                           </tr>
@@ -373,11 +375,7 @@ function TaxPaymentFormInner({
               >
                 Cancel
               </Button>
-              <Button
-                type="submit"
-                className="bg-blue-600 hover:bg-blue-700 text-white"
-                disabled={saveMutation.isPending}
-              >
+              <Button type="submit" disabled={saveMutation.isPending}>
                 {saveMutation.isPending ? "Saving…" : "Save"}
               </Button>
             </div>

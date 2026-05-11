@@ -250,3 +250,6 @@ amplifyconfiguration.json
 cdk.out/
 .cdk.staging/
 
+
+# Playwright mobile-audit screenshot output
+apps/web/screenshots/

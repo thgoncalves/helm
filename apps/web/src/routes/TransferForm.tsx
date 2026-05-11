@@ -412,11 +412,7 @@ function TransferFormInner({ mode, transferId, initialState }: InnerProps) {
               >
                 Cancel
               </Button>
-              <Button
-                type="submit"
-                className="bg-blue-600 hover:bg-blue-700 text-white"
-                disabled={saveMutation.isPending}
-              >
+              <Button type="submit" disabled={saveMutation.isPending}>
                 {saveMutation.isPending ? "Saving…" : "Save"}
               </Button>
             </div>

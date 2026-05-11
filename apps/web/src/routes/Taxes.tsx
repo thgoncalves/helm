@@ -105,10 +105,7 @@ export function Taxes() {
       <main className="mx-auto max-w-6xl px-4 py-6">
         <div className="mb-6 flex items-center justify-between">
           <h2 className="text-2xl font-bold">GST Payments</h2>
-          <Button
-            className="bg-blue-600 hover:bg-blue-700 text-white"
-            onClick={() => navigate("/taxes/new")}
-          >
+          <Button onClick={() => navigate("/taxes/new")}>
             Record GST Payment
           </Button>
         </div>
@@ -192,22 +189,22 @@ export function Taxes() {
                           className="cursor-pointer border-b last:border-0 hover:bg-accent/40"
                           onClick={() => navigate(`/taxes/${p.id}`)}
                         >
-                          <td className="px-4 py-2 whitespace-nowrap">
+                          <td className="whitespace-nowrap px-4 py-2">
                             {formatDate(p.payment_date)}
                           </td>
-                          <td className="px-4 py-2 text-right">
+                          <td className="whitespace-nowrap px-4 py-2 text-right">
                             {p.invoice_count}
                           </td>
-                          <td className="px-4 py-2 text-right">
+                          <td className="whitespace-nowrap px-4 py-2 text-right">
                             {formatCAD(num(p.income))}
                           </td>
-                          <td className="px-4 py-2 text-right font-semibold">
+                          <td className="whitespace-nowrap px-4 py-2 text-right font-semibold">
                             {formatCAD(num(p.amount))}
                           </td>
-                          <td className="px-4 py-2">
+                          <td className="whitespace-nowrap px-4 py-2">
                             {p.payment_method ?? "—"}
                           </td>
-                          <td className="px-4 py-2 text-muted-foreground">
+                          <td className="whitespace-nowrap px-4 py-2 text-muted-foreground">
                             {p.payment_reference ?? "—"}
                           </td>
                         </tr>
@@ -268,17 +265,19 @@ export function Taxes() {
                         className="border-b last:border-0 hover:bg-accent/40 cursor-pointer"
                         onClick={() => navigate(`/invoices/${inv.invoice_id}`)}
                       >
-                        <td className="px-4 py-2 font-medium">
+                        <td className="whitespace-nowrap px-4 py-2 font-medium">
                           {inv.invoice_number}
                         </td>
-                        <td className="px-4 py-2">{inv.client_name}</td>
-                        <td className="px-4 py-2 text-muted-foreground">
+                        <td className="whitespace-nowrap px-4 py-2">
+                          {inv.client_name}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-2 text-muted-foreground">
                           {formatDate(inv.issue_date)}
                         </td>
-                        <td className="px-4 py-2 text-right">
+                        <td className="whitespace-nowrap px-4 py-2 text-right">
                           {formatCAD(num(inv.total))}
                         </td>
-                        <td className="px-4 py-2 text-right font-semibold">
+                        <td className="whitespace-nowrap px-4 py-2 text-right font-semibold">
                           {formatCAD(num(inv.tax_amount))}
                         </td>
                       </tr>

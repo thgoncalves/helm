@@ -177,10 +177,7 @@ export function Invoices() {
         {/* Title + New */}
         <div className="mb-6 flex items-center justify-between">
           <h2 className="text-2xl font-bold">Invoices</h2>
-          <Button
-            className="bg-blue-600 hover:bg-blue-700 text-white"
-            onClick={() => navigate("/invoices/new")}
-          >
+          <Button onClick={() => navigate("/invoices/new")}>
             New Invoice
           </Button>
         </div>
@@ -344,22 +341,22 @@ export function Invoices() {
                           className="cursor-pointer border-b last:border-0 hover:bg-accent/40"
                           onClick={() => navigate(`/invoices/${inv.id}`)}
                         >
-                          <td className="px-4 py-2 font-medium">
+                          <td className="whitespace-nowrap px-4 py-2 font-medium">
                             {inv.invoice_number}
                           </td>
-                          <td className="px-4 py-2 text-muted-foreground">
+                          <td className="whitespace-nowrap px-4 py-2 text-muted-foreground">
                             {formatDate(inv.issue_date)}
                           </td>
-                          <td className="px-4 py-2 text-muted-foreground">
+                          <td className="whitespace-nowrap px-4 py-2 text-muted-foreground">
                             {formatDate(inv.due_date)}
                           </td>
-                          <td className="px-4 py-2">
+                          <td className="whitespace-nowrap px-4 py-2">
                             {clientNameById.get(inv.client_id) ?? "—"}
                           </td>
                           <td className="px-4 py-2">
                             <StatusBadge status={ds} />
                           </td>
-                          <td className="px-4 py-2 text-right font-semibold">
+                          <td className="whitespace-nowrap px-4 py-2 text-right font-semibold">
                             {formatCAD(num(inv.total))}
                           </td>
                         </tr>
@@ -403,11 +400,15 @@ function StatusBadge({
   status: "draft" | "sent" | "overdue" | "paid" | "other";
 }) {
   const styles: Record<typeof status, string> = {
-    draft: "bg-sky-100 text-sky-800",
-    sent: "bg-amber-100 text-amber-800",
-    overdue: "bg-red-100 text-red-800",
-    paid: "bg-emerald-100 text-emerald-800",
-    other: "bg-gray-100 text-gray-700",
+    draft:
+      "bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300",
+    sent:
+      "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
+    overdue:
+      "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300",
+    paid:
+      "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300",
+    other: "bg-muted text-muted-foreground",
   };
   const labels: Record<typeof status, string> = {
     draft: "Draft",

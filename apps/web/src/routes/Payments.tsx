@@ -130,10 +130,7 @@ export function Payments() {
       <main className="mx-auto max-w-6xl px-4 py-6">
         <div className="mb-6 flex items-center justify-between">
           <h2 className="text-2xl font-bold">Payments</h2>
-          <Button
-            className="bg-blue-600 hover:bg-blue-700 text-white"
-            onClick={() => navigate("/payments/new")}
-          >
+          <Button onClick={() => navigate("/payments/new")}>
             Record Payment
           </Button>
         </div>
@@ -237,28 +234,28 @@ export function Payments() {
                           className="cursor-pointer border-b last:border-0 hover:bg-accent/40"
                           onClick={() => navigate(`/payments/${p.id}`)}
                         >
-                          <td className="px-4 py-2 whitespace-nowrap">
+                          <td className="whitespace-nowrap px-4 py-2">
                             {formatDate(p.payment_date)}
                           </td>
-                          <td className="px-4 py-2 font-medium">
+                          <td className="whitespace-nowrap px-4 py-2 font-medium">
                             {p.invoice_number}
                           </td>
-                          <td className="px-4 py-2">{p.client_name}</td>
-                          <td className="px-4 py-2 text-right">
+                          <td className="whitespace-nowrap px-4 py-2">
+                            {p.client_name}
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-2 text-right">
                             {formatCAD(num(p.amount))}
                           </td>
-                          <td className="px-4 py-2 text-right">
-                            {deduction > 0
-                              ? formatCAD(deduction)
-                              : "—"}
+                          <td className="whitespace-nowrap px-4 py-2 text-right">
+                            {deduction > 0 ? formatCAD(deduction) : "—"}
                           </td>
-                          <td className="px-4 py-2 text-right font-semibold">
+                          <td className="whitespace-nowrap px-4 py-2 text-right font-semibold">
                             {formatCAD(num(p.net))}
                           </td>
-                          <td className="px-4 py-2">
+                          <td className="whitespace-nowrap px-4 py-2">
                             {p.payment_method ?? "—"}
                           </td>
-                          <td className="px-4 py-2 text-muted-foreground">
+                          <td className="whitespace-nowrap px-4 py-2 text-muted-foreground">
                             {p.reference ?? "—"}
                           </td>
                         </tr>

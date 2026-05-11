@@ -334,17 +334,10 @@ export function Timesheets() {
         <div className="mb-6 flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
           <h2 className="text-2xl font-bold">Timesheets</h2>
           <div className="flex flex-wrap gap-2">
-            <Button
-              variant="default"
-              className="bg-blue-600 hover:bg-blue-700 text-white"
-              onClick={handleExportPdf}
-              disabled={!clientId}
-            >
+            <Button onClick={handleExportPdf} disabled={!clientId}>
               Export PDF
             </Button>
             <Button
-              variant="default"
-              className="bg-blue-600 hover:bg-blue-700 text-white"
               onClick={() => {
                 void handleSubmitTimesheet();
               }}

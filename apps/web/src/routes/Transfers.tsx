@@ -123,12 +123,12 @@ export function Transfers() {
       <AppHeader />
 
       <main className="mx-auto max-w-6xl px-4 py-6">
-        <div className="mb-6 flex items-center justify-between">
+        <div className="mb-6 flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
           <h2 className="text-2xl font-bold">
             Company → Personal Transfers
           </h2>
           <Button
-            className="bg-blue-600 hover:bg-blue-700 text-white"
+            className="shrink-0"
             onClick={() => navigate("/transfers/new")}
           >
             New Transfer
@@ -174,7 +174,7 @@ export function Transfers() {
           <Card>
             <CardContent className="p-4">
               <h3 className="mb-3 text-sm font-semibold">Tax Estimates</h3>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <Kpi
                   label="Est. Company Tax"
                   value={formatCAD(num(summary?.est_company_tax))}
@@ -253,18 +253,22 @@ export function Transfers() {
                           className="cursor-pointer border-b last:border-0 hover:bg-accent/40"
                           onClick={() => navigate(`/transfers/${t.id}`)}
                         >
-                          <td className="px-4 py-2 whitespace-nowrap">
+                          <td className="whitespace-nowrap px-4 py-2">
                             {formatDate(t.transfer_date)}
                           </td>
-                          <td className="px-4 py-2 text-right font-semibold">
+                          <td className="whitespace-nowrap px-4 py-2 text-right font-semibold">
                             {formatCAD(num(t.amount))}
                           </td>
-                          <td className="px-4 py-2">{t.category ?? "—"}</td>
-                          <td className="px-4 py-2">{t.method ?? "—"}</td>
-                          <td className="px-4 py-2 text-right">
+                          <td className="whitespace-nowrap px-4 py-2">
+                            {t.category ?? "—"}
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-2">
+                            {t.method ?? "—"}
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-2 text-right">
                             {formatCAD(num(t.estimated_tax_company))}
                           </td>
-                          <td className="px-4 py-2 text-right">
+                          <td className="whitespace-nowrap px-4 py-2 text-right">
                             {formatCAD(num(t.estimated_tax_personal))}
                           </td>
                         </tr>

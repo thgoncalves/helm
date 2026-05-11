@@ -75,7 +75,10 @@ export function AppHeader() {
             <span className="text-lg font-semibold tracking-tight">Helm</span>
           </Link>
           <nav
-            className="-mb-3 flex gap-1 overflow-x-auto text-sm sm:gap-2"
+            // mask-image: fades the right edge so users see there's more to
+            // scroll. Tailwind v4 supports `mask-*` utilities via arbitrary
+            // values — kept as a CSS-prop tuple for clarity.
+            className="-mb-3 flex gap-1 overflow-x-auto text-sm sm:gap-2 [mask-image:linear-gradient(to_right,black_calc(100%-24px),transparent)] sm:[mask-image:none]"
             aria-label="Primary"
           >
             {NAV_ITEMS.map((item) => {

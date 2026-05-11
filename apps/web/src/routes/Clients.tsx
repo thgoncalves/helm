@@ -69,10 +69,7 @@ export function Clients() {
         {/* Page title + New Client button */}
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-2xl font-bold">Clients</h2>
-          <Button
-            className="bg-blue-600 hover:bg-blue-700 text-white"
-            onClick={() => navigate("/clients/new")}
-          >
+          <Button onClick={() => navigate("/clients/new")}>
             New Client
           </Button>
         </div>
@@ -164,14 +161,16 @@ export function Clients() {
                         className="cursor-pointer border-b last:border-0 hover:bg-accent/50"
                         onClick={() => navigate(`/clients/${c.id}`)}
                       >
-                        <td className="py-3 pr-4 font-medium">{c.name}</td>
-                        <td className="py-3 pr-4 text-muted-foreground">
+                        <td className="whitespace-nowrap py-3 pr-4 font-medium">
+                          {c.name}
+                        </td>
+                        <td className="whitespace-nowrap py-3 pr-4 text-muted-foreground">
                           {c.email ?? "—"}
                         </td>
-                        <td className="py-3 pr-4 text-muted-foreground">
+                        <td className="whitespace-nowrap py-3 pr-4 text-muted-foreground">
                           {c.phone ?? "—"}
                         </td>
-                        <td className="py-3 pr-4 text-muted-foreground">
+                        <td className="whitespace-nowrap py-3 pr-4 text-muted-foreground">
                           {c.city ?? "—"}
                         </td>
                         <td className="py-3 pr-4">
@@ -181,8 +180,8 @@ export function Clients() {
                           <span
                             className={
                               c.is_active
-                                ? "inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800"
-                                : "inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-600"
+                                ? "inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900/40 dark:text-green-300"
+                                : "inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground"
                             }
                           >
                             {c.is_active ? "Active" : "Archived"}
