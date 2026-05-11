@@ -11,7 +11,7 @@
  */
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { apiFetch } from "@/lib/api";
 import type { PaymentListRow } from "@/types/api";
 import {
@@ -25,7 +25,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { SignOutButton } from "@/components/SignOutButton";
+import { AppHeader } from "@/components/AppHeader";
 
 const SELECT_CLASSES =
   "flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm " +
@@ -125,55 +125,7 @@ export function Payments() {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="border-b">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
-          <div className="flex items-center gap-6">
-            <h1 className="text-xl font-semibold">Helm</h1>
-            <nav className="flex gap-4 text-sm">
-              <Link
-                to="/clients"
-                className="text-muted-foreground hover:text-foreground"
-              >
-                Clients
-              </Link>
-              <Link
-                to="/timesheets"
-                className="text-muted-foreground hover:text-foreground"
-              >
-                Timesheets
-              </Link>
-              <Link
-                to="/invoices"
-                className="text-muted-foreground hover:text-foreground"
-              >
-                Invoices
-              </Link>
-              <Link to="/payments" className="font-medium">
-                Payments
-              </Link>
-              <Link
-                to="/taxes"
-                className="text-muted-foreground hover:text-foreground"
-              >
-                Taxes
-              </Link>
-              <Link
-                to="/transfers"
-                className="text-muted-foreground hover:text-foreground"
-              >
-                Transfers
-              </Link>
-              <Link
-                to="/settings"
-                className="text-muted-foreground hover:text-foreground"
-              >
-                Settings
-              </Link>
-            </nav>
-          </div>
-          <SignOutButton />
-        </div>
-      </header>
+      <AppHeader />
 
       <main className="mx-auto max-w-6xl px-4 py-6">
         <div className="mb-6 flex items-center justify-between">

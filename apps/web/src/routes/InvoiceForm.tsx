@@ -18,7 +18,7 @@
  * feedback; the server recomputes on save so the UI math is purely cosmetic.
  */
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams, Link } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import {
   useMutation,
   useQuery,
@@ -42,7 +42,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { SignOutButton } from "@/components/SignOutButton";
+import { AppHeader } from "@/components/AppHeader";
 
 const SELECT_CLASSES =
   "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm " +
@@ -263,55 +263,7 @@ function InvoiceFormInner({
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="border-b">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-4">
-          <div className="flex items-center gap-6">
-            <h1 className="text-xl font-semibold">Helm</h1>
-            <nav className="flex gap-4 text-sm">
-              <Link
-                to="/clients"
-                className="text-muted-foreground hover:text-foreground"
-              >
-                Clients
-              </Link>
-              <Link
-                to="/timesheets"
-                className="text-muted-foreground hover:text-foreground"
-              >
-                Timesheets
-              </Link>
-              <Link to="/invoices" className="font-medium">
-                Invoices
-              </Link>
-              <Link
-                to="/payments"
-                className="text-muted-foreground hover:text-foreground"
-              >
-                Payments
-              </Link>
-              <Link
-                to="/taxes"
-                className="text-muted-foreground hover:text-foreground"
-              >
-                Taxes
-              </Link>
-              <Link
-                to="/transfers"
-                className="text-muted-foreground hover:text-foreground"
-              >
-                Transfers
-              </Link>
-              <Link
-                to="/settings"
-                className="text-muted-foreground hover:text-foreground"
-              >
-                Settings
-              </Link>
-            </nav>
-          </div>
-          <SignOutButton />
-        </div>
-      </header>
+      <AppHeader />
 
       <main className="mx-auto max-w-5xl px-4 py-6">
         <h2 className="mb-6 text-2xl font-bold">{heading}</h2>

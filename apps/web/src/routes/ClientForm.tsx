@@ -28,7 +28,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { SignOutButton } from "@/components/SignOutButton";
+import { AppHeader } from "@/components/AppHeader";
 
 // ---------------------------------------------------------------------------
 // Zod schema
@@ -545,12 +545,7 @@ const newClientDefaults: ClientFormValues = {
 export function NewClient() {
   return (
     <div className="min-h-screen bg-background">
-      <header className="border-b">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-4">
-          <h1 className="text-xl font-semibold">Helm</h1>
-          <SignOutButton />
-        </div>
-      </header>
+      <AppHeader />
 
       <main className="mx-auto max-w-3xl px-4 py-8">
         <div className="mb-6">
@@ -584,12 +579,7 @@ export function EditClient() {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="border-b">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-4">
-          <h1 className="text-xl font-semibold">Helm</h1>
-          <SignOutButton />
-        </div>
-      </header>
+      <AppHeader />
 
       <main className="mx-auto max-w-3xl px-4 py-8">
         <div className="mb-6">
