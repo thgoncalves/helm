@@ -331,9 +331,9 @@ export function Timesheets() {
 
       <main className="mx-auto max-w-6xl px-4 py-6">
         {/* Page title + actions */}
-        <div className="mb-6 flex items-center justify-between">
+        <div className="mb-6 flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
           <h2 className="text-2xl font-bold">Timesheets</h2>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button
               variant="default"
               className="bg-blue-600 hover:bg-blue-700 text-white"
@@ -366,13 +366,13 @@ export function Timesheets() {
 
         {/* Client + contract summary row */}
         <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-3 rounded-md border bg-card px-4 py-3">
-          <div className="flex items-center gap-2">
+          <div className="flex w-full items-center gap-2 sm:w-auto">
             <label htmlFor="client" className="text-sm font-medium">
               Client:
             </label>
             <select
               id="client"
-              className={`${SELECT_CLASSES} min-w-[260px]`}
+              className={`${SELECT_CLASSES} w-full sm:w-auto sm:min-w-[260px]`}
               value={clientId ?? ""}
               onChange={(e) => setClientId(e.target.value || null)}
             >
@@ -431,7 +431,7 @@ export function Timesheets() {
         <Card>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
-              <table className="w-full border-collapse text-sm">
+              <table className="w-full min-w-[680px] border-collapse text-sm">
                 <thead>
                   <tr>
                     <th className="border-b border-r px-3 py-2 text-left font-semibold">
@@ -500,7 +500,7 @@ export function Timesheets() {
                                   onBlur={handleCellBlur}
                                   disabled={!cell.inMonth || !clientId}
                                   className={
-                                    "h-9 w-full rounded-md border border-input bg-background px-2 py-1 text-right text-sm text-foreground " +
+                                    "h-10 w-full rounded-md border border-input bg-background px-2 py-1 text-right text-sm text-foreground sm:h-9 " +
                                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring " +
                                     (isToday ? "ring-2 ring-ring " : "") +
                                     (cell.inMonth

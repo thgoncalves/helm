@@ -362,7 +362,7 @@ function InvoiceFormInner({
             </CardHeader>
             <CardContent>
               <div className="overflow-x-auto">
-                <table className="w-full border-collapse text-sm">
+                <table className="w-full min-w-[720px] border-collapse text-sm">
                   <thead>
                     <tr className="border-b bg-muted/40 text-left">
                       <th className="w-10 px-2 py-2"></th>
