@@ -117,14 +117,26 @@ export function PersonalImports() {
           }),
         },
       );
-      const putResponse = await fetch(created.upload_url, {
-        method: "PUT",
-        body: file,
-      });
+      const uploadHost = new URL(created.upload_url).host;
+      let putResponse: Response;
+      try {
+        putResponse = await fetch(created.upload_url, {
+          method: "PUT",
+          body: file,
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+        // Surface the host so we can tell at a glance whether the URL was
+        // regional (helm-receipts-<env>.s3.<region>...) or not.
+        throw new Error(
+          `Network error PUTting to ${uploadHost}: ${msg}. ` +
+            `File: ${file.name} (${file.size}B, ${file.type || "no type"}).`,
+        );
+      }
       if (!putResponse.ok) {
         const errBody = await putResponse.text().catch(() => "");
         throw new Error(
-          `S3 upload failed (${putResponse.status}): ${errBody.slice(0, 200)}`,
+          `S3 upload failed (${putResponse.status} from ${uploadHost}): ${errBody.slice(0, 200)}`,
         );
       }
       return created.import_;
