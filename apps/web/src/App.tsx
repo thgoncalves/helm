@@ -31,6 +31,8 @@ import { NewPayment, EditPayment } from "@/routes/PaymentForm";
 import { Taxes } from "@/routes/Taxes";
 import { NewTaxPayment, EditTaxPayment } from "@/routes/TaxPaymentForm";
 import { LinkTaxInvoices } from "@/routes/LinkTaxInvoices";
+import { Transfers } from "@/routes/Transfers";
+import { NewTransfer, EditTransfer } from "@/routes/TransferForm";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 
 export function App() {
@@ -64,6 +66,9 @@ export function App() {
           <Route path="/taxes/new" element={<NewTaxPayment />} />
           <Route path="/taxes/:id" element={<EditTaxPayment />} />
           <Route path="/taxes/:id/link" element={<LinkTaxInvoices />} />
+          <Route path="/transfers" element={<Transfers />} />
+          <Route path="/transfers/new" element={<NewTransfer />} />
+          <Route path="/transfers/:id" element={<EditTransfer />} />
         </Route>
 
         {/* 404 */}

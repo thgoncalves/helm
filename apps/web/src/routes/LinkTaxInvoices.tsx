@@ -162,6 +162,12 @@ export function LinkTaxInvoices() {
               <Link to="/taxes" className="font-medium">
                 Taxes
               </Link>
+              <Link
+                to="/transfers"
+                className="text-muted-foreground hover:text-foreground"
+              >
+                Transfers
+              </Link>
             </nav>
           </div>
           <SignOutButton />

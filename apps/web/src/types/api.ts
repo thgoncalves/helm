@@ -307,6 +307,56 @@ export interface TaxPaymentCreate {
   invoice_ids: string[];
 }
 
+// ---------------------------------------------------------------------------
+// Transfers (Company → Personal)
+// ---------------------------------------------------------------------------
+
+export interface TransferRead {
+  id: string;
+  transfer_date: string;
+  amount: number | string;
+  method: string | null;
+  purpose: string | null;
+  category: string | null;
+  estimated_tax_company: number | string | null;
+  estimated_tax_personal: number | string | null;
+  actual_tax_paid_company: number | string | null;
+  actual_tax_paid_personal: number | string | null;
+  tax_ledger_link_company: string | null;
+  tax_ledger_link_personal: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TransferCreate {
+  transfer_date: string;
+  amount: number | string;
+  method: string | null;
+  purpose: string | null;
+  category: string | null;
+  estimated_tax_company: number | string | null;
+  estimated_tax_personal: number | string | null;
+  actual_tax_paid_company: number | string | null;
+  actual_tax_paid_personal: number | string | null;
+  tax_ledger_link_company: string | null;
+  tax_ledger_link_personal: string | null;
+  notes: string | null;
+}
+
+export interface TransferSummary {
+  total_transferred: number | string;
+  transaction_count: number;
+  est_company_tax: number | string;
+  est_personal_tax: number | string;
+  tax_exposure: number | string;
+}
+
+export interface TransferTaxRates {
+  company_rate: number | string;
+  personal_rate: number | string;
+}
+
 /** Mirrors TimesheetSummary in services/api/app/routers/timesheets.py */
 export interface TimesheetSummary {
   client_id: string;

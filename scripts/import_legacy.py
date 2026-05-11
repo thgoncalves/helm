@@ -48,6 +48,7 @@ PAYMENTS_RECEIVED_CSV = LEGACY_DIR / "payments_received.csv"
 TAX_LEDGER_CSV = LEGACY_DIR / "tax_ledger.csv"
 TAX_PAYMENTS_CSV = LEGACY_DIR / "tax_payments.csv"
 INVOICE_TAX_LINKS_CSV = LEGACY_DIR / "invoice_tax_links.csv"
+TRANSFERS_CSV = LEGACY_DIR / "transfers.csv"
 
 
 # ---------------------------------------------------------------------------
@@ -536,6 +537,80 @@ def import_invoice_tax_links(
     return inserted, skipped
 
 
+INSERT_TRANSFER_SQL = """
+INSERT INTO transfers (
+    id, transfer_date, amount, method, purpose, category,
+    estimated_tax_company, estimated_tax_personal,
+    actual_tax_paid_company, actual_tax_paid_personal,
+    tax_ledger_link_company, tax_ledger_link_personal,
+    notes, created_at, updated_at
+) VALUES (
+    :id, :transfer_date, :amount, :method, :purpose, :category,
+    :estimated_tax_company, :estimated_tax_personal,
+    :actual_tax_paid_company, :actual_tax_paid_personal,
+    :tax_ledger_link_company, :tax_ledger_link_personal,
+    :notes, :created_at, :updated_at
+)
+ON CONFLICT (id) DO NOTHING
+""".strip()
+
+
+def import_transfers(
+    client: Any, *, resource_arn: str, secret_arn: str, database: str
+) -> tuple[int, int]:
+    """Import transfers.csv. Returns (inserted, skipped) counts."""
+    inserted = 0
+    skipped = 0
+    with TRANSFERS_CSV.open(newline="") as f:
+        reader = csv.DictReader(f)
+        for raw in reader:
+            row = {
+                "id": UUID(raw["transfer_id"]),
+                "transfer_date": parse_optional_date(raw["transfer_date"]),
+                "amount": Decimal(raw["amount"]),
+                "method": parse_optional_str(raw["method"]),
+                "purpose": parse_optional_str(raw["purpose"]),
+                "category": parse_optional_str(raw["category"]),
+                "estimated_tax_company": parse_optional_decimal(
+                    raw["estimated_tax_company"]
+                ),
+                "estimated_tax_personal": parse_optional_decimal(
+                    raw["estimated_tax_personal"]
+                ),
+                "actual_tax_paid_company": parse_optional_decimal(
+                    raw["actual_tax_paid_company"]
+                ),
+                "actual_tax_paid_personal": parse_optional_decimal(
+                    raw["actual_tax_paid_personal"]
+                ),
+                "tax_ledger_link_company": (
+                    UUID(raw["tax_ledger_link_company"])
+                    if raw["tax_ledger_link_company"]
+                    else None
+                ),
+                "tax_ledger_link_personal": (
+                    UUID(raw["tax_ledger_link_personal"])
+                    if raw["tax_ledger_link_personal"]
+                    else None
+                ),
+                "notes": parse_optional_str(raw["notes"]),
+                "created_at": parse_iso_utc(raw["created_at"]),
+                "updated_at": parse_iso_utc(raw["updated_at"]),
+            }
+            response = client.execute_statement(
+                resourceArn=resource_arn,
+                secretArn=secret_arn,
+                database=database,
+                sql=INSERT_TRANSFER_SQL,
+                parameters=[to_param(k, v) for k, v in row.items()],
+            )
+            if response.get("numberOfRecordsUpdated", 0) > 0:
+                inserted += 1
+            else:
+                skipped += 1
+    return inserted, skipped
+
+
 def import_invoice_line_items(
     client: Any, *, resource_arn: str, secret_arn: str, database: str
 ) -> tuple[int, int]:
@@ -632,6 +707,13 @@ def main() -> int:
             rds, resource_arn=resource_arn, secret_arn=secret_arn, database=database
         )
         print(f"✓ invoice_tax_links — {inserted} inserted, {skipped} skipped")
+
+    if TRANSFERS_CSV.exists():
+        print(f"→ importing {TRANSFERS_CSV.relative_to(REPO_ROOT)}")
+        inserted, skipped = import_transfers(
+            rds, resource_arn=resource_arn, secret_arn=secret_arn, database=database
+        )
+        print(f"✓ transfers — {inserted} inserted, {skipped} skipped")
 
     return 0
 

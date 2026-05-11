@@ -116,6 +116,8 @@ def _seed_settings() -> dict[str, str]:
         "user_email": "th.goncalves@gmail.com",
         "user_phone": "(647) 321 7834",
         "company_name": "2441735 ALBERTA INC.",
+        "transfer_tax_rate_company": "0.30",
+        "transfer_tax_rate_personal": "0.325",
     }
 
 
@@ -131,6 +133,7 @@ def fake_data_api(monkeypatch: pytest.MonkeyPatch) -> None:
     payments_store: dict[UUID, dict[str, Any]] = {}
     tax_payments_store: dict[UUID, dict[str, Any]] = {}
     invoice_tax_links: list[dict[str, Any]] = []
+    transfers_store: dict[UUID, dict[str, Any]] = {}
     settings_store: dict[str, str] = _seed_settings()
 
     def _between(work_date: date, params: dict[str, Any]) -> bool:
@@ -196,6 +199,17 @@ def fake_data_api(monkeypatch: pytest.MonkeyPatch) -> None:
                     if ln["invoice_id"] == params["invoice_id"]
                 ),
                 key=lambda ln: ln["line_order"],
+            )
+        if sql.startswith("SELECT * FROM transfers"):
+            rows = list(transfers_store.values())
+            if "from_date" in params:
+                rows = [r for r in rows if r["transfer_date"] >= params["from_date"]]
+            if "to_date" in params:
+                rows = [r for r in rows if r["transfer_date"] <= params["to_date"]]
+            return sorted(
+                rows,
+                key=lambda r: (r["transfer_date"], r["created_at"]),
+                reverse=True,
             )
         if "FROM payments_received p" in sql and "JOIN invoices i" in sql:
             # Enriched list join: payments + invoices + clients.
@@ -528,6 +542,72 @@ def fake_data_api(monkeypatch: pytest.MonkeyPatch) -> None:
             row.setdefault("fiscal_year", None)
             tax_payments_store[row["id"]] = row
             return row
+        if sql.startswith("SELECT * FROM transfers"):
+            return transfers_store.get(params["id"])
+        if "FROM transfers" in sql and "COUNT(*)" in sql:
+            # Summary aggregate over an optional date window.
+            rows = list(transfers_store.values())
+            if "from_date" in params:
+                rows = [r for r in rows if r["transfer_date"] >= params["from_date"]]
+            if "to_date" in params:
+                rows = [r for r in rows if r["transfer_date"] <= params["to_date"]]
+            total = sum(
+                (r["amount"] for r in rows if isinstance(r["amount"], Decimal)),
+                Decimal(0),
+            )
+            company = sum(
+                (
+                    r["estimated_tax_company"]
+                    for r in rows
+                    if isinstance(r.get("estimated_tax_company"), Decimal)
+                ),
+                Decimal(0),
+            )
+            personal = sum(
+                (
+                    r["estimated_tax_personal"]
+                    for r in rows
+                    if isinstance(r.get("estimated_tax_personal"), Decimal)
+                ),
+                Decimal(0),
+            )
+            return {
+                "total_transferred": total,
+                "transaction_count": len(rows),
+                "est_company_tax": company,
+                "est_personal_tax": personal,
+            }
+        if sql.startswith("INSERT INTO transfers"):
+            row = {**params}
+            for k in (
+                "amount",
+                "estimated_tax_company",
+                "estimated_tax_personal",
+                "actual_tax_paid_company",
+                "actual_tax_paid_personal",
+            ):
+                if isinstance(row.get(k), Decimal):
+                    row[k] = row[k].quantize(Decimal("0.01"))
+            transfers_store[row["id"]] = row
+            return row
+        if sql.startswith("UPDATE transfers"):
+            existing = transfers_store.get(params["id"])
+            if existing is None:
+                return None
+            for k, v in params.items():
+                if k == "id":
+                    continue
+                existing[k] = v
+            for k in (
+                "amount",
+                "estimated_tax_company",
+                "estimated_tax_personal",
+                "actual_tax_paid_company",
+                "actual_tax_paid_personal",
+            ):
+                if isinstance(existing.get(k), Decimal):
+                    existing[k] = existing[k].quantize(Decimal("0.01"))
+            return existing
         if sql.startswith("UPDATE tax_payments"):
             existing = tax_payments_store.get(params["id"])
             if existing is None:
@@ -659,6 +739,9 @@ def fake_data_api(monkeypatch: pytest.MonkeyPatch) -> None:
             return {}
         if sql.startswith("DELETE FROM tax_payments"):
             tax_payments_store.pop(params["id"], None)
+            return {}
+        if sql.startswith("DELETE FROM transfers"):
+            transfers_store.pop(params["id"], None)
             return {}
         if sql.startswith("DELETE FROM invoice_line_items"):
             nonlocal_id = params["invoice_id"]
