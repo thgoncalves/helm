@@ -11,10 +11,10 @@ These are read-side views over ``time_entries``:
 """
 
 from calendar import monthrange
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from io import BytesIO
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -33,6 +33,8 @@ from reportlab.platypus import (
 
 from app import db
 from app.deps import get_current_user
+from app.models.invoices import InvoiceRead
+from app.routers.invoices import next_invoice_number_for_year
 
 router = APIRouter(tags=["timesheets"], dependencies=[Depends(get_current_user)])
 
@@ -447,3 +449,190 @@ async def export_pdf(
             "X-Generated-At": datetime.now(timezone.utc).isoformat(),
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# POST /business/timesheets/submit  — turn a month's entries into an invoice
+# ---------------------------------------------------------------------------
+
+
+class SubmitTimesheetBody(BaseModel):
+    """Body for ``POST /business/timesheets/submit``.
+
+    Attributes:
+        client_id: The client whose timesheet is being submitted.
+        year: 4-digit calendar year of the period.
+        month: 1-12 month number of the period.
+    """
+
+    client_id: UUID
+    year: int
+    month: int
+
+
+class SubmitTimesheetResponse(BaseModel):
+    """Returned after a successful timesheet submission.
+
+    Carries the new invoice so the frontend can immediately navigate to
+    ``/invoices/{id}`` without a second round-trip.
+    """
+
+    invoice: InvoiceRead
+
+
+@router.post(
+    "/submit",
+    response_model=SubmitTimesheetResponse,
+    status_code=201,
+    summary="Submit a month's timesheet — creates an invoice and links entries",
+)
+async def submit_timesheet(body: SubmitTimesheetBody) -> SubmitTimesheetResponse:
+    """Create an invoice for the month from this client's time entries.
+
+    Behaviour:
+
+    * Sums hours for all uninvoiced entries in ``[period_start, period_end]``.
+    * Generates a single line item ``"Consulting Services - N hours"`` priced
+      at ``client.hourly_rate``.
+    * Applies the client's ``default_taxable``, ``default_tax_rate`` and
+      ``default_payment_terms_days`` for the GST line and due date.
+    * Allocates a new ``INV-{year}-{NNNN}`` number using the current year.
+    * Links every consumed time entry to the new invoice (so the bulk
+      upsert won't subsequently delete them — see
+      :func:`bulk_upsert_time_entries`).
+
+    Returns 400 if the client has no rate or no uninvoiced hours in the
+    period.
+    """
+    if not 1 <= body.month <= 12:
+        raise HTTPException(status_code=400, detail="month must be 1-12")
+
+    client = _fetch_client(body.client_id)
+    rate = client["hourly_rate"]
+    if not isinstance(rate, Decimal):
+        raise HTTPException(
+            status_code=400,
+            detail="Client has no hourly_rate set — cannot submit a timesheet.",
+        )
+
+    start, end = _month_bounds(body.year, body.month)
+    rows = db.fetch_all(
+        """
+        SELECT id, hours FROM time_entries
+        WHERE client_id = :client_id
+          AND work_date BETWEEN :start AND :end
+          AND invoice_id IS NULL
+        """,
+        {"client_id": body.client_id, "start": start, "end": end},
+    )
+    if not rows:
+        raise HTTPException(
+            status_code=400,
+            detail="No uninvoiced hours in this period — nothing to submit.",
+        )
+
+    total_hours = sum(
+        (r["hours"] for r in rows if isinstance(r["hours"], Decimal)),
+        Decimal(0),
+    )
+    subtotal = (total_hours * rate).quantize(Decimal("0.01"))
+
+    is_taxable: bool = bool(client.get("default_taxable", True))
+    raw_tax_rate = client.get("default_tax_rate")
+    tax_rate: Decimal | None = raw_tax_rate if isinstance(raw_tax_rate, Decimal) else None
+    if is_taxable and tax_rate is not None and tax_rate > 0:
+        tax_amount = (subtotal * tax_rate).quantize(Decimal("0.01"))
+    else:
+        tax_amount = Decimal("0.00")
+    total = (subtotal + tax_amount).quantize(Decimal("0.01"))
+
+    issue_date = date.today()
+    raw_terms_days = client.get("default_payment_terms_days")
+    payment_terms_days: int = (
+        int(raw_terms_days) if isinstance(raw_terms_days, (int, Decimal)) else 30
+    )
+    due_date = issue_date + timedelta(days=payment_terms_days)
+    payment_terms_text = f"Net {payment_terms_days}"
+
+    invoice_number = next_invoice_number_for_year(issue_date.year)
+    notes = f"Timesheet period: {start.isoformat()} to {end.isoformat()}"
+    description = (
+        f"Consulting Services - {int(total_hours) if total_hours == total_hours.to_integral() else total_hours} hours"
+    )
+
+    now = datetime.now(timezone.utc)
+    invoice_id = uuid4()
+    invoice_row = db.fetch_one(
+        """
+        INSERT INTO invoices (
+            id, invoice_number, issue_date, due_date, client_id,
+            status, currency, subtotal, tax_amount, total,
+            notes, payment_terms, attachments_path,
+            created_at, updated_at
+        ) VALUES (
+            :id, :invoice_number, :issue_date, :due_date, :client_id,
+            'draft', :currency, :subtotal, :tax_amount, :total,
+            :notes, :payment_terms, NULL,
+            :created_at, :updated_at
+        )
+        RETURNING *
+        """,
+        {
+            "id": invoice_id,
+            "invoice_number": invoice_number,
+            "issue_date": issue_date,
+            "due_date": due_date,
+            "client_id": body.client_id,
+            "currency": client.get("contract_currency") or "CAD",
+            "subtotal": subtotal,
+            "tax_amount": tax_amount,
+            "total": total,
+            "notes": notes,
+            "payment_terms": payment_terms_text,
+            "created_at": now,
+            "updated_at": now,
+        },
+    )
+    assert invoice_row is not None
+
+    db.execute(
+        """
+        INSERT INTO invoice_line_items (
+            id, invoice_id, line_order, description,
+            quantity, unit_price, tax_category,
+            is_taxable, tax_rate,
+            line_subtotal, line_tax, line_total
+        ) VALUES (
+            :id, :invoice_id, 1, :description,
+            :quantity, :unit_price, :tax_category,
+            :is_taxable, :tax_rate,
+            :subtotal, :tax_amount, :total
+        )
+        """,
+        {
+            "id": uuid4(),
+            "invoice_id": invoice_id,
+            "description": description,
+            "quantity": total_hours,
+            "unit_price": rate,
+            "tax_category": "GST" if is_taxable and tax_rate else None,
+            "is_taxable": is_taxable,
+            "tax_rate": tax_rate,
+            "subtotal": subtotal,
+            "tax_amount": tax_amount,
+            "total": total,
+        },
+    )
+
+    # Link each consumed entry so the bulk upsert can't touch them later.
+    for r in rows:
+        db.execute(
+            """
+            UPDATE time_entries
+            SET invoice_id = :invoice_id, updated_at = :now
+            WHERE id = :id
+            """,
+            {"id": r["id"], "invoice_id": invoice_id, "now": now},
+        )
+
+    return SubmitTimesheetResponse(invoice=InvoiceRead(**invoice_row))

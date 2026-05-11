@@ -24,6 +24,8 @@ import { Clients } from "@/routes/Clients";
 import { ClientDetail } from "@/routes/ClientDetail";
 import { NewClient, EditClient } from "@/routes/ClientForm";
 import { Timesheets } from "@/routes/Timesheets";
+import { Invoices } from "@/routes/Invoices";
+import { NewInvoice, EditInvoice } from "@/routes/InvoiceForm";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 
 export function App() {
@@ -47,6 +49,9 @@ export function App() {
           <Route path="/clients/:id" element={<ClientDetail />} />
           <Route path="/clients/:id/edit" element={<EditClient />} />
           <Route path="/timesheets" element={<Timesheets />} />
+          <Route path="/invoices" element={<Invoices />} />
+          <Route path="/invoices/new" element={<NewInvoice />} />
+          <Route path="/invoices/:id" element={<EditInvoice />} />
         </Route>
 
         {/* 404 */}

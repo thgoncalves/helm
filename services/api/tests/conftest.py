@@ -41,6 +41,9 @@ def _seed_clients() -> dict[UUID, dict[str, Any]]:
         "contract_value": None,
         "contract_currency": "CAD",
         "default_task_description": None,
+        "default_taxable": True,
+        "default_tax_rate": Decimal("0.0500"),
+        "default_payment_terms_days": 30,
         "created_at": _SEED_TIME,
         "updated_at": _SEED_TIME,
     }
@@ -58,6 +61,9 @@ def _seed_clients() -> dict[UUID, dict[str, Any]]:
             "hourly_rate": Decimal("100.00"),
             "timesheet_frequency": "monthly",
             "default_task_description": "Consulting services in ETL, ML and AI",
+            # Sulpetro doesn't charge GST per the legacy invoices.
+            "default_taxable": False,
+            "default_tax_rate": None,
         },
         SEED_ID_2: {
             **base,
@@ -72,6 +78,8 @@ def _seed_clients() -> dict[UUID, dict[str, Any]]:
             "hourly_rate": Decimal("95.38"),
             "timesheet_frequency": "monthly",
             "contract_value": Decimal("190000.00"),
+            # Wenco invoices on Net 15 per V1 spec.
+            "default_payment_terms_days": 15,
         },
         SEED_ID_3: {
             **base,
@@ -117,10 +125,24 @@ def fake_data_api(monkeypatch: pytest.MonkeyPatch) -> None:
     clients_store: dict[UUID, dict[str, Any]] = _seed_clients()
     # time_entries keyed by (client_id, work_date) for the V1 unique invariant.
     time_entries: dict[tuple[UUID, date], dict[str, Any]] = {}
+    # invoices keyed by id; line_items list per invoice for ordering.
+    invoices_store: dict[UUID, dict[str, Any]] = {}
+    invoice_line_items: list[dict[str, Any]] = []
     settings_store: dict[str, str] = _seed_settings()
 
     def _between(work_date: date, params: dict[str, Any]) -> bool:
         return params["start"] <= work_date <= params["end"]
+
+    def _match_invoice_filters(row: dict[str, Any], params: dict[str, Any]) -> bool:
+        if "from_date" in params and row["issue_date"] < params["from_date"]:
+            return False
+        if "to_date" in params and row["issue_date"] > params["to_date"]:
+            return False
+        if "status" in params and row["status"] != params["status"]:
+            return False
+        if "client_id" in params and row["client_id"] != params["client_id"]:
+            return False
+        return True
 
     def fetch_all(
         sql: str, params: dict[str, Any] | None = None
@@ -146,6 +168,32 @@ def fake_data_api(monkeypatch: pytest.MonkeyPatch) -> None:
                 for (cid, wd), row in time_entries.items()
                 if cid == params["client_id"] and _between(wd, params)
             ]
+        if sql.startswith("SELECT id, hours FROM time_entries"):
+            return [
+                {"id": row["id"], "hours": row["hours"]}
+                for (cid, wd), row in time_entries.items()
+                if cid == params["client_id"]
+                and _between(wd, params)
+                and row["invoice_id"] is None
+            ]
+        if sql.startswith("SELECT * FROM invoices"):
+            rows = [
+                r for r in invoices_store.values() if _match_invoice_filters(r, params)
+            ]
+            return sorted(
+                rows,
+                key=lambda r: (r["issue_date"], r["invoice_number"]),
+                reverse=True,
+            )
+        if sql.startswith("SELECT * FROM invoice_line_items"):
+            return sorted(
+                (
+                    ln
+                    for ln in invoice_line_items
+                    if ln["invoice_id"] == params["invoice_id"]
+                ),
+                key=lambda ln: ln["line_order"],
+            )
         raise NotImplementedError(f"fake fetch_all doesn't handle: {sql[:80]}")
 
     def fetch_one(
@@ -191,6 +239,47 @@ def fake_data_api(monkeypatch: pytest.MonkeyPatch) -> None:
                 Decimal(0),
             )
             return {"hours": total}
+        if sql.startswith("SELECT invoice_number FROM invoices"):
+            # Look for the last invoice_number matching the LIKE prefix.
+            prefix = params["prefix"].rstrip("%")
+            matches = [
+                r["invoice_number"]
+                for r in invoices_store.values()
+                if r["invoice_number"].startswith(prefix)
+            ]
+            if not matches:
+                return None
+            return {"invoice_number": max(matches)}
+        if sql.startswith("SELECT * FROM invoices WHERE id"):
+            return invoices_store.get(params["id"])
+        if sql.startswith("INSERT INTO invoices"):
+            row = {
+                **params,
+                # The router omits attachments_path from params; default it.
+                "attachments_path": params.get("attachments_path"),
+            }
+            row.setdefault("status", "draft")
+            invoices_store[row["id"]] = row
+            return row
+        if sql.startswith("UPDATE invoices") and "status = 'sent'" in sql:
+            existing = invoices_store.get(params["id"])
+            if existing is None:
+                return None
+            existing["status"] = "sent"
+            existing["updated_at"] = params["updated_at"]
+            return existing
+        if sql.startswith("UPDATE invoices"):
+            existing = invoices_store.get(params["id"])
+            if existing is None:
+                return None
+            for k, v in params.items():
+                if k == "id":
+                    continue
+                if k == "status" and v is None:
+                    continue  # COALESCE(:status, status) — keep existing
+                existing[k] = v
+            invoices_store[params["id"]] = existing
+            return existing
         raise NotImplementedError(f"fake fetch_one doesn't handle: {sql[:80]}")
 
     def execute(
@@ -236,6 +325,22 @@ def fake_data_api(monkeypatch: pytest.MonkeyPatch) -> None:
             ]
             for k in keys_to_delete:
                 del time_entries[k]
+            return {}
+        if sql.startswith("INSERT INTO invoice_line_items"):
+            invoice_line_items.append(dict(params))
+            return {}
+        if sql.startswith("DELETE FROM invoice_line_items"):
+            nonlocal_id = params["invoice_id"]
+            invoice_line_items[:] = [
+                ln for ln in invoice_line_items if ln["invoice_id"] != nonlocal_id
+            ]
+            return {}
+        if sql.startswith("UPDATE time_entries") and "invoice_id" in sql:
+            for (cid, wd), row in time_entries.items():
+                if row["id"] == params["id"]:
+                    row["invoice_id"] = params["invoice_id"]
+                    row["updated_at"] = params["now"]
+                    break
             return {}
         if sql.startswith("INSERT INTO time_entries"):
             # Postgres numeric(5,2) normalises to two decimal places; mimic

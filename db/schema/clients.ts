@@ -3,6 +3,7 @@ import {
   uuid,
   text,
   boolean,
+  integer,
   numeric,
   timestamp,
   varchar,
@@ -38,6 +39,16 @@ export const clients = pgTable(
     // Default line-item description that shows up on every populated row of
     // the exported PDF timesheet (e.g. "Consulting services in ETL, ML and AI").
     defaultTaskDescription: text('default_task_description'),
+
+    // Invoicing defaults — applied when an invoice is auto-created from a
+    // submitted timesheet. The user can still override per-line on the
+    // invoice form.
+    defaultTaxable: boolean('default_taxable').notNull().default(true),
+    defaultTaxRate: numeric('default_tax_rate', { precision: 6, scale: 4 }),
+    // Net-N payment terms in days (Sulpetro/CP = 30, Wenco = 15).
+    defaultPaymentTermsDays: integer('default_payment_terms_days')
+      .notNull()
+      .default(30),
 
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

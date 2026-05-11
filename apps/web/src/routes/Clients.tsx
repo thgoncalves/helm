@@ -77,6 +77,12 @@ export function Clients() {
               >
                 Timesheets
               </Link>
+              <Link
+                to="/invoices"
+                className="text-muted-foreground hover:text-foreground"
+              >
+                Invoices
+              </Link>
             </nav>
           </div>
           <SignOutButton />

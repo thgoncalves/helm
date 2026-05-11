@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from mangum import Mangum
 
 from app.routers import clients as clients_router
+from app.routers import invoices as invoices_router
 from app.routers import time_entries as time_entries_router
 from app.routers import timesheets as timesheets_router
 
@@ -37,6 +38,7 @@ app.add_middleware(
 # Routers
 # ---------------------------------------------------------------------------
 app.include_router(clients_router.router, prefix="/business/clients")
+app.include_router(invoices_router.router, prefix="/business/invoices")
 app.include_router(time_entries_router.router, prefix="/business/time-entries")
 app.include_router(timesheets_router.router, prefix="/business/timesheets")
 

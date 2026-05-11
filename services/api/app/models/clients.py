@@ -54,6 +54,11 @@ class ClientBase(BaseModel):
     contract_value: Decimal | None = None
     contract_currency: str | None = "CAD"
     default_task_description: str | None = None
+    # Invoicing defaults (applied when auto-creating an invoice from a
+    # submitted timesheet).
+    default_taxable: bool = True
+    default_tax_rate: Decimal | None = None
+    default_payment_terms_days: int = 30
 
 
 class ClientCreate(ClientBase):
@@ -104,3 +109,6 @@ class ClientUpdate(BaseModel):
     contract_value: Decimal | None = None
     contract_currency: str | None = None
     default_task_description: str | None = None
+    default_taxable: bool | None = None
+    default_tax_rate: Decimal | None = None
+    default_payment_terms_days: int | None = None
