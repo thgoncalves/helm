@@ -333,21 +333,32 @@ ON CONFLICT (id) DO NOTHING
 def import_payments_received(
     client: Any, *, resource_arn: str, secret_arn: str, database: str
 ) -> tuple[int, int]:
-    """Import payments_received.csv. Returns (inserted, skipped) counts."""
+    """Import payments_received.csv. Returns (inserted, skipped) counts.
+
+    Convention shift: the legacy CSV stored ``amount`` as the **net**
+    received (after the bank/client kept any deduction). The new schema
+    treats ``amount`` as the **gross** (what the invoice was billed for)
+    and ``deduction_amount`` as the part kept in transit, so
+    ``net = amount - deduction_amount``. Each imported row is therefore
+    re-keyed: ``amount := raw.amount + raw.deduction_amount``.
+    """
     inserted = 0
     skipped = 0
     with PAYMENTS_RECEIVED_CSV.open(newline="") as f:
         reader = csv.DictReader(f)
         for raw in reader:
+            net = Decimal(raw["amount"])
+            deduction = Decimal(raw["deduction_amount"] or "0")
+            gross = net + deduction
             row = {
                 "id": UUID(raw["payment_id"]),
                 "invoice_id": UUID(raw["invoice_id"]),
                 "payment_date": parse_optional_date(raw["payment_date"]),
-                "amount": Decimal(raw["amount"]),
+                "amount": gross,
                 "payment_method": parse_optional_str(raw["payment_method"]),
                 "reference": parse_optional_str(raw["reference"]),
                 "notes": parse_optional_str(raw["notes"]),
-                "deduction_amount": Decimal(raw["deduction_amount"] or "0"),
+                "deduction_amount": deduction,
                 "deduction_description": parse_optional_str(
                     raw["deduction_description"]
                 ),
