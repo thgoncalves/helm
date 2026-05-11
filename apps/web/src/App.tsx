@@ -6,20 +6,25 @@
  *   /sign-in     → redirect to /  (kept for backwards compat)
  *
  * Protected (require an authenticated Cognito session):
- *   /account-type     → choose Personal or Business
- *   /personal         → Personal dashboard placeholder
- *   /business         → redirect to /clients
- *   /clients          → Clients list
- *   /clients/new      → New client form
- *   /clients/:id      → Client detail (read-only)
- *   /clients/:id/edit → Edit client form
+ *   /account-type             → choose Personal or Business
+ *   /personal                 → redirect to /personal/accounts
+ *   /personal/accounts        → Personal: Accounts (stub)
+ *   /personal/imports         → Personal: Imports (stub)
+ *   /personal/transactions    → Personal: Transactions (stub)
+ *   /business                 → redirect to /dashboard
+ *   /clients, /invoices, ... → Business routes (flat URLs, the implicit default side)
  *
- * The post-sign-in flow is: SignIn → /account-type → /personal | /business.
+ * The post-sign-in flow is: SignIn → /account-type → /personal/accounts | /dashboard.
+ * Inside the app the AppHeader provides an in-place Personal/Business
+ * switcher (URL-driven), so `/account-type` is reachable but not strictly
+ * needed for day-to-day navigation.
  */
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { SignIn } from "@/routes/SignIn";
 import { AccountType } from "@/routes/AccountType";
-import { Personal } from "@/routes/Personal";
+import { PersonalAccounts } from "@/routes/PersonalAccounts";
+import { PersonalImports } from "@/routes/PersonalImports";
+import { PersonalTransactions } from "@/routes/PersonalTransactions";
 import { Clients } from "@/routes/Clients";
 import { ClientDetail } from "@/routes/ClientDetail";
 import { NewClient, EditClient } from "@/routes/ClientForm";
@@ -52,7 +57,16 @@ export function App() {
         {/* Protected */}
         <Route element={<ProtectedRoute />}>
           <Route path="/account-type" element={<AccountType />} />
-          <Route path="/personal" element={<Personal />} />
+          <Route
+            path="/personal"
+            element={<Navigate to="/personal/accounts" replace />}
+          />
+          <Route path="/personal/accounts" element={<PersonalAccounts />} />
+          <Route path="/personal/imports" element={<PersonalImports />} />
+          <Route
+            path="/personal/transactions"
+            element={<PersonalTransactions />}
+          />
           <Route
             path="/business"
             element={<Navigate to="/dashboard" replace />}

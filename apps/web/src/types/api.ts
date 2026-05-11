@@ -485,6 +485,88 @@ export interface ExpenseImageUrlResponse {
   url: string;
 }
 
+// ---------------------------------------------------------------------------
+// Personal — accounts, imports, transactions
+// ---------------------------------------------------------------------------
+
+export type Institution = "RBC" | "TD" | "Scotia" | "Other";
+export type PersonalAccountType =
+  | "checking"
+  | "savings"
+  | "credit_card"
+  | "cash";
+
+export interface PersonalAccountRead {
+  id: string;
+  name: string;
+  institution: Institution;
+  account_type: PersonalAccountType;
+  currency: string;
+  opening_balance: number | string | null;
+  is_active: boolean;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PersonalAccountCreate {
+  name: string;
+  institution: Institution;
+  account_type: PersonalAccountType;
+  currency: string;
+  opening_balance: number | string | null;
+  is_active: boolean;
+  notes: string | null;
+}
+
+export type PersonalImportStatus =
+  | "pending"
+  | "processing"
+  | "ready"
+  | "failed";
+
+export interface PersonalImportRead {
+  id: string;
+  account_id: string;
+  institution: Institution;
+  status: PersonalImportStatus;
+  s3_key: string;
+  filename: string | null;
+  size_bytes: number | null;
+  row_count: number | null;
+  imported_count: number | null;
+  skipped_count: number | null;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PersonalImportCreateRequest {
+  account_id: string;
+  institution: Institution;
+  filename?: string;
+  size_bytes?: number;
+}
+
+export interface PersonalImportCreateResponse {
+  // Backend serialises the key as `import_` (Python keyword).
+  import_: PersonalImportRead;
+  upload_url: string;
+}
+
+export interface PersonalTransactionRead {
+  id: string;
+  account_id: string;
+  import_id: string | null;
+  posted_date: string;
+  description: string;
+  amount: number | string;
+  balance: number | string | null;
+  category: string | null;
+  external_id: string | null;
+  created_at: string;
+}
+
 /** Mirrors TimesheetSummary in services/api/app/routers/timesheets.py */
 export interface TimesheetSummary {
   client_id: string;

@@ -17,7 +17,9 @@ export function AccountType() {
   const [value, setValue] = useState<AccountTypeValue>("personal");
 
   function handleContinue() {
-    navigate(value === "personal" ? "/personal" : "/business", {
+    // Personal lands on Accounts (the canonical home for the Personal
+    // side); Business lands on the Dashboard via the /business redirect.
+    navigate(value === "personal" ? "/personal/accounts" : "/business", {
       replace: true,
     });
   }
