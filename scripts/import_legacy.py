@@ -45,6 +45,7 @@ CLIENTS_CSV = LEGACY_DIR / "clients.csv"
 INVOICES_CSV = LEGACY_DIR / "invoices.csv"
 INVOICE_LINE_ITEMS_CSV = LEGACY_DIR / "invoice_line_items.csv"
 PAYMENTS_RECEIVED_CSV = LEGACY_DIR / "payments_received.csv"
+TAX_LEDGER_CSV = LEGACY_DIR / "tax_ledger.csv"
 TAX_PAYMENTS_CSV = LEGACY_DIR / "tax_payments.csv"
 INVOICE_TAX_LINKS_CSV = LEGACY_DIR / "invoice_tax_links.csv"
 
@@ -381,6 +382,70 @@ def import_payments_received(
     return inserted, skipped
 
 
+INSERT_TAX_LEDGER_SQL = """
+INSERT INTO tax_ledger (
+    id, tax_type, tax_period, period_start, period_end,
+    tax_rate, taxable_amount, tax_amount,
+    paid_status, paid_date, paid_amount,
+    payment_method, payment_reference, notes,
+    created_at, updated_at
+) VALUES (
+    :id, :tax_type, :tax_period, :period_start, :period_end,
+    :tax_rate, :taxable_amount, :tax_amount,
+    :paid_status, :paid_date, :paid_amount,
+    :payment_method, :payment_reference, :notes,
+    :created_at, :updated_at
+)
+ON CONFLICT (id) DO NOTHING
+""".strip()
+
+
+def import_tax_ledger(
+    client: Any, *, resource_arn: str, secret_arn: str, database: str
+) -> tuple[int, int]:
+    """Import tax_ledger.csv. Returns (inserted, skipped) counts.
+
+    Needed for the FK constraint on ``tax_payments.tax_id`` and
+    ``invoice_tax_links.tax_id``. No V1 UI surfaces it yet.
+    """
+    inserted = 0
+    skipped = 0
+    with TAX_LEDGER_CSV.open(newline="") as f:
+        reader = csv.DictReader(f)
+        for raw in reader:
+            row = {
+                "id": UUID(raw["tax_id"]),
+                "tax_type": raw["tax_type"],
+                "tax_period": raw["tax_period"],
+                "period_start": parse_optional_date(raw["period_start"]),
+                "period_end": parse_optional_date(raw["period_end"]),
+                "tax_rate": Decimal(raw["tax_rate"]),
+                "taxable_amount": Decimal(raw["taxable_amount"]),
+                "tax_amount": Decimal(raw["tax_amount"]),
+                "paid_status": raw["paid_status"] or "unpaid",
+                "paid_date": parse_optional_date(raw["paid_date"]),
+                "paid_amount": parse_optional_decimal(raw["paid_amount"])
+                or Decimal(0),
+                "payment_method": parse_optional_str(raw["payment_method"]),
+                "payment_reference": parse_optional_str(raw["payment_reference"]),
+                "notes": parse_optional_str(raw["notes"]),
+                "created_at": parse_iso_utc(raw["created_at"]),
+                "updated_at": parse_iso_utc(raw["updated_at"]),
+            }
+            response = client.execute_statement(
+                resourceArn=resource_arn,
+                secretArn=secret_arn,
+                database=database,
+                sql=INSERT_TAX_LEDGER_SQL,
+                parameters=[to_param(k, v) for k, v in row.items()],
+            )
+            if response.get("numberOfRecordsUpdated", 0) > 0:
+                inserted += 1
+            else:
+                skipped += 1
+    return inserted, skipped
+
+
 INSERT_TAX_PAYMENT_SQL = """
 INSERT INTO tax_payments (
     id, tax_id, payment_date, amount, payment_method,
@@ -546,6 +611,13 @@ def main() -> int:
             rds, resource_arn=resource_arn, secret_arn=secret_arn, database=database
         )
         print(f"✓ payments_received — {inserted} inserted, {skipped} skipped")
+
+    if TAX_LEDGER_CSV.exists():
+        print(f"→ importing {TAX_LEDGER_CSV.relative_to(REPO_ROOT)}")
+        inserted, skipped = import_tax_ledger(
+            rds, resource_arn=resource_arn, secret_arn=secret_arn, database=database
+        )
+        print(f"✓ tax_ledger — {inserted} inserted, {skipped} skipped")
 
     if TAX_PAYMENTS_CSV.exists():
         print(f"→ importing {TAX_PAYMENTS_CSV.relative_to(REPO_ROOT)}")
