@@ -34,6 +34,17 @@ const queryClient = new QueryClient({
       // Don't refetch on window focus in development — avoids noise.
       refetchOnWindowFocus: import.meta.env.PROD,
       retry: 1,
+      // Default staleTime is 0, which means every component mount refetches.
+      // Since most of the data here changes a few times a day at most (and
+      // Aurora cold-resume penalises every fresh request), 30 seconds is a
+      // reasonable starting point. Mutations explicitly invalidate the
+      // affected queries, so this doesn't make any list "stale" after an
+      // edit — only avoids redundant fetches when you bounce between
+      // sibling pages.
+      staleTime: 30_000,
+      // Keep entries in the cache for 10 minutes so a back-and-forth
+      // navigation pulls from cache instead of the network.
+      gcTime: 10 * 60_000,
     },
   },
 });
