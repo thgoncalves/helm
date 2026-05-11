@@ -13,8 +13,15 @@
  * Always supply `-c userPoolClientId=<id>` before deploying.
  *
  * Route layout:
- *  GET  /health         — unauthorised (liveness probe)
- *  ANY  /{proxy+}       — JWT-authorised, proxy to Lambda
+ *  GET     /health        — unauthorised (liveness probe)
+ *  OPTIONS /{proxy+}      — unauthorised, lets browser CORS preflights through
+ *                           without a JWT (FastAPI's CORSMiddleware answers them)
+ *  ANY     /{proxy+}      — JWT-authorised, proxy to Lambda
+ *
+ * The OPTIONS route is required because the JWT authoriser, when attached to
+ * `ANY /{proxy+}`, intercepts preflights too and rejects them with 401 (the
+ * browser never sends an Authorization header on preflights), which manifests
+ * in the UI as opaque "Failed to fetch" / CORS errors.
  */
 
 import * as cdk from 'aws-cdk-lib';
@@ -161,6 +168,15 @@ export class ApiStack extends cdk.Stack {
       methods: [apigwv2.HttpMethod.GET],
       integration: lambdaIntegration,
       // No authorizer — open to health checkers / load balancers
+    });
+
+    // OPTIONS /{proxy+} — unauthenticated, lets browser preflights through.
+    // API Gateway's route precedence picks this over `ANY /{proxy+}` for the
+    // OPTIONS method, so the JWT authoriser is bypassed for preflights only.
+    httpApi.addRoutes({
+      path: '/{proxy+}',
+      methods: [apigwv2.HttpMethod.OPTIONS],
+      integration: lambdaIntegration,
     });
 
     // ANY /{proxy+} — all other routes require a valid Cognito JWT
