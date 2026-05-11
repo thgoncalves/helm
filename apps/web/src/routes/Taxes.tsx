@@ -167,7 +167,7 @@ export function Taxes() {
             )}
             {filteredPayments.length > 0 && (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="w-full min-w-[720px] text-sm">
                   <thead>
                     <tr className="border-b bg-muted/40 text-left">
                       <th className="px-4 py-2 font-semibold">Date</th>
@@ -247,7 +247,7 @@ export function Taxes() {
               </p>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="w-full min-w-[720px] text-sm">
                   <thead>
                     <tr className="border-b bg-muted/40 text-left">
                       <th className="px-4 py-2 font-semibold">Invoice #</th>

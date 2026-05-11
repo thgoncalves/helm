@@ -171,7 +171,7 @@ export function LinkTaxInvoices() {
             )}
             {rows.length > 0 && (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="w-full min-w-[720px] text-sm">
                   <thead>
                     <tr className="border-b bg-muted/40 text-left">
                       <th className="w-10 px-2 py-2"></th>
