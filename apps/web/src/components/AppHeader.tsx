@@ -6,7 +6,9 @@
  * (via `useLocation`) so individual routes don't have to hand-set it.
  *
  * Visual decisions:
- * - Logo (`/helm_logo.png`) sits to the left of the "Helm" wordmark.
+ * - HelmIcon (SVG, single-color via `currentColor`) sits to the left of
+ *   the "Helm" wordmark. The icon picks up `text-primary` so it always
+ *   has an accent colour on every theme.
  * - Active tab uses a `text-primary` color plus a 2px bottom border in
  *   `border-primary`. Inactive tabs get `text-muted-foreground` and a
  *   transparent border so layout doesn't shift on activation.
@@ -22,6 +24,7 @@
  * Tokyo Night work without per-page overrides.
  */
 import { Link, useLocation } from "react-router-dom";
+import { HelmIcon } from "@/components/HelmIcon";
 import { SignOutButton } from "@/components/SignOutButton";
 import { cn } from "@/lib/utils";
 
@@ -65,18 +68,11 @@ export function AppHeader() {
         <div className="flex min-w-0 items-center gap-6">
           <Link
             to="/clients"
-            className="flex shrink-0 items-center gap-2"
+            className="flex shrink-0 items-center gap-2 text-foreground"
             aria-label="Helm home"
           >
-            <img
-              src="/helm_logo.png"
-              alt=""
-              className="h-7 w-7"
-              aria-hidden="true"
-            />
-            <span className="text-lg font-semibold tracking-tight text-foreground">
-              Helm
-            </span>
+            <HelmIcon className="h-7 w-7 text-primary" />
+            <span className="text-lg font-semibold tracking-tight">Helm</span>
           </Link>
           <nav
             className="-mb-3 flex gap-1 overflow-x-auto text-sm sm:gap-2"
