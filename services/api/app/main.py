@@ -13,6 +13,9 @@ from app.routers import dashboard as dashboard_router
 from app.routers import expenses as expenses_router
 from app.routers import invoices as invoices_router
 from app.routers import payments as payments_router
+from app.routers import personal_accounts as personal_accounts_router
+from app.routers import personal_imports as personal_imports_router
+from app.routers import personal_transactions as personal_transactions_router
 from app.routers import settings as settings_router
 from app.routers import tax_payments as tax_payments_router
 from app.routers import time_entries as time_entries_router
@@ -48,6 +51,11 @@ app.include_router(dashboard_router.router, prefix="/business/dashboard")
 app.include_router(expenses_router.router, prefix="/business/expenses")
 app.include_router(invoices_router.router, prefix="/business/invoices")
 app.include_router(payments_router.router, prefix="/business/payments")
+app.include_router(personal_accounts_router.router, prefix="/personal/accounts")
+app.include_router(personal_imports_router.router, prefix="/personal/imports")
+app.include_router(
+    personal_transactions_router.router, prefix="/personal/transactions"
+)
 app.include_router(settings_router.router, prefix="/business/settings")
 app.include_router(tax_payments_router.router, prefix="/business/tax-payments")
 app.include_router(time_entries_router.router, prefix="/business/time-entries")

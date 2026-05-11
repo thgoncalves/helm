@@ -12,6 +12,7 @@ dispatch below.
 
 from datetime import date, datetime, timezone
 from decimal import Decimal
+import io
 from typing import Any
 from uuid import UUID
 
@@ -137,6 +138,12 @@ def fake_data_api(monkeypatch: pytest.MonkeyPatch) -> None:
     invoice_tax_links: list[dict[str, Any]] = []
     transfers_store: dict[UUID, dict[str, Any]] = {}
     expenses_store: dict[UUID, dict[str, Any]] = {}
+    personal_accounts_store: dict[UUID, dict[str, Any]] = {}
+    personal_imports_store: dict[UUID, dict[str, Any]] = {}
+    personal_transactions_store: dict[UUID, dict[str, Any]] = {}
+    # Set of (account_id, posted_date, amount, description) for the
+    # personal_transactions_dedup_idx unique constraint.
+    personal_transactions_dedup: set[tuple[UUID, Any, Decimal, str]] = set()
     settings_store: dict[str, str] = _seed_settings()
 
     def _between(work_date: date, params: dict[str, Any]) -> bool:
@@ -158,7 +165,10 @@ def fake_data_api(monkeypatch: pytest.MonkeyPatch) -> None:
     ) -> list[dict[str, Any]]:
         sql = sql.strip()
         params = params or {}
-        if "WHERE is_active = TRUE" in sql:
+        if (
+            "WHERE is_active = TRUE" in sql
+            and "FROM personal_accounts" not in sql
+        ):
             return sorted(
                 (r for r in clients_store.values() if r["is_active"]),
                 key=lambda r: r["name"],
@@ -227,6 +237,33 @@ def fake_data_api(monkeypatch: pytest.MonkeyPatch) -> None:
             return sorted(
                 rows,
                 key=lambda r: (r["transfer_date"], r["created_at"]),
+                reverse=True,
+            )
+        # ----- Personal: accounts / imports / transactions -----------
+        if sql.startswith("SELECT * FROM personal_accounts"):
+            rows = list(personal_accounts_store.values())
+            if "WHERE is_active = TRUE" in sql:
+                rows = [r for r in rows if r["is_active"]]
+            return sorted(rows, key=lambda r: r["name"])
+        if sql.startswith("SELECT * FROM personal_imports"):
+            return sorted(
+                personal_imports_store.values(),
+                key=lambda r: r["created_at"],
+                reverse=True,
+            )
+        if sql.startswith("SELECT * FROM personal_transactions"):
+            rows = list(personal_transactions_store.values())
+            if "account_id" in params:
+                rows = [r for r in rows if r["account_id"] == params["account_id"]]
+            if "from_date" in params:
+                rows = [r for r in rows if r["posted_date"] >= params["from_date"]]
+            if "to_date" in params:
+                rows = [r for r in rows if r["posted_date"] <= params["to_date"]]
+            if "category" in params:
+                rows = [r for r in rows if r.get("category") == params["category"]]
+            return sorted(
+                rows,
+                key=lambda r: (r["posted_date"], r["created_at"]),
                 reverse=True,
             )
         if sql.startswith("SELECT * FROM expenses") and "WHERE id" not in sql:
@@ -634,6 +671,75 @@ def fake_data_api(monkeypatch: pytest.MonkeyPatch) -> None:
                     row[k] = row[k].quantize(Decimal("0.01"))
             transfers_store[row["id"]] = row
             return row
+        # ----- Personal: single-row reads + inserts -------------------
+        if sql.startswith("SELECT * FROM personal_accounts WHERE id"):
+            return personal_accounts_store.get(params["id"])
+        if sql.startswith("SELECT id FROM personal_accounts WHERE id"):
+            row = personal_accounts_store.get(params["id"])
+            return {"id": row["id"]} if row else None
+        if sql.startswith("SELECT * FROM personal_imports WHERE id"):
+            return personal_imports_store.get(params["id"])
+        if sql.startswith("SELECT * FROM personal_imports WHERE s3_key"):
+            return next(
+                (
+                    r
+                    for r in personal_imports_store.values()
+                    if r["s3_key"] == params["s3_key"]
+                ),
+                None,
+            )
+        if sql.startswith("SELECT * FROM personal_transactions WHERE id"):
+            return personal_transactions_store.get(params["id"])
+        if "COUNT(*) AS n FROM personal_transactions" in sql:
+            # The router binds the account UUID as ``:id``.
+            wanted = params.get("id") or params.get("account_id")
+            n = sum(
+                1
+                for r in personal_transactions_store.values()
+                if r["account_id"] == wanted
+            )
+            return {"n": n}
+        if sql.startswith("INSERT INTO personal_accounts"):
+            row = {
+                **params,
+                "created_at": params["now"],
+                "updated_at": params["now"],
+            }
+            personal_accounts_store[row["id"]] = row
+            return row
+        if sql.startswith("UPDATE personal_accounts"):
+            existing = personal_accounts_store.get(params["id"])
+            if existing is None:
+                return None
+            for k, v in params.items():
+                if k == "id":
+                    continue
+                existing[k] = v
+            return existing
+        if sql.startswith("INSERT INTO personal_imports"):
+            row = {
+                "filename": None,
+                "size_bytes": None,
+                "row_count": None,
+                "imported_count": None,
+                "skipped_count": None,
+                "error": None,
+                "status": "pending",
+                "created_at": params["now"],
+                "updated_at": params["now"],
+                **params,
+            }
+            personal_imports_store[row["id"]] = row
+            return row
+        if sql.startswith("UPDATE personal_transactions"):
+            existing = personal_transactions_store.get(params["id"])
+            if existing is None:
+                return None
+            for k, v in params.items():
+                if k == "id":
+                    continue
+                existing[k] = v
+            return existing
         if sql.startswith("SELECT * FROM expenses WHERE id"):
             return expenses_store.get(params["id"])
         if sql.startswith("SELECT * FROM expenses WHERE s3_key"):
@@ -841,6 +947,51 @@ def fake_data_api(monkeypatch: pytest.MonkeyPatch) -> None:
         if sql.startswith("DELETE FROM expenses"):
             expenses_store.pop(params["id"], None)
             return {}
+        # ----- Personal: writes ---------------------------------------
+        if sql.startswith("DELETE FROM personal_accounts"):
+            personal_accounts_store.pop(params["id"], None)
+            return {}
+        if sql.startswith("UPDATE personal_imports"):
+            existing = personal_imports_store.get(params["id"])
+            if existing is None:
+                return {}
+            if "status = 'processing'" in sql:
+                existing["status"] = "processing"
+            elif "status = 'ready'" in sql:
+                existing["status"] = "ready"
+            elif "status = 'failed'" in sql:
+                existing["status"] = "failed"
+            for k, v in params.items():
+                if k == "id":
+                    continue
+                existing[k] = v
+            return {}
+        if sql.startswith("INSERT INTO personal_transactions"):
+            key = (
+                params["account_id"],
+                params["posted_date"],
+                Decimal(params["amount"]).quantize(Decimal("0.01"))
+                if isinstance(params["amount"], Decimal)
+                else params["amount"],
+                params["description"],
+            )
+            if key in personal_transactions_dedup:
+                # Dedup index hit — pretend the INSERT … ON CONFLICT
+                # DO NOTHING ran with zero rows affected.
+                return {"numberOfRecordsUpdated": 0}
+            personal_transactions_dedup.add(key)
+            row = {
+                "category": None,
+                "external_id": None,
+                "balance": None,
+                "import_id": None,
+                "created_at": params["now"],
+                **params,
+            }
+            if isinstance(row.get("amount"), Decimal):
+                row["amount"] = row["amount"].quantize(Decimal("0.01"))
+            personal_transactions_store[row["id"]] = row
+            return {"numberOfRecordsUpdated": 1}
         if sql.startswith("UPDATE expenses"):
             existing = expenses_store.get(params["id"])
             if existing is None:
@@ -914,11 +1065,14 @@ class _FakeS3Client:
     Tracks PUT-object content via the presigned URL the test code reads;
     in unit tests we don't actually upload anything, so the URL is just
     a deterministic string. ``delete_object`` records calls so the
-    delete-expense test can assert it ran.
+    delete-expense test can assert it ran. ``get_object`` reads from an
+    in-memory ``objects`` dict keyed by (bucket, key) — tests seed CSV
+    bytes there before invoking the processor handler.
     """
 
     def __init__(self) -> None:
         self.deleted: list[tuple[str, str]] = []
+        self.objects: dict[tuple[str, str], bytes] = {}
 
     def generate_presigned_url(
         self, *, ClientMethod: str, Params: dict, ExpiresIn: int
@@ -929,6 +1083,13 @@ class _FakeS3Client:
     def delete_object(self, *, Bucket: str, Key: str) -> dict:
         self.deleted.append((Bucket, Key))
         return {"DeleteMarker": False}
+
+    def get_object(self, *, Bucket: str, Key: str) -> dict:
+        body = self.objects.get((Bucket, Key))
+        if body is None:
+            raise KeyError(f"NoSuchKey: {Bucket}/{Key}")
+        # Mimic the boto3 shape — Body needs `.read()`.
+        return {"Body": io.BytesIO(body)}
 
 
 class _FakeTextractClient:
