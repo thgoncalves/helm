@@ -44,6 +44,7 @@ LEGACY_DIR = REPO_ROOT / "old_database"
 CLIENTS_CSV = LEGACY_DIR / "clients.csv"
 INVOICES_CSV = LEGACY_DIR / "invoices.csv"
 INVOICE_LINE_ITEMS_CSV = LEGACY_DIR / "invoice_line_items.csv"
+PAYMENTS_RECEIVED_CSV = LEGACY_DIR / "payments_received.csv"
 
 
 # ---------------------------------------------------------------------------
@@ -315,6 +316,58 @@ def import_invoices(
     return inserted, skipped
 
 
+INSERT_PAYMENT_SQL = """
+INSERT INTO payments_received (
+    id, invoice_id, payment_date, amount, payment_method, reference,
+    notes, deduction_amount, deduction_description,
+    created_at, updated_at
+) VALUES (
+    :id, :invoice_id, :payment_date, :amount, :payment_method, :reference,
+    :notes, :deduction_amount, :deduction_description,
+    :created_at, :updated_at
+)
+ON CONFLICT (id) DO NOTHING
+""".strip()
+
+
+def import_payments_received(
+    client: Any, *, resource_arn: str, secret_arn: str, database: str
+) -> tuple[int, int]:
+    """Import payments_received.csv. Returns (inserted, skipped) counts."""
+    inserted = 0
+    skipped = 0
+    with PAYMENTS_RECEIVED_CSV.open(newline="") as f:
+        reader = csv.DictReader(f)
+        for raw in reader:
+            row = {
+                "id": UUID(raw["payment_id"]),
+                "invoice_id": UUID(raw["invoice_id"]),
+                "payment_date": parse_optional_date(raw["payment_date"]),
+                "amount": Decimal(raw["amount"]),
+                "payment_method": parse_optional_str(raw["payment_method"]),
+                "reference": parse_optional_str(raw["reference"]),
+                "notes": parse_optional_str(raw["notes"]),
+                "deduction_amount": Decimal(raw["deduction_amount"] or "0"),
+                "deduction_description": parse_optional_str(
+                    raw["deduction_description"]
+                ),
+                "created_at": parse_iso_utc(raw["created_at"]),
+                "updated_at": parse_iso_utc(raw["updated_at"]),
+            }
+            response = client.execute_statement(
+                resourceArn=resource_arn,
+                secretArn=secret_arn,
+                database=database,
+                sql=INSERT_PAYMENT_SQL,
+                parameters=[to_param(k, v) for k, v in row.items()],
+            )
+            if response.get("numberOfRecordsUpdated", 0) > 0:
+                inserted += 1
+            else:
+                skipped += 1
+    return inserted, skipped
+
+
 def import_invoice_line_items(
     client: Any, *, resource_arn: str, secret_arn: str, database: str
 ) -> tuple[int, int]:
@@ -383,6 +436,13 @@ def main() -> int:
             rds, resource_arn=resource_arn, secret_arn=secret_arn, database=database
         )
         print(f"✓ invoice_line_items — {inserted} inserted, {skipped} skipped")
+
+    if PAYMENTS_RECEIVED_CSV.exists():
+        print(f"→ importing {PAYMENTS_RECEIVED_CSV.relative_to(REPO_ROOT)}")
+        inserted, skipped = import_payments_received(
+            rds, resource_arn=resource_arn, secret_arn=secret_arn, database=database
+        )
+        print(f"✓ payments_received — {inserted} inserted, {skipped} skipped")
 
     return 0
 

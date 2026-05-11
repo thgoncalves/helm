@@ -191,6 +191,12 @@ export function Invoices() {
               <Link to="/invoices" className="font-medium">
                 Invoices
               </Link>
+              <Link
+                to="/payments"
+                className="text-muted-foreground hover:text-foreground"
+              >
+                Payments
+              </Link>
             </nav>
           </div>
           <SignOutButton />
