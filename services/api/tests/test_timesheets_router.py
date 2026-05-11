@@ -125,3 +125,66 @@ class TestPdfExport:
             },
         )
         assert response.status_code == 400
+
+
+class TestSubmitTimesheet:
+    def test_creates_invoice_with_sulpetro_defaults(
+        self, client: TestClient
+    ) -> None:
+        _seed_entries(
+            client,
+            str(SEED_ID_1),
+            entries=[("2026-05-01", "8.0"), ("2026-05-02", "8.0")],
+        )
+        response = client.post(
+            "/business/timesheets/submit",
+            json={"client_id": str(SEED_ID_1), "year": 2026, "month": 5},
+        )
+        assert response.status_code == 201, response.text
+        inv = response.json()["invoice"]
+        # Sulpetro: non-taxable, rate 100, 16 hrs → 1600 / 0 / 1600
+        assert inv["subtotal"] == "1600.00"
+        assert inv["tax_amount"] == "0.00"
+        assert inv["total"] == "1600.00"
+        assert inv["payment_terms"] == "Net 30"
+        # Notes include the period covered.
+        assert "2026-05-01" in inv["notes"] and "2026-05-31" in inv["notes"]
+
+    def test_creates_invoice_for_wenco_with_net_15_due_date(
+        self, client: TestClient
+    ) -> None:
+        from datetime import date as dt_date, timedelta as dt_td
+
+        _seed_entries(
+            client,
+            str(SEED_ID_2),
+            entries=[("2026-05-01", "10.0")],
+        )
+        response = client.post(
+            "/business/timesheets/submit",
+            json={"client_id": str(SEED_ID_2), "year": 2026, "month": 5},
+        )
+        assert response.status_code == 201, response.text
+        inv = response.json()["invoice"]
+        # Wenco rate 95.38, 10 hrs → 953.80, GST 5% → 47.69, total 1001.49.
+        assert inv["subtotal"] == "953.80"
+        assert inv["tax_amount"] == "47.69"
+        assert inv["total"] == "1001.49"
+        # Due date = today + 15 days (Wenco's payment terms).
+        expected_due = (dt_date.today() + dt_td(days=15)).isoformat()
+        assert inv["due_date"] == expected_due
+        assert inv["payment_terms"] == "Net 15"
+
+    def test_rejects_when_no_uninvoiced_entries(self, client: TestClient) -> None:
+        response = client.post(
+            "/business/timesheets/submit",
+            json={"client_id": str(SEED_ID_1), "year": 2026, "month": 5},
+        )
+        assert response.status_code == 400
+
+    def test_rejects_when_client_has_no_rate(self, client: TestClient) -> None:
+        response = client.post(
+            "/business/timesheets/submit",
+            json={"client_id": str(SEED_ID_3), "year": 2026, "month": 5},
+        )
+        assert response.status_code == 400

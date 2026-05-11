@@ -90,12 +90,14 @@ async def create_client(body: ClientCreate) -> ClientRead:
             city, state, postal_code, country, tax_id, notes,
             is_active, hourly_rate, timesheet_frequency,
             contract_value, contract_currency, default_task_description,
+            default_taxable, default_tax_rate, default_payment_terms_days,
             created_at, updated_at
         ) VALUES (
             :id, :name, :email, :phone, :address_line1, :address_line2,
             :city, :state, :postal_code, :country, :tax_id, :notes,
             :is_active, :hourly_rate, :timesheet_frequency,
             :contract_value, :contract_currency, :default_task_description,
+            :default_taxable, :default_tax_rate, :default_payment_terms_days,
             :created_at, :updated_at
         )
         RETURNING *
@@ -145,6 +147,9 @@ async def update_client(client_id: UUID, body: ClientCreate) -> ClientRead:
             contract_value = :contract_value,
             contract_currency = :contract_currency,
             default_task_description = :default_task_description,
+            default_taxable = :default_taxable,
+            default_tax_rate = :default_tax_rate,
+            default_payment_terms_days = :default_payment_terms_days,
             updated_at = :updated_at
         WHERE id = :id
         RETURNING *

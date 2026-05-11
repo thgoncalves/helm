@@ -245,15 +245,54 @@ describe("Timesheets page", () => {
     expect(await screen.findByText(/^5 hrs$/)).toBeInTheDocument();
   });
 
-  it("Submit Timesheet triggers an alert and a save", async () => {
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+  it("Submit Timesheet first saves entries then POSTs /submit", async () => {
+    // Wait for the auto-picked client before clicking submit, so the button
+    // is enabled.
     renderPage();
+    await screen.findByText("$100.00");
+
+    // Extend the API mock so /business/timesheets/submit returns an invoice.
+    apiFetchMock.mockImplementation(async (path: string) => {
+      if (path.startsWith("/business/clients/")) return [SULPETRO, WENCO];
+      if (path.startsWith("/business/time-entries/?")) return [];
+      if (path.startsWith("/business/time-entries/bulk")) return [];
+      if (path.startsWith("/business/timesheets/summary")) {
+        return summaryFor(SULPETRO_ID);
+      }
+      if (path === "/business/timesheets/submit") {
+        return {
+          invoice: {
+            id: "new-invoice-id",
+            invoice_number: "INV-2026-0001",
+            issue_date: "2026-05-11",
+            due_date: "2026-06-10",
+            client_id: SULPETRO_ID,
+            status: "draft",
+            currency: "CAD",
+            subtotal: "0",
+            tax_amount: "0",
+            total: "0",
+            notes: null,
+            payment_terms: "Net 30",
+            attachments_path: null,
+            created_at: "2026-05-11T00:00:00Z",
+            updated_at: "2026-05-11T00:00:00Z",
+          },
+        };
+      }
+      throw new Error(`Unhandled: ${path}`);
+    });
+
     const submit = await screen.findByRole("button", {
       name: /Submit Timesheet/,
     });
     await userEvent.click(submit);
-    expect(alertSpy).toHaveBeenCalledTimes(1);
-    expect(alertSpy.mock.calls[0]?.[0]).toMatch(/Invoice creation/i);
+
+    await waitFor(() => {
+      const calls = apiFetchMock.mock.calls.map((c) => c[0] as string);
+      expect(calls).toContain("/business/time-entries/bulk");
+      expect(calls).toContain("/business/timesheets/submit");
+    });
   });
 
   it("month navigation advances to the next month", async () => {

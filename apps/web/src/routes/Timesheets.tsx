@@ -31,11 +31,12 @@
  * weekly subtotal so weekly billing makes sense for first/last rows.
  */
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiFetchBlob, ApiError } from "@/lib/api";
 import type {
   ClientRead,
+  SubmitTimesheetResponse,
   TimeEntryRead,
   TimesheetSummary,
 } from "@/types/api";
@@ -76,6 +77,7 @@ function todayIso(): string {
 
 export function Timesheets() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
   // Selected client.
   const [clientId, setClientId] = useState<string | null>(null);
@@ -227,11 +229,47 @@ export function Timesheets() {
     }
   }
 
-  function handleSubmitTimesheet() {
-    saveMutation.mutate();
-    alert(
-      "Timesheet saved. Invoice creation is the next milestone — coming soon.",
-    );
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const submitMutation = useMutation<SubmitTimesheetResponse, ApiError, void>({
+    mutationFn: async () => {
+      if (!clientId) throw new Error("No client selected");
+      return apiFetch<SubmitTimesheetResponse>("/business/timesheets/submit", {
+        method: "POST",
+        body: JSON.stringify({ client_id: clientId, year, month }),
+      });
+    },
+    onSuccess: (result) => {
+      void queryClient.invalidateQueries({ queryKey: ["invoices"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["time-entries", clientId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["timesheet-summary", clientId],
+      });
+      navigate(`/invoices/${result.invoice.id}`);
+    },
+    onError: (err) => {
+      const msg =
+        err instanceof ApiError
+          ? typeof err.body === "object" && err.body && "detail" in err.body
+            ? String((err.body as { detail: unknown }).detail)
+            : `Server error ${err.status}`
+          : String(err);
+      setSubmitError(msg);
+    },
+  });
+
+  async function handleSubmitTimesheet() {
+    if (!clientId) return;
+    setSubmitError(null);
+    // Save any pending edits first so they're included in the invoice.
+    try {
+      await saveMutation.mutateAsync();
+    } catch {
+      // saveMutation.isError surfaces this below; don't proceed.
+      return;
+    }
+    submitMutation.mutate();
   }
 
   // ---------------------------------------------------------------------
@@ -303,6 +341,12 @@ export function Timesheets() {
               <Link to="/timesheets" className="font-medium">
                 Timesheets
               </Link>
+              <Link
+                to="/invoices"
+                className="text-muted-foreground hover:text-foreground"
+              >
+                Invoices
+              </Link>
             </nav>
           </div>
           <SignOutButton />
@@ -325,16 +369,23 @@ export function Timesheets() {
             <Button
               variant="default"
               className="bg-blue-600 hover:bg-blue-700 text-white"
-              onClick={handleSubmitTimesheet}
-              disabled={!clientId}
+              onClick={() => {
+                void handleSubmitTimesheet();
+              }}
+              disabled={!clientId || submitMutation.isPending}
             >
-              Submit Timesheet
+              {submitMutation.isPending ? "Submitting…" : "Submit Timesheet"}
             </Button>
           </div>
         </div>
 
         {pdfError && (
           <p className="mb-3 text-sm text-destructive">PDF export failed: {pdfError}</p>
+        )}
+        {submitError && (
+          <p className="mb-3 text-sm text-destructive">
+            Submit failed: {submitError}
+          </p>
         )}
 
         {/* Client + contract summary row */}

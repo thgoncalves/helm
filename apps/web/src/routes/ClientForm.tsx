@@ -67,6 +67,17 @@ const clientSchema = z.object({
     }),
   contract_currency: z.string().nullable().optional(),
   default_task_description: z.string().nullable().optional(),
+  default_taxable: z.boolean().optional(),
+  default_tax_rate: z
+    .string()
+    .nullable()
+    .optional()
+    .transform((v) => {
+      if (v === "" || v === null || v === undefined) return null;
+      const n = Number(v);
+      return Number.isNaN(n) ? null : v;
+    }),
+  default_payment_terms_days: z.string().optional(),
   is_active: z.boolean().optional(),
 });
 
@@ -100,6 +111,12 @@ function toFormValues(client: ClientRead): ClientFormValues {
         : "",
     contract_currency: client.contract_currency ?? "CAD",
     default_task_description: client.default_task_description ?? "",
+    default_taxable: client.default_taxable,
+    default_tax_rate:
+      client.default_tax_rate !== null && client.default_tax_rate !== undefined
+        ? String(client.default_tax_rate)
+        : "",
+    default_payment_terms_days: String(client.default_payment_terms_days ?? 30),
     is_active: client.is_active,
   };
 }
@@ -122,6 +139,14 @@ function toApiPayload(values: ClientFormValues): ClientCreate {
     contract_value: values.contract_value ?? null,
     contract_currency: values.contract_currency || "CAD",
     default_task_description: values.default_task_description || null,
+    default_taxable: values.default_taxable ?? true,
+    default_tax_rate: values.default_tax_rate ?? null,
+    default_payment_terms_days: (() => {
+      const v = values.default_payment_terms_days;
+      if (v === "" || v === null || v === undefined) return 30;
+      const n = Number(v);
+      return Number.isNaN(n) ? 30 : n;
+    })(),
     is_active: values.is_active ?? true,
   };
 }
@@ -394,6 +419,59 @@ function ClientFormInner({ mode, defaultValues, clientId }: ClientFormProps) {
           </CardContent>
         </Card>
 
+        {/* Invoicing defaults */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Invoicing Defaults</CardTitle>
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="flex items-center gap-2">
+              <input
+                id="default_taxable"
+                type="checkbox"
+                className="h-4 w-4 cursor-pointer rounded border-input"
+                {...register("default_taxable")}
+              />
+              <Label htmlFor="default_taxable" className="cursor-pointer">
+                Apply GST by default
+              </Label>
+            </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="default_tax_rate">Default Tax Rate</Label>
+              <Input
+                id="default_tax_rate"
+                type="number"
+                step="0.0001"
+                min="0"
+                max="1"
+                placeholder="0.05 = 5%"
+                {...register("default_tax_rate")}
+              />
+              <p className="text-xs text-muted-foreground">
+                Decimal value (0.05 for 5% GST).
+              </p>
+            </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="default_payment_terms_days">
+                Payment Terms (days)
+              </Label>
+              <Input
+                id="default_payment_terms_days"
+                type="number"
+                step="1"
+                min="0"
+                placeholder="30"
+                {...register("default_payment_terms_days")}
+              />
+              <p className="text-xs text-muted-foreground">
+                Net-N days: due date = issue date + N days.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Active/Archived toggle — edit mode only */}
         {mode === "edit" && (
           <Card>
@@ -458,6 +536,9 @@ const newClientDefaults: ClientFormValues = {
   contract_value: "",
   contract_currency: "CAD",
   default_task_description: "",
+  default_taxable: true,
+  default_tax_rate: "0.05",
+  default_payment_terms_days: "30",
   is_active: true,
 };
 

@@ -65,6 +65,15 @@ export interface ClientRead {
   contract_currency: string | null;
   /** Default task description printed on every populated PDF row. */
   default_task_description: string | null;
+  /**
+   * Whether invoices auto-created from this client's timesheet should apply
+   * GST by default. Mirrors clients.default_taxable.
+   */
+  default_taxable: boolean;
+  /** Default GST/tax rate as a decimal (e.g. "0.0500" for 5%). */
+  default_tax_rate: number | string | null;
+  /** Net-N payment terms in days (e.g. 30 for "Net 30", 15 for Wenco). */
+  default_payment_terms_days: number;
   /** ISO 8601 UTC timestamp when the record was created. */
   created_at: string;
   /** ISO 8601 UTC timestamp when the record was last updated. */
@@ -101,6 +110,75 @@ export interface TimeEntryRead {
 // ---------------------------------------------------------------------------
 // Timesheet summary — mirrors TimesheetSummary
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Invoices — mirrors InvoiceRead + InvoiceLineItemRead
+// ---------------------------------------------------------------------------
+
+export interface InvoiceRead {
+  id: string;
+  invoice_number: string;
+  issue_date: string;
+  due_date: string | null;
+  client_id: string;
+  status: string;
+  currency: string;
+  subtotal: number | string;
+  tax_amount: number | string;
+  total: number | string;
+  notes: string | null;
+  payment_terms: string | null;
+  attachments_path: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InvoiceLineItemRead {
+  id: string;
+  invoice_id: string;
+  line_order: number;
+  description: string;
+  quantity: number | string;
+  unit_price: number | string;
+  tax_category: string | null;
+  is_taxable: boolean;
+  tax_rate: number | string | null;
+  line_subtotal: number | string;
+  line_tax: number | string;
+  line_total: number | string;
+}
+
+export interface InvoiceLineItemInput {
+  line_order: number;
+  description: string;
+  quantity: number | string;
+  unit_price: number | string;
+  is_taxable: boolean;
+  tax_rate: number | string | null;
+  tax_category: string | null;
+}
+
+export interface InvoiceWithLines {
+  invoice: InvoiceRead;
+  line_items: InvoiceLineItemRead[];
+}
+
+export interface InvoiceStatusTotals {
+  draft: number | string;
+  sent: number | string;
+  overdue: number | string;
+  paid: number | string;
+  total: number | string;
+}
+
+export interface InvoiceListResponse {
+  invoices: InvoiceRead[];
+  totals_by_status: InvoiceStatusTotals;
+}
+
+export interface SubmitTimesheetResponse {
+  invoice: InvoiceRead;
+}
 
 /** Mirrors TimesheetSummary in services/api/app/routers/timesheets.py */
 export interface TimesheetSummary {
