@@ -200,6 +200,11 @@ def fake_data_api(monkeypatch: pytest.MonkeyPatch) -> None:
                 ),
                 key=lambda ln: ln["line_order"],
             )
+        if sql.startswith("SELECT key, value FROM settings"):
+            return [
+                {"key": k, "value": v}
+                for k, v in sorted(settings_store.items())
+            ]
         if sql.startswith("SELECT * FROM transfers"):
             rows = list(transfers_store.values())
             if "from_date" in params:
@@ -742,6 +747,9 @@ def fake_data_api(monkeypatch: pytest.MonkeyPatch) -> None:
             return {}
         if sql.startswith("DELETE FROM transfers"):
             transfers_store.pop(params["id"], None)
+            return {}
+        if sql.startswith("INSERT INTO settings"):
+            settings_store[params["key"]] = params["value"]
             return {}
         if sql.startswith("DELETE FROM invoice_line_items"):
             nonlocal_id = params["invoice_id"]

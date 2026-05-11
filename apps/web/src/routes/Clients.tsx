@@ -101,6 +101,12 @@ export function Clients() {
               >
                 Transfers
               </Link>
+              <Link
+                to="/settings"
+                className="text-muted-foreground hover:text-foreground"
+              >
+                Settings
+              </Link>
             </nav>
           </div>
           <SignOutButton />

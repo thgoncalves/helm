@@ -33,11 +33,14 @@ import { NewTaxPayment, EditTaxPayment } from "@/routes/TaxPaymentForm";
 import { LinkTaxInvoices } from "@/routes/LinkTaxInvoices";
 import { Transfers } from "@/routes/Transfers";
 import { NewTransfer, EditTransfer } from "@/routes/TransferForm";
+import { Settings } from "@/routes/Settings";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { ThemeSync } from "@/components/ThemeSync";
 
 export function App() {
   return (
     <BrowserRouter>
+      <ThemeSync />
       <Routes>
         {/* Public */}
         <Route path="/" element={<SignIn />} />
@@ -69,6 +72,7 @@ export function App() {
           <Route path="/transfers" element={<Transfers />} />
           <Route path="/transfers/new" element={<NewTransfer />} />
           <Route path="/transfers/:id" element={<EditTransfer />} />
+          <Route path="/settings" element={<Settings />} />
         </Route>
 
         {/* 404 */}
