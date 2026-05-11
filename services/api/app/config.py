@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     database_resource_arn: str | None = None
     stage: Literal["dev", "prod", "local"] = "local"
 
+    # S3 bucket that stores uploaded receipt/invoice images. Set via
+    # ``HELM_RECEIPTS_BUCKET``; ``None`` locally means presigned-URL
+    # endpoints raise instead of returning bogus URLs.
+    receipts_bucket: str | None = None
+
     model_config = SettingsConfigDict(
         env_prefix="HELM_",
         env_file=".env",

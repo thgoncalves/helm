@@ -18,7 +18,9 @@ from uuid import UUID
 import pytest
 from fastapi.testclient import TestClient
 
+from app import aws as aws_module
 from app import db as db_module
+from app.config import settings as app_settings
 from app.main import app
 
 # Deterministic UUIDs referenced across test files.
@@ -134,6 +136,7 @@ def fake_data_api(monkeypatch: pytest.MonkeyPatch) -> None:
     tax_payments_store: dict[UUID, dict[str, Any]] = {}
     invoice_tax_links: list[dict[str, Any]] = []
     transfers_store: dict[UUID, dict[str, Any]] = {}
+    expenses_store: dict[UUID, dict[str, Any]] = {}
     settings_store: dict[str, str] = _seed_settings()
 
     def _between(work_date: date, params: dict[str, Any]) -> bool:
@@ -224,6 +227,32 @@ def fake_data_api(monkeypatch: pytest.MonkeyPatch) -> None:
             return sorted(
                 rows,
                 key=lambda r: (r["transfer_date"], r["created_at"]),
+                reverse=True,
+            )
+        if sql.startswith("SELECT * FROM expenses") and "WHERE id" not in sql:
+            rows = list(expenses_store.values())
+            if "from_date" in params:
+                rows = [
+                    r
+                    for r in rows
+                    if r.get("expense_date")
+                    and r["expense_date"] >= params["from_date"]
+                ]
+            if "to_date" in params:
+                rows = [
+                    r
+                    for r in rows
+                    if r.get("expense_date")
+                    and r["expense_date"] <= params["to_date"]
+                ]
+            if "status" in params:
+                rows = [r for r in rows if r["status"] == params["status"]]
+            return sorted(
+                rows,
+                key=lambda r: (
+                    r.get("expense_date") or r["created_at"].date(),
+                    r["created_at"],
+                ),
                 reverse=True,
             )
         if "FROM payments_received p" in sql and "JOIN invoices i" in sql:
@@ -605,6 +634,57 @@ def fake_data_api(monkeypatch: pytest.MonkeyPatch) -> None:
                     row[k] = row[k].quantize(Decimal("0.01"))
             transfers_store[row["id"]] = row
             return row
+        if sql.startswith("SELECT * FROM expenses WHERE id"):
+            return expenses_store.get(params["id"])
+        if sql.startswith("SELECT * FROM expenses WHERE s3_key"):
+            return next(
+                (
+                    e
+                    for e in expenses_store.values()
+                    if e.get("s3_key") == params["s3_key"]
+                ),
+                None,
+            )
+        if sql.startswith("INSERT INTO expenses"):
+            now = params.get("now")
+            row = {
+                "ocr_raw": None,
+                "ocr_error": None,
+                "expense_date": None,
+                "supplier": None,
+                "category": None,
+                "subtotal": None,
+                "tax_amount": None,
+                "total": None,
+                "notes": None,
+                # Literals from the router's INSERT SQL.
+                "status": "pending",
+                "currency": "CAD",
+                "created_at": now,
+                "updated_at": now,
+                **params,
+            }
+            for k in ("subtotal", "tax_amount", "total", "size_bytes"):
+                v = row.get(k)
+                if isinstance(v, Decimal):
+                    row[k] = v.quantize(Decimal("0.01"))
+            expenses_store[row["id"]] = row
+            return row
+        if sql.startswith("UPDATE expenses"):
+            existing = expenses_store.get(params["id"])
+            if existing is None:
+                return None
+            for k, v in params.items():
+                if k == "id":
+                    continue
+                # The processor handler stores `ocr_raw` as a JSON
+                # string (via CAST :ocr_raw AS jsonb in real SQL).
+                # Tests pass the raw dict — fall through to plain set.
+                existing[k] = v
+            for k in ("subtotal", "tax_amount", "total"):
+                if isinstance(existing.get(k), Decimal):
+                    existing[k] = existing[k].quantize(Decimal("0.01"))
+            return existing
         if sql.startswith("UPDATE transfers"):
             existing = transfers_store.get(params["id"])
             if existing is None:
@@ -758,6 +838,27 @@ def fake_data_api(monkeypatch: pytest.MonkeyPatch) -> None:
         if sql.startswith("DELETE FROM transfers"):
             transfers_store.pop(params["id"], None)
             return {}
+        if sql.startswith("DELETE FROM expenses"):
+            expenses_store.pop(params["id"], None)
+            return {}
+        if sql.startswith("UPDATE expenses"):
+            existing = expenses_store.get(params["id"])
+            if existing is None:
+                return {}
+            # The processor handler bakes status literals into the SQL
+            # (status = 'processing' / 'ready' / 'failed'); detect those
+            # so the fake DB mirrors the real one.
+            if "status = 'processing'" in sql:
+                existing["status"] = "processing"
+            elif "status = 'ready'" in sql:
+                existing["status"] = "ready"
+            elif "status = 'failed'" in sql:
+                existing["status"] = "failed"
+            for k, v in params.items():
+                if k == "id":
+                    continue
+                existing[k] = v
+            return {}
         if sql.startswith("INSERT INTO settings"):
             settings_store[params["key"]] = params["value"]
             return {}
@@ -800,6 +901,67 @@ def fake_data_api(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(db_module, "fetch_all", fetch_all)
     monkeypatch.setattr(db_module, "fetch_one", fetch_one)
     monkeypatch.setattr(db_module, "execute", execute)
+
+
+# ---------------------------------------------------------------------------
+# S3 / Textract fakes for the expenses feature
+# ---------------------------------------------------------------------------
+
+
+class _FakeS3Client:
+    """Minimal boto3 ``s3`` stub.
+
+    Tracks PUT-object content via the presigned URL the test code reads;
+    in unit tests we don't actually upload anything, so the URL is just
+    a deterministic string. ``delete_object`` records calls so the
+    delete-expense test can assert it ran.
+    """
+
+    def __init__(self) -> None:
+        self.deleted: list[tuple[str, str]] = []
+
+    def generate_presigned_url(
+        self, *, ClientMethod: str, Params: dict, ExpiresIn: int
+    ) -> str:
+        kind = "put" if ClientMethod == "put_object" else "get"
+        return f"https://fake-s3.local/{Params['Bucket']}/{Params['Key']}?op={kind}&expires={ExpiresIn}"
+
+    def delete_object(self, *, Bucket: str, Key: str) -> dict:
+        self.deleted.append((Bucket, Key))
+        return {"DeleteMarker": False}
+
+
+class _FakeTextractClient:
+    """Boto3 ``textract`` stub.
+
+    Tests use ``monkeypatch.setattr(aws_module, "_TEXTRACT_CLIENT",
+    fake)`` to control what ``analyze_expense`` returns per test.
+    """
+
+    def __init__(self, response: dict | None = None) -> None:
+        self.response: dict = response or {"ExpenseDocuments": []}
+        self.calls: list[dict] = []
+
+    def analyze_expense(self, *, Document: dict) -> dict:
+        self.calls.append(Document)
+        return self.response
+
+
+@pytest.fixture(autouse=True)
+def fake_aws_clients(monkeypatch: pytest.MonkeyPatch) -> dict:
+    """Substitute the boto3 S3 + Textract clients with in-process fakes.
+
+    Returns the fake instances so individual tests can inspect them
+    (e.g. assert ``delete_object`` was called).
+    """
+    s3 = _FakeS3Client()
+    textract = _FakeTextractClient()
+    monkeypatch.setattr(aws_module, "_S3_CLIENT", s3)
+    monkeypatch.setattr(aws_module, "_TEXTRACT_CLIENT", textract)
+    # Tests assume the bucket is configured; the production env sets
+    # this via HELM_RECEIPTS_BUCKET.
+    monkeypatch.setattr(app_settings, "receipts_bucket", "helm-receipts-test")
+    return {"s3": s3, "textract": textract}
 
 
 @pytest.fixture
