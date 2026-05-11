@@ -35,6 +35,8 @@ import { Transfers } from "@/routes/Transfers";
 import { NewTransfer, EditTransfer } from "@/routes/TransferForm";
 import { Settings } from "@/routes/Settings";
 import { Dashboard } from "@/routes/Dashboard";
+import { Expenses } from "@/routes/Expenses";
+import { ExpenseForm } from "@/routes/ExpenseForm";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { ThemeSync } from "@/components/ThemeSync";
 
@@ -67,6 +69,8 @@ export function App() {
           <Route path="/payments" element={<Payments />} />
           <Route path="/payments/new" element={<NewPayment />} />
           <Route path="/payments/:id" element={<EditPayment />} />
+          <Route path="/expenses" element={<Expenses />} />
+          <Route path="/expenses/:id" element={<ExpenseForm />} />
           <Route path="/taxes" element={<Taxes />} />
           <Route path="/taxes/new" element={<NewTaxPayment />} />
           <Route path="/taxes/:id" element={<EditTaxPayment />} />

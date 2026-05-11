@@ -434,6 +434,57 @@ export interface DashboardResponse {
   aging: AgingBucket[];
 }
 
+// ---------------------------------------------------------------------------
+// Expenses
+// ---------------------------------------------------------------------------
+
+export type ExpenseStatus = "pending" | "processing" | "ready" | "failed";
+
+export interface ExpenseRead {
+  id: string;
+  status: ExpenseStatus;
+  s3_key: string;
+  content_type: string | null;
+  size_bytes: number | null;
+  expense_date: string | null;
+  supplier: string | null;
+  category: string | null;
+  subtotal: number | string | null;
+  tax_amount: number | string | null;
+  total: number | string | null;
+  currency: string | null;
+  notes: string | null;
+  ocr_error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ExpenseCreateRequest {
+  file_extension?: string;
+  content_type?: string;
+  size_bytes?: number;
+}
+
+export interface ExpenseCreateResponse {
+  expense: ExpenseRead;
+  upload_url: string;
+}
+
+export interface ExpenseUpdate {
+  expense_date: string | null;
+  supplier: string | null;
+  category: string | null;
+  subtotal: number | string | null;
+  tax_amount: number | string | null;
+  total: number | string | null;
+  currency: string | null;
+  notes: string | null;
+}
+
+export interface ExpenseImageUrlResponse {
+  url: string;
+}
+
 /** Mirrors TimesheetSummary in services/api/app/routers/timesheets.py */
 export interface TimesheetSummary {
   client_id: string;

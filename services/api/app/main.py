@@ -10,6 +10,7 @@ from mangum import Mangum
 
 from app.routers import clients as clients_router
 from app.routers import dashboard as dashboard_router
+from app.routers import expenses as expenses_router
 from app.routers import invoices as invoices_router
 from app.routers import payments as payments_router
 from app.routers import settings as settings_router
@@ -44,6 +45,7 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 app.include_router(clients_router.router, prefix="/business/clients")
 app.include_router(dashboard_router.router, prefix="/business/dashboard")
+app.include_router(expenses_router.router, prefix="/business/expenses")
 app.include_router(invoices_router.router, prefix="/business/invoices")
 app.include_router(payments_router.router, prefix="/business/payments")
 app.include_router(settings_router.router, prefix="/business/settings")

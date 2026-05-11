@@ -8,3 +8,4 @@ export * from './tax-payments';
 export * from './invoice-tax-links';
 export * from './transfers';
 export * from './settings';
+export * from './expenses';

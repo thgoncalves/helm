@@ -45,6 +45,7 @@ const NAV_ITEMS: readonly NavItem[] = [
   { to: "/timesheets", label: "Timesheets", matchPrefixes: ["/timesheets"] },
   { to: "/invoices", label: "Invoices", matchPrefixes: ["/invoices"] },
   { to: "/payments", label: "Payments", matchPrefixes: ["/payments"] },
+  { to: "/expenses", label: "Expenses", matchPrefixes: ["/expenses"] },
   { to: "/taxes", label: "Taxes", matchPrefixes: ["/taxes"] },
   { to: "/transfers", label: "Transfers", matchPrefixes: ["/transfers"] },
   { to: "/settings", label: "Settings", matchPrefixes: ["/settings"] },
