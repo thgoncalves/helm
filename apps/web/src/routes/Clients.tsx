@@ -83,6 +83,12 @@ export function Clients() {
               >
                 Invoices
               </Link>
+              <Link
+                to="/payments"
+                className="text-muted-foreground hover:text-foreground"
+              >
+                Payments
+              </Link>
             </nav>
           </div>
           <SignOutButton />

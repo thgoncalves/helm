@@ -180,6 +180,64 @@ export interface SubmitTimesheetResponse {
   invoice: InvoiceRead;
 }
 
+// ---------------------------------------------------------------------------
+// Payments — mirrors PaymentReceived models + landing-row + invoice-option
+// ---------------------------------------------------------------------------
+
+export interface PaymentRead {
+  id: string;
+  invoice_id: string;
+  payment_date: string;
+  amount: number | string;
+  payment_method: string | null;
+  reference: string | null;
+  notes: string | null;
+  deduction_amount: number | string;
+  deduction_description: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PaymentCreate {
+  invoice_id: string;
+  payment_date: string;
+  amount: number | string;
+  payment_method: string | null;
+  reference: string | null;
+  notes: string | null;
+  deduction_amount: number | string;
+  deduction_description: string | null;
+}
+
+/** Enriched row for the Payments landing table. */
+export interface PaymentListRow {
+  id: string;
+  payment_date: string;
+  invoice_id: string;
+  invoice_number: string;
+  client_id: string;
+  client_name: string;
+  amount: number | string;
+  deduction_amount: number | string;
+  net: number | string;
+  payment_method: string | null;
+  reference: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Invoice dropdown option with balance_due. */
+export interface InvoiceOption {
+  invoice_id: string;
+  invoice_number: string;
+  client_id: string;
+  client_name: string;
+  total: number | string;
+  balance_due: number | string;
+  status: string;
+}
+
 /** Mirrors TimesheetSummary in services/api/app/routers/timesheets.py */
 export interface TimesheetSummary {
   client_id: string;

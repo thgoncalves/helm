@@ -26,6 +26,8 @@ import { NewClient, EditClient } from "@/routes/ClientForm";
 import { Timesheets } from "@/routes/Timesheets";
 import { Invoices } from "@/routes/Invoices";
 import { NewInvoice, EditInvoice } from "@/routes/InvoiceForm";
+import { Payments } from "@/routes/Payments";
+import { NewPayment, EditPayment } from "@/routes/PaymentForm";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 
 export function App() {
@@ -52,6 +54,9 @@ export function App() {
           <Route path="/invoices" element={<Invoices />} />
           <Route path="/invoices/new" element={<NewInvoice />} />
           <Route path="/invoices/:id" element={<EditInvoice />} />
+          <Route path="/payments" element={<Payments />} />
+          <Route path="/payments/new" element={<NewPayment />} />
+          <Route path="/payments/:id" element={<EditPayment />} />
         </Route>
 
         {/* 404 */}

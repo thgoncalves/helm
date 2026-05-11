@@ -128,6 +128,7 @@ def fake_data_api(monkeypatch: pytest.MonkeyPatch) -> None:
     # invoices keyed by id; line_items list per invoice for ordering.
     invoices_store: dict[UUID, dict[str, Any]] = {}
     invoice_line_items: list[dict[str, Any]] = []
+    payments_store: dict[UUID, dict[str, Any]] = {}
     settings_store: dict[str, str] = _seed_settings()
 
     def _between(work_date: date, params: dict[str, Any]) -> bool:
@@ -194,6 +195,64 @@ def fake_data_api(monkeypatch: pytest.MonkeyPatch) -> None:
                 ),
                 key=lambda ln: ln["line_order"],
             )
+        if "FROM payments_received p" in sql and "JOIN invoices i" in sql:
+            # Enriched list join: payments + invoices + clients.
+            rows: list[dict[str, Any]] = []
+            for p in payments_store.values():
+                inv = invoices_store.get(p["invoice_id"])
+                if inv is None:
+                    continue
+                client_row = clients_store.get(inv["client_id"])
+                if client_row is None:
+                    continue
+                if "from_date" in params and p["payment_date"] < params["from_date"]:
+                    continue
+                if "to_date" in params and p["payment_date"] > params["to_date"]:
+                    continue
+                if "client_id" in params and inv["client_id"] != params["client_id"]:
+                    continue
+                if "invoice_id" in params and p["invoice_id"] != params["invoice_id"]:
+                    continue
+                rows.append(
+                    {
+                        **p,
+                        "invoice_number": inv["invoice_number"],
+                        "client_id": inv["client_id"],
+                        "client_name": client_row["name"],
+                    }
+                )
+            return sorted(
+                rows,
+                key=lambda r: (r["payment_date"], r["created_at"]),
+                reverse=True,
+            )
+        if "FROM invoices i" in sql and "JOIN clients c" in sql and "LEFT JOIN payments_received p" in sql:
+            # invoice-options endpoint
+            out: list[dict[str, Any]] = []
+            for inv in invoices_store.values():
+                cli = clients_store.get(inv["client_id"])
+                if cli is None:
+                    continue
+                paid = sum(
+                    (
+                        p["amount"]
+                        for p in payments_store.values()
+                        if p["invoice_id"] == inv["id"]
+                    ),
+                    Decimal(0),
+                )
+                out.append(
+                    {
+                        "invoice_id": inv["id"],
+                        "invoice_number": inv["invoice_number"],
+                        "client_id": inv["client_id"],
+                        "client_name": cli["name"],
+                        "total": inv["total"],
+                        "status": inv["status"],
+                        "paid": paid,
+                    }
+                )
+            return out
         raise NotImplementedError(f"fake fetch_all doesn't handle: {sql[:80]}")
 
     def fetch_one(
@@ -266,7 +325,54 @@ def fake_data_api(monkeypatch: pytest.MonkeyPatch) -> None:
             if existing is None:
                 return None
             existing["status"] = "sent"
-            existing["updated_at"] = params["updated_at"]
+            existing["updated_at"] = params["now"] if "now" in params else params.get("updated_at")
+            return existing
+        if sql.startswith("UPDATE invoices") and "status = 'paid'" in sql:
+            existing = invoices_store.get(params["id"])
+            if existing is None:
+                return None
+            existing["status"] = "paid"
+            existing["updated_at"] = params["now"] if "now" in params else params.get("updated_at")
+            return existing
+        if sql.startswith("SELECT i.total AS total"):
+            inv = invoices_store.get(params["invoice_id"])
+            if inv is None:
+                return None
+            paid = sum(
+                (
+                    p["amount"]
+                    for p in payments_store.values()
+                    if p["invoice_id"] == params["invoice_id"]
+                ),
+                Decimal(0),
+            )
+            return {
+                "total": inv["total"],
+                "status": inv["status"],
+                "paid": paid,
+            }
+        if sql.startswith("SELECT id FROM invoices"):
+            inv = invoices_store.get(params["id"])
+            if inv is None:
+                return None
+            return {"id": inv["id"]}
+        if sql.startswith("SELECT * FROM payments_received WHERE id"):
+            return payments_store.get(params["id"])
+        if sql.startswith("INSERT INTO payments_received"):
+            row = {**params}
+            # Real PG numeric(15,2) quantises to 2dp; mimic so JSON is stable.
+            for k in ("amount", "deduction_amount"):
+                if isinstance(row.get(k), Decimal):
+                    row[k] = row[k].quantize(Decimal("0.01"))
+            payments_store[row["id"]] = row
+            return row
+        if sql.startswith("UPDATE payments_received"):
+            existing = payments_store.get(params["id"])
+            if existing is None:
+                return None
+            for k, v in params.items():
+                existing[k] = v
+            payments_store[params["id"]] = existing
             return existing
         if sql.startswith("UPDATE invoices"):
             existing = invoices_store.get(params["id"])
@@ -328,6 +434,21 @@ def fake_data_api(monkeypatch: pytest.MonkeyPatch) -> None:
             return {}
         if sql.startswith("INSERT INTO invoice_line_items"):
             invoice_line_items.append(dict(params))
+            return {}
+        if sql.startswith("UPDATE invoices") and "status = 'paid'" in sql:
+            inv = invoices_store.get(params["id"])
+            if inv is not None:
+                inv["status"] = "paid"
+                inv["updated_at"] = params.get("now") or params.get("updated_at")
+            return {}
+        if sql.startswith("UPDATE invoices") and "status = 'sent'" in sql:
+            inv = invoices_store.get(params["id"])
+            if inv is not None:
+                inv["status"] = "sent"
+                inv["updated_at"] = params.get("now") or params.get("updated_at")
+            return {}
+        if sql.startswith("DELETE FROM payments_received"):
+            payments_store.pop(params["id"], None)
             return {}
         if sql.startswith("DELETE FROM invoice_line_items"):
             nonlocal_id = params["invoice_id"]
