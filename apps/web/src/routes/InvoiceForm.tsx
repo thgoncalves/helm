@@ -295,6 +295,12 @@ function InvoiceFormInner({
               >
                 Taxes
               </Link>
+              <Link
+                to="/transfers"
+                className="text-muted-foreground hover:text-foreground"
+              >
+                Transfers
+              </Link>
             </nav>
           </div>
           <SignOutButton />

@@ -14,6 +14,7 @@ from app.routers import payments as payments_router
 from app.routers import tax_payments as tax_payments_router
 from app.routers import time_entries as time_entries_router
 from app.routers import timesheets as timesheets_router
+from app.routers import transfers as transfers_router
 
 app = FastAPI(
     title="Helm API",
@@ -45,6 +46,7 @@ app.include_router(payments_router.router, prefix="/business/payments")
 app.include_router(tax_payments_router.router, prefix="/business/tax-payments")
 app.include_router(time_entries_router.router, prefix="/business/time-entries")
 app.include_router(timesheets_router.router, prefix="/business/timesheets")
+app.include_router(transfers_router.router, prefix="/business/transfers")
 
 # ---------------------------------------------------------------------------
 # Health check
