@@ -6,9 +6,10 @@
 # ///
 """One-shot import of legacy CSV data into Aurora via the RDS Data API.
 
-V1 scope: ``clients`` only. Other entities (invoices, time_entries, etc.)
-are brought over with their respective feature branches because they
-reference each other and need the schema-aware routers in place first.
+V1 scope: ``clients``, ``invoices`` and ``invoice_line_items``. Other
+entities (time_entries, payments_received, etc.) follow with their
+respective feature branches because they reference each other and need
+the schema-aware routers in place first.
 
 Idempotent — uses ``ON CONFLICT (id) DO NOTHING`` so re-runs only insert
 rows that aren't yet present. UUIDs and timestamps from the legacy CSV are
@@ -29,7 +30,7 @@ import csv
 import os
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -41,6 +42,8 @@ from botocore.exceptions import ClientError
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LEGACY_DIR = REPO_ROOT / "old_database"
 CLIENTS_CSV = LEGACY_DIR / "clients.csv"
+INVOICES_CSV = LEGACY_DIR / "invoices.csv"
+INVOICE_LINE_ITEMS_CSV = LEGACY_DIR / "invoice_line_items.csv"
 
 
 # ---------------------------------------------------------------------------
@@ -75,12 +78,24 @@ def parse_iso_utc(s: str) -> datetime:
     return dt
 
 
+def parse_optional_date(s: str) -> date | None:
+    return date.fromisoformat(s) if s else None
+
+
+def parse_int(s: str) -> int:
+    return int(s)
+
+
 def to_param(name: str, value: Any) -> dict[str, Any]:
     """Mirror of ``app.db._to_param`` — Python value → Data API parameter."""
     if value is None:
         return {"name": name, "value": {"isNull": True}}
     if isinstance(value, bool):
         return {"name": name, "value": {"booleanValue": value}}
+    # int must be checked BEFORE bool — but isinstance(True, int) is also True
+    # so the bool check above handles that case first.
+    if isinstance(value, int):
+        return {"name": name, "value": {"longValue": value}}
     if isinstance(value, UUID):
         return {
             "name": name,
@@ -102,6 +117,12 @@ def to_param(name: str, value: Any) -> dict[str, Any]:
                 "stringValue": value.isoformat(sep=" ", timespec="milliseconds")
             },
             "typeHint": "TIMESTAMP",
+        }
+    if isinstance(value, date):
+        return {
+            "name": name,
+            "value": {"stringValue": value.isoformat()},
+            "typeHint": "DATE",
         }
     if isinstance(value, str):
         return {"name": name, "value": {"stringValue": value}}
@@ -203,6 +224,134 @@ def import_clients(
     return inserted, skipped
 
 
+INSERT_INVOICE_SQL = """
+INSERT INTO invoices (
+    id, invoice_number, issue_date, due_date, client_id,
+    status, currency, subtotal, tax_amount, total,
+    notes, payment_terms, attachments_path,
+    created_at, updated_at
+) VALUES (
+    :id, :invoice_number, :issue_date, :due_date, :client_id,
+    :status, :currency, :subtotal, :tax_amount, :total,
+    :notes, :payment_terms, :attachments_path,
+    :created_at, :updated_at
+)
+ON CONFLICT (id) DO NOTHING
+""".strip()
+
+
+INSERT_LINE_ITEM_SQL = """
+INSERT INTO invoice_line_items (
+    id, invoice_id, line_order, description,
+    quantity, unit_price, tax_category,
+    is_taxable, tax_rate,
+    line_subtotal, line_tax, line_total
+) VALUES (
+    :id, :invoice_id, :line_order, :description,
+    :quantity, :unit_price, :tax_category,
+    :is_taxable, :tax_rate,
+    :line_subtotal, :line_tax, :line_total
+)
+ON CONFLICT (id) DO NOTHING
+""".strip()
+
+
+def import_invoices(
+    client: Any, *, resource_arn: str, secret_arn: str, database: str
+) -> tuple[int, int]:
+    """Import invoices.csv. Returns (inserted, skipped) counts.
+
+    The legacy CSV has 3 ``invoice_number`` duplicates (two pairs of
+    AUD EFT-references where the same number was reused a month later, and
+    one exact double-row for ``202501-001``). Since the live schema enforces
+    ``UNIQUE (invoice_number)``, second-and-later occurrences are renamed
+    in-place with a ``-2`` / ``-3`` suffix so the row's data is still
+    preserved.
+    """
+    inserted = 0
+    skipped = 0
+    seen_numbers: dict[str, int] = {}
+    with INVOICES_CSV.open(newline="") as f:
+        reader = csv.DictReader(f)
+        for raw in reader:
+            original_number = raw["invoice_number"]
+            count = seen_numbers.get(original_number, 0) + 1
+            seen_numbers[original_number] = count
+            if count == 1:
+                invoice_number = original_number
+            else:
+                invoice_number = f"{original_number}-{count}"
+                print(
+                    f"  ! renaming duplicate {original_number} → {invoice_number}"
+                )
+            row = {
+                "id": UUID(raw["invoice_id"]),
+                "invoice_number": invoice_number,
+                "issue_date": parse_optional_date(raw["issue_date"]),
+                "due_date": parse_optional_date(raw["due_date"]),
+                "client_id": UUID(raw["client_id"]),
+                "status": raw["status"] or "draft",
+                "currency": raw["currency"] or "CAD",
+                "subtotal": Decimal(raw["subtotal"]),
+                "tax_amount": Decimal(raw["tax_amount"] or "0"),
+                "total": Decimal(raw["total"]),
+                "notes": parse_optional_str(raw["notes"]),
+                "payment_terms": parse_optional_str(raw["payment_terms"]),
+                "attachments_path": parse_optional_str(raw["attachments_path"]),
+                "created_at": parse_iso_utc(raw["created_at"]),
+                "updated_at": parse_iso_utc(raw["updated_at"]),
+            }
+            response = client.execute_statement(
+                resourceArn=resource_arn,
+                secretArn=secret_arn,
+                database=database,
+                sql=INSERT_INVOICE_SQL,
+                parameters=[to_param(k, v) for k, v in row.items()],
+            )
+            if response.get("numberOfRecordsUpdated", 0) > 0:
+                inserted += 1
+            else:
+                skipped += 1
+    return inserted, skipped
+
+
+def import_invoice_line_items(
+    client: Any, *, resource_arn: str, secret_arn: str, database: str
+) -> tuple[int, int]:
+    """Import invoice_line_items.csv. Returns (inserted, skipped) counts."""
+    inserted = 0
+    skipped = 0
+    with INVOICE_LINE_ITEMS_CSV.open(newline="") as f:
+        reader = csv.DictReader(f)
+        for raw in reader:
+            row = {
+                "id": UUID(raw["line_id"]),
+                "invoice_id": UUID(raw["invoice_id"]),
+                "line_order": parse_int(raw["line_order"]),
+                "description": raw["description"],
+                "quantity": Decimal(raw["quantity"]),
+                "unit_price": Decimal(raw["unit_price"]),
+                "tax_category": parse_optional_str(raw["tax_category"]),
+                "is_taxable": parse_bool(raw["is_taxable"]),
+                "tax_rate": parse_optional_decimal(raw["tax_rate"]),
+                "line_subtotal": Decimal(raw["line_subtotal"]),
+                "line_tax": Decimal(raw["line_tax"] or "0"),
+                "line_total": Decimal(raw["line_total"]),
+            }
+            response = client.execute_statement(
+                resourceArn=resource_arn,
+                secretArn=secret_arn,
+                database=database,
+                sql=INSERT_LINE_ITEM_SQL,
+                parameters=[to_param(k, v) for k, v in row.items()],
+            )
+            if response.get("numberOfRecordsUpdated", 0) > 0:
+                inserted += 1
+            else:
+                skipped += 1
+    return inserted, skipped
+
+
 def main() -> int:
     if not CLIENTS_CSV.exists():
         sys.exit(f"error: {CLIENTS_CSV} not found")
@@ -219,7 +368,22 @@ def main() -> int:
     inserted, skipped = import_clients(
         rds, resource_arn=resource_arn, secret_arn=secret_arn, database=database
     )
-    print(f"✓ done — {inserted} inserted, {skipped} skipped")
+    print(f"✓ clients — {inserted} inserted, {skipped} skipped")
+
+    if INVOICES_CSV.exists():
+        print(f"→ importing {INVOICES_CSV.relative_to(REPO_ROOT)}")
+        inserted, skipped = import_invoices(
+            rds, resource_arn=resource_arn, secret_arn=secret_arn, database=database
+        )
+        print(f"✓ invoices — {inserted} inserted, {skipped} skipped")
+
+    if INVOICE_LINE_ITEMS_CSV.exists():
+        print(f"→ importing {INVOICE_LINE_ITEMS_CSV.relative_to(REPO_ROOT)}")
+        inserted, skipped = import_invoice_line_items(
+            rds, resource_arn=resource_arn, secret_arn=secret_arn, database=database
+        )
+        print(f"✓ invoice_line_items — {inserted} inserted, {skipped} skipped")
+
     return 0
 
 
