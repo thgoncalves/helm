@@ -81,6 +81,19 @@ class TestTD:
         assert out[0].balance == Decimal("1234.56")
         assert out[1].amount == Decimal("2500.00")
 
+    def test_headerless_iso_date(self) -> None:
+        # TD's actual web export — no header row, ISO date, quoted cells.
+        text = (
+            '"2026-04-13","UBER EATS","10.49",,"101.16"\n'
+            '"2026-04-14","PAYROLL",,"2500.00","2601.16"\n'
+        )
+        out = process_csv.parse_csv_text("TD", text)
+        assert len(out) == 2
+        assert out[0].posted_date == date(2026, 4, 13)
+        assert out[0].amount == Decimal("-10.49")
+        assert out[0].balance == Decimal("101.16")
+        assert out[1].amount == Decimal("2500.00")
+
 
 class TestScotia:
     def test_signed_amount(self) -> None:

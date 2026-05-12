@@ -360,10 +360,58 @@ def _decode(body: bytes) -> str:
     return body.decode("utf-8", errors="replace")
 
 
+# Column maps for institutions that ship headerless CSVs. The order
+# is the order the bank emits in the file.
+_HEADERLESS_COLUMNS: dict[str, list[str]] = {
+    "TD": ["Date", "Description", "Withdrawals", "Deposits", "Balance"],
+}
+
+
+def _looks_like_header(first_row: list[str], institution: str) -> bool:
+    """True iff the first row reads as column names, not data.
+
+    TD's web export is headerless; Scotia's optionally is. RBC ships
+    a header. We treat the first row as a header only when at least
+    one cell looks like a column name (text without digits) AND the
+    first cell does not parse as a date.
+    """
+    if not first_row:
+        return False
+    first = first_row[0].strip().strip('"')
+    if _date(first) is not None:
+        return False
+    # Header cells are short, alphabetic, and not numeric.
+    alpha_cells = sum(
+        1 for c in first_row if c.strip() and not any(ch.isdigit() for ch in c)
+    )
+    return alpha_cells >= max(1, len(first_row) // 2)
+
+
 def parse_csv_text(institution: str, text: str) -> list[ParsedTransaction]:
     parser = _PARSERS.get(institution, parse_other)
-    reader = csv.DictReader(io.StringIO(text))
-    return list(parser(list(reader)))
+    reader = csv.reader(io.StringIO(text))
+    raw_rows = [r for r in reader if any(cell.strip() for cell in r)]
+    if not raw_rows:
+        return []
+
+    columns: list[str] | None
+    if _looks_like_header(raw_rows[0], institution):
+        columns = raw_rows[0]
+        data_rows = raw_rows[1:]
+    else:
+        columns = _HEADERLESS_COLUMNS.get(institution)
+        data_rows = raw_rows
+        if columns is None:
+            # No header and no known schema — best we can do is pretend
+            # the first row was a header so the parser at least tries.
+            columns = raw_rows[0]
+            data_rows = raw_rows[1:]
+
+    dicts = [
+        {columns[i]: cell for i, cell in enumerate(row) if i < len(columns)}
+        for row in data_rows
+    ]
+    return list(parser(dicts))
 
 
 def handler(event: dict, _context: Any | None = None) -> dict:
