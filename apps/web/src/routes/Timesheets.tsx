@@ -48,6 +48,12 @@ import {
   sumHours,
   toIsoDate,
 } from "@/lib/timesheet";
+import {
+  buildHolidayLookup,
+  findVacation,
+  parseCustomHolidays,
+  parseVacations,
+} from "@/lib/holidays";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { AppHeader } from "@/components/AppHeader";
@@ -138,6 +144,32 @@ export function Timesheets() {
     }
     setHoursByDate(next);
   }, [entriesQuery.data]);
+
+  // Holidays + vacations come from the settings table as JSON strings.
+  // We compute Alberta stat holidays client-side so the data stays small.
+  const settingsQuery = useQuery<Record<string, string>>({
+    queryKey: ["settings"],
+    queryFn: () => apiFetch<Record<string, string>>("/business/settings/"),
+    staleTime: 5 * 60_000,
+  });
+  const customHolidays = useMemo(
+    () => parseCustomHolidays(settingsQuery.data?.["custom_holidays"]),
+    [settingsQuery.data],
+  );
+  const vacations = useMemo(
+    () => parseVacations(settingsQuery.data?.["vacations"]),
+    [settingsQuery.data],
+  );
+  const holidayLookup = useMemo(
+    () =>
+      buildHolidayLookup(
+        customHolidays,
+        windowStart && windowEnd
+          ? { startIso: windowStart, endIso: windowEnd }
+          : null,
+      ),
+    [customHolidays, windowStart, windowEnd],
+  );
 
   const summaryQuery = useQuery<TimesheetSummary>({
     queryKey: ["timesheet-summary", clientId, periodStartIso, periodEndIso],
@@ -462,26 +494,61 @@ export function Timesheets() {
                         {week.cells.map((cell) => {
                           const value = hoursByDate[cell.iso] ?? 0;
                           const isToday = cell.iso === today;
+                          const holiday = holidayLookup[cell.iso] ?? null;
+                          const vacation = findVacation(cell.iso, vacations);
+                          // Priority: out-of-month > holiday > vacation > weekend.
                           const cellBg = !cell.inMonth
                             ? "bg-muted/40 text-muted-foreground"
-                            : cell.isWeekend
-                              ? "bg-muted/30"
-                              : "";
+                            : holiday
+                              ? "bg-rose-100/70 dark:bg-rose-950/40"
+                              : vacation
+                                ? "bg-amber-100/70 dark:bg-amber-950/40"
+                                : cell.isWeekend
+                                  ? "bg-sky-100/60 dark:bg-sky-950/30"
+                                  : "";
+                          const title =
+                            holiday?.name ??
+                            vacation?.label ??
+                            (cell.isWeekend ? "Weekend" : undefined);
                           return (
                             <td
                               key={cell.iso}
                               className={`border-b border-l align-top ${cellBg}`}
+                              title={title}
                             >
                               <div className="flex flex-col gap-1 px-2 py-2">
                                 <div
-                                  className={`text-right text-xs ${isToday ? "font-bold text-primary" : "text-muted-foreground"}`}
+                                  className={
+                                    "flex items-baseline justify-between gap-1 text-xs " +
+                                    (isToday
+                                      ? "font-bold text-primary"
+                                      : "text-muted-foreground")
+                                  }
                                 >
-                                  {cell.dayOfMonth === 1 || !cell.inMonth
-                                    ? cell.date.toLocaleDateString("en-CA", {
-                                        month: "short",
-                                        day: "numeric",
-                                      })
-                                    : cell.dayOfMonth}
+                                  {holiday && cell.inMonth && (
+                                    <span
+                                      className="truncate text-[10px] font-semibold text-rose-700 dark:text-rose-300"
+                                      aria-label={`Holiday: ${holiday.name}`}
+                                    >
+                                      {holiday.name}
+                                    </span>
+                                  )}
+                                  {!holiday && vacation && cell.inMonth && (
+                                    <span
+                                      className="truncate text-[10px] font-semibold text-amber-700 dark:text-amber-300"
+                                      aria-label={`Vacation: ${vacation.label}`}
+                                    >
+                                      {vacation.label}
+                                    </span>
+                                  )}
+                                  <span className="ml-auto">
+                                    {cell.dayOfMonth === 1 || !cell.inMonth
+                                      ? cell.date.toLocaleDateString("en-CA", {
+                                          month: "short",
+                                          day: "numeric",
+                                        })
+                                      : cell.dayOfMonth}
+                                  </span>
                                 </div>
                                 <input
                                   type="text"

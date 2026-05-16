@@ -21,6 +21,15 @@ import {
   THEMES,
   THEME_LABELS,
 } from "@/lib/theme";
+import {
+  albertaHolidays,
+  HolidayEntry,
+  parseCustomHolidays,
+  parseVacations,
+  serializeCustomHolidays,
+  serializeVacations,
+  VacationPeriod,
+} from "@/lib/holidays";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -46,6 +55,8 @@ const FIELDS = [
   "user_email",
   "etransfer_email",
   "theme",
+  "custom_holidays",
+  "vacations",
 ] as const;
 type FieldKey = (typeof FIELDS)[number];
 
@@ -178,6 +189,83 @@ export function Settings() {
     setRateInputs((r) => ({ ...r, [key]: pretty }));
     patch(key, percentToDecimal(pretty));
   }
+
+  // -----------------------------------------------------------------
+  // Holidays + vacation editors (derived from the same form state via
+  // the JSON-serialized custom_holidays / vacations keys).
+  // -----------------------------------------------------------------
+  const customHolidays = useMemo(
+    () => parseCustomHolidays(state.custom_holidays),
+    [state.custom_holidays],
+  );
+  const vacations = useMemo(
+    () => parseVacations(state.vacations),
+    [state.vacations],
+  );
+
+  function updateCustomHolidays(next: HolidayEntry[]) {
+    patch("custom_holidays", serializeCustomHolidays(next));
+  }
+  function updateVacations(next: VacationPeriod[]) {
+    patch("vacations", serializeVacations(next));
+  }
+
+  const [newHoliday, setNewHoliday] = useState<{ date: string; name: string }>({
+    date: "",
+    name: "",
+  });
+  const [newVacation, setNewVacation] = useState<{
+    start: string;
+    end: string;
+    label: string;
+  }>({ start: "", end: "", label: "" });
+
+  function addHoliday() {
+    if (!newHoliday.date || !newHoliday.name.trim()) return;
+    updateCustomHolidays(
+      [
+        ...customHolidays,
+        {
+          date: newHoliday.date,
+          name: newHoliday.name.trim(),
+          source: "custom",
+        },
+      ].sort((a, b) => a.date.localeCompare(b.date)),
+    );
+    setNewHoliday({ date: "", name: "" });
+  }
+  function removeHoliday(date: string) {
+    updateCustomHolidays(customHolidays.filter((h) => h.date !== date));
+  }
+  function addVacation() {
+    if (!newVacation.start || !newVacation.end || !newVacation.label.trim()) {
+      return;
+    }
+    if (newVacation.end < newVacation.start) return;
+    updateVacations(
+      [
+        ...vacations,
+        {
+          start: newVacation.start,
+          end: newVacation.end,
+          label: newVacation.label.trim(),
+        },
+      ].sort((a, b) => a.start.localeCompare(b.start)),
+    );
+    setNewVacation({ start: "", end: "", label: "" });
+  }
+  function removeVacation(index: number) {
+    updateVacations(vacations.filter((_, i) => i !== index));
+  }
+
+  const currentYear = new Date().getFullYear();
+  const referenceHolidays = useMemo(
+    () => [
+      ...albertaHolidays(currentYear),
+      ...albertaHolidays(currentYear + 1),
+    ],
+    [currentYear],
+  );
 
   return (
     <div className="min-h-screen bg-background">
@@ -347,6 +435,184 @@ export function Settings() {
                   value={state.etransfer_email}
                   onChange={(e) => patch("etransfer_email", e.target.value)}
                 />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">
+                  Holidays &amp; Vacation
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {/* Stat reference */}
+                <div>
+                  <p className="mb-2 text-sm font-medium">
+                    Alberta statutory holidays (auto, {currentYear}–
+                    {currentYear + 1})
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {referenceHolidays.map((h) => (
+                      <span
+                        key={`${h.date}-${h.name}`}
+                        className="inline-flex items-center gap-1 rounded-md bg-rose-100 px-2 py-1 text-xs text-rose-800 dark:bg-rose-950/60 dark:text-rose-200"
+                        title={h.date}
+                      >
+                        <span className="font-medium">{h.name}</span>
+                        <span className="text-rose-600/70 dark:text-rose-400/70">
+                          {h.date}
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Custom holidays */}
+                <div>
+                  <p className="mb-2 text-sm font-medium">Custom holidays</p>
+                  {customHolidays.length === 0 && (
+                    <p className="mb-2 text-xs text-muted-foreground">
+                      No custom holidays yet. Add company days off or
+                      observed-but-not-statutory dates below.
+                    </p>
+                  )}
+                  {customHolidays.length > 0 && (
+                    <ul className="mb-3 divide-y rounded-md border">
+                      {customHolidays.map((h) => (
+                        <li
+                          key={`${h.date}-${h.name}`}
+                          className="flex items-center justify-between gap-2 px-3 py-2 text-sm"
+                        >
+                          <div>
+                            <span className="font-medium">{h.name}</span>{" "}
+                            <span className="text-muted-foreground">
+                              {h.date}
+                            </span>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => removeHoliday(h.date)}
+                          >
+                            Remove
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-[160px_1fr_auto] sm:items-center">
+                    <Input
+                      type="date"
+                      value={newHoliday.date}
+                      onChange={(e) =>
+                        setNewHoliday((s) => ({ ...s, date: e.target.value }))
+                      }
+                      aria-label="Holiday date"
+                    />
+                    <Input
+                      placeholder="Holiday name (e.g. Office closure)"
+                      value={newHoliday.name}
+                      onChange={(e) =>
+                        setNewHoliday((s) => ({ ...s, name: e.target.value }))
+                      }
+                      aria-label="Holiday name"
+                    />
+                    <Button
+                      type="button"
+                      onClick={addHoliday}
+                      disabled={!newHoliday.date || !newHoliday.name.trim()}
+                    >
+                      Add holiday
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Vacations */}
+                <div>
+                  <p className="mb-2 text-sm font-medium">Vacation periods</p>
+                  {vacations.length === 0 && (
+                    <p className="mb-2 text-xs text-muted-foreground">
+                      No vacation periods set. Add ranges of days off — the
+                      Timesheet will tint those cells amber.
+                    </p>
+                  )}
+                  {vacations.length > 0 && (
+                    <ul className="mb-3 divide-y rounded-md border">
+                      {vacations.map((v, i) => (
+                        <li
+                          key={`${v.start}-${v.end}-${v.label}`}
+                          className="flex items-center justify-between gap-2 px-3 py-2 text-sm"
+                        >
+                          <div>
+                            <span className="font-medium">{v.label}</span>{" "}
+                            <span className="text-muted-foreground">
+                              {v.start} → {v.end}
+                            </span>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => removeVacation(i)}
+                          >
+                            Remove
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-[150px_150px_1fr_auto] sm:items-center">
+                    <Input
+                      type="date"
+                      value={newVacation.start}
+                      onChange={(e) =>
+                        setNewVacation((s) => ({ ...s, start: e.target.value }))
+                      }
+                      aria-label="Vacation start"
+                    />
+                    <Input
+                      type="date"
+                      value={newVacation.end}
+                      onChange={(e) =>
+                        setNewVacation((s) => ({ ...s, end: e.target.value }))
+                      }
+                      aria-label="Vacation end"
+                    />
+                    <Input
+                      placeholder="Label (e.g. BC trip)"
+                      value={newVacation.label}
+                      onChange={(e) =>
+                        setNewVacation((s) => ({ ...s, label: e.target.value }))
+                      }
+                      aria-label="Vacation label"
+                    />
+                    <Button
+                      type="button"
+                      onClick={addVacation}
+                      disabled={
+                        !newVacation.start ||
+                        !newVacation.end ||
+                        !newVacation.label.trim() ||
+                        newVacation.end < newVacation.start
+                      }
+                    >
+                      Add vacation
+                    </Button>
+                  </div>
+                  {newVacation.start &&
+                    newVacation.end &&
+                    newVacation.end < newVacation.start && (
+                      <p className="mt-1 text-xs text-destructive">
+                        End date must be on or after the start date.
+                      </p>
+                    )}
+                </div>
+
+                <p className="text-xs text-muted-foreground">
+                  Changes only take effect once you save. The Timesheet
+                  page picks them up on its next refresh.
+                </p>
               </CardContent>
             </Card>
 
