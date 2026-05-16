@@ -20,6 +20,7 @@
  * needed for day-to-day navigation.
  */
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { Landing } from "@/routes/Landing";
 import { SignIn } from "@/routes/SignIn";
 import { AccountType } from "@/routes/AccountType";
 import { PersonalAccounts } from "@/routes/PersonalAccounts";
@@ -45,7 +46,26 @@ import { ExpenseForm } from "@/routes/ExpenseForm";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { ThemeSync } from "@/components/ThemeSync";
 
+/**
+ * Apex / www hostnames serve the personal landing page; all other hosts
+ * (incl. `app.*`, the Amplify default domain, and localhost dev) serve
+ * the application. The override `?landing=1` lets local dev preview the
+ * landing without rebuilding for a different host.
+ */
+const LANDING_HOSTS = new Set(["vesselone.ca", "www.vesselone.ca"]);
+
+function shouldShowLanding(): boolean {
+  if (typeof window === "undefined") return false;
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("landing") === "1") return true;
+  if (params.get("landing") === "0") return false;
+  return LANDING_HOSTS.has(window.location.hostname);
+}
+
 export function App() {
+  if (shouldShowLanding()) {
+    return <Landing />;
+  }
   return (
     <BrowserRouter>
       <ThemeSync />
