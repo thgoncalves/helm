@@ -1,33 +1,121 @@
 /**
  * App — root Router with all application routes.
  *
- * Route structure:
- *   /            → redirect to /clients
- *   /sign-in     → public sign-in page
- *   /clients     → protected clients list (requires auth)
- *   *            → 404 fallback
+ * Public:
+ *   /            → SignIn (with brand mark)
+ *   /sign-in     → redirect to /  (kept for backwards compat)
+ *
+ * Protected (require an authenticated Cognito session):
+ *   /account-type             → choose Personal or Business
+ *   /personal                 → redirect to /personal/accounts
+ *   /personal/accounts        → Personal: Accounts (stub)
+ *   /personal/imports         → Personal: Imports (stub)
+ *   /personal/transactions    → Personal: Transactions (stub)
+ *   /business                 → redirect to /dashboard
+ *   /clients, /invoices, ... → Business routes (flat URLs, the implicit default side)
+ *
+ * The post-sign-in flow is: SignIn → /account-type → /personal/accounts | /dashboard.
+ * Inside the app the AppHeader provides an in-place Personal/Business
+ * switcher (URL-driven), so `/account-type` is reachable but not strictly
+ * needed for day-to-day navigation.
  */
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { Landing } from "@/routes/Landing";
 import { SignIn } from "@/routes/SignIn";
+import { AccountType } from "@/routes/AccountType";
+import { PersonalAccounts } from "@/routes/PersonalAccounts";
+import { PersonalImports } from "@/routes/PersonalImports";
+import { PersonalTransactions } from "@/routes/PersonalTransactions";
 import { Clients } from "@/routes/Clients";
+import { ClientDetail } from "@/routes/ClientDetail";
+import { NewClient, EditClient } from "@/routes/ClientForm";
+import { Timesheets } from "@/routes/Timesheets";
+import { Invoices } from "@/routes/Invoices";
+import { NewInvoice, EditInvoice } from "@/routes/InvoiceForm";
+import { Payments } from "@/routes/Payments";
+import { NewPayment, EditPayment } from "@/routes/PaymentForm";
+import { Taxes } from "@/routes/Taxes";
+import { NewTaxPayment, EditTaxPayment } from "@/routes/TaxPaymentForm";
+import { LinkTaxInvoices } from "@/routes/LinkTaxInvoices";
+import { Transfers } from "@/routes/Transfers";
+import { NewTransfer, EditTransfer } from "@/routes/TransferForm";
+import { Settings } from "@/routes/Settings";
+import { Dashboard } from "@/routes/Dashboard";
+import { Expenses } from "@/routes/Expenses";
+import { ExpenseForm } from "@/routes/ExpenseForm";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { ThemeSync } from "@/components/ThemeSync";
+
+/**
+ * Apex / www hostnames serve the personal landing page; all other hosts
+ * (incl. `app.*`, the Amplify default domain, and localhost dev) serve
+ * the application. The override `?landing=1` lets local dev preview the
+ * landing without rebuilding for a different host.
+ */
+const LANDING_HOSTS = new Set(["vesselone.ca", "www.vesselone.ca"]);
+
+function shouldShowLanding(): boolean {
+  if (typeof window === "undefined") return false;
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("landing") === "1") return true;
+  if (params.get("landing") === "0") return false;
+  return LANDING_HOSTS.has(window.location.hostname);
+}
 
 export function App() {
+  if (shouldShowLanding()) {
+    return <Landing />;
+  }
   return (
     <BrowserRouter>
+      <ThemeSync />
       <Routes>
-        {/* Public routes */}
-        <Route path="/sign-in" element={<SignIn />} />
+        {/* Public */}
+        <Route path="/" element={<SignIn />} />
+        <Route path="/sign-in" element={<Navigate to="/" replace />} />
 
-        {/* Protected routes — wrapped in ProtectedRoute which renders <Outlet /> */}
+        {/* Protected */}
         <Route element={<ProtectedRoute />}>
+          <Route path="/account-type" element={<AccountType />} />
+          <Route
+            path="/personal"
+            element={<Navigate to="/personal/accounts" replace />}
+          />
+          <Route path="/personal/accounts" element={<PersonalAccounts />} />
+          <Route path="/personal/imports" element={<PersonalImports />} />
+          <Route
+            path="/personal/transactions"
+            element={<PersonalTransactions />}
+          />
+          <Route
+            path="/business"
+            element={<Navigate to="/dashboard" replace />}
+          />
+          <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/clients" element={<Clients />} />
+          <Route path="/clients/new" element={<NewClient />} />
+          <Route path="/clients/:id" element={<ClientDetail />} />
+          <Route path="/clients/:id/edit" element={<EditClient />} />
+          <Route path="/timesheets" element={<Timesheets />} />
+          <Route path="/invoices" element={<Invoices />} />
+          <Route path="/invoices/new" element={<NewInvoice />} />
+          <Route path="/invoices/:id" element={<EditInvoice />} />
+          <Route path="/payments" element={<Payments />} />
+          <Route path="/payments/new" element={<NewPayment />} />
+          <Route path="/payments/:id" element={<EditPayment />} />
+          <Route path="/expenses" element={<Expenses />} />
+          <Route path="/expenses/:id" element={<ExpenseForm />} />
+          <Route path="/taxes" element={<Taxes />} />
+          <Route path="/taxes/new" element={<NewTaxPayment />} />
+          <Route path="/taxes/:id" element={<EditTaxPayment />} />
+          <Route path="/taxes/:id/link" element={<LinkTaxInvoices />} />
+          <Route path="/transfers" element={<Transfers />} />
+          <Route path="/transfers/new" element={<NewTransfer />} />
+          <Route path="/transfers/:id" element={<EditTransfer />} />
+          <Route path="/settings" element={<Settings />} />
         </Route>
 
-        {/* Root redirect */}
-        <Route path="/" element={<Navigate to="/clients" replace />} />
-
-        {/* 404 fallback */}
+        {/* 404 */}
         <Route
           path="*"
           element={

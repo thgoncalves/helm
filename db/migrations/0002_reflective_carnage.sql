@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "time_entries_client_work_date_unique" ON "time_entries" USING btree ("client_id","work_date");

@@ -5,6 +5,7 @@ import {
   numeric,
   timestamp,
   index,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { clients } from './clients';
 import { invoices } from './invoices';
@@ -31,6 +32,12 @@ export const timeEntries = pgTable(
     index('time_entries_client_idx').on(t.clientId),
     index('time_entries_work_date_idx').on(t.workDate),
     index('time_entries_invoice_idx').on(t.invoiceId),
+    // V1 timesheet model: exactly one entry per (client, day). Lets us
+    // INSERT ... ON CONFLICT for the bulk upsert path.
+    uniqueIndex('time_entries_client_work_date_unique').on(
+      t.clientId,
+      t.workDate,
+    ),
   ],
 );
 

@@ -3,7 +3,7 @@
 Mirrors the Drizzle schema in ``db/schema/clients.ts``.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -29,6 +29,16 @@ class ClientBase(BaseModel):
         hourly_rate: Default billing rate in the client's currency. Optional.
         timesheet_frequency: How often timesheets are submitted.
             Defaults to ``"monthly"``.
+        contract_value: Total monetary value of the active contract (used to
+            compute remaining $/hours on the timesheet page). Optional.
+        contract_currency: ISO currency code for ``contract_value``.
+            Defaults to ``"CAD"``.
+        contract_start_date: Start of the contract window (for pacing widget).
+            Optional.
+        contract_end_date: End of the contract window (for pacing widget).
+            When set, the Timesheets page computes required hours/day. Optional.
+        default_task_description: Default line-item text printed on every
+            populated row of the exported PDF timesheet. Optional.
     """
 
     name: str
@@ -45,6 +55,16 @@ class ClientBase(BaseModel):
     is_active: bool = True
     hourly_rate: Decimal | None = None
     timesheet_frequency: str | None = "monthly"
+    contract_value: Decimal | None = None
+    contract_currency: str | None = "CAD"
+    contract_start_date: date | None = None
+    contract_end_date: date | None = None
+    default_task_description: str | None = None
+    # Invoicing defaults (applied when auto-creating an invoice from a
+    # submitted timesheet).
+    default_taxable: bool = True
+    default_tax_rate: Decimal | None = None
+    default_payment_terms_days: int = 30
 
 
 class ClientCreate(ClientBase):
@@ -92,3 +112,11 @@ class ClientUpdate(BaseModel):
     is_active: bool | None = None
     hourly_rate: Decimal | None = None
     timesheet_frequency: str | None = None
+    contract_value: Decimal | None = None
+    contract_currency: str | None = None
+    contract_start_date: date | None = None
+    contract_end_date: date | None = None
+    default_task_description: str | None = None
+    default_taxable: bool | None = None
+    default_tax_rate: Decimal | None = None
+    default_payment_terms_days: int | None = None

@@ -1,63 +1,20 @@
-"""FastAPI router for the /business/clients endpoints.
+"""FastAPI router for the ``/business/clients`` endpoints.
 
-Data is currently in-memory (stubbed). When the DB layer is added, the
-in-memory list will be replaced with RDS Data API calls via boto3.
+All persistence goes through :mod:`app.db` (RDS Data API → Aurora). The
+seed clients live in the database, populated by ``scripts/import_legacy.py``
+from ``old_database/clients.csv``.
 """
 
 from datetime import datetime, timezone
-from decimal import Decimal
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 
+from app import db
 from app.deps import get_current_user
 from app.models.clients import ClientCreate, ClientRead
 
 router = APIRouter(tags=["clients"], dependencies=[Depends(get_current_user)])
-
-# ---------------------------------------------------------------------------
-# In-memory stub data — replaced by DB queries in a later iteration.
-# ---------------------------------------------------------------------------
-
-_CLIENTS: list[ClientRead] = [
-    ClientRead(
-        id=UUID("a1b2c3d4-e5f6-7890-abcd-ef1234567890"),
-        name="Acme Corp",
-        email="billing@acme.example.com",
-        phone="+1-416-555-0100",
-        address_line1="100 King Street West",
-        address_line2="Suite 5400",
-        city="Toronto",
-        state="ON",
-        postal_code="M5X 1C9",
-        country="Canada",
-        tax_id="123456789RT0001",
-        notes="Primary Canadian client. Net 30 terms.",
-        is_active=True,
-        hourly_rate=Decimal("185.00"),
-        timesheet_frequency="monthly",
-        created_at=datetime(2022, 3, 1, 9, 0, 0, tzinfo=timezone.utc),
-        updated_at=datetime(2024, 11, 15, 14, 30, 0, tzinfo=timezone.utc),
-    ),
-    ClientRead(
-        id=UUID("b2c3d4e5-f6a7-8901-bcde-f12345678901"),
-        name="Bluestone Digital",
-        email="accounts@bluestone.example.com",
-        phone="+1-604-555-0200",
-        address_line1="555 West Hastings Street",
-        city="Vancouver",
-        state="BC",
-        postal_code="V6B 4N6",
-        country="Canada",
-        tax_id=None,
-        notes="BC-based startup. Invoiced bi-monthly.",
-        is_active=True,
-        hourly_rate=Decimal("175.00"),
-        timesheet_frequency="monthly",
-        created_at=datetime(2023, 6, 15, 10, 0, 0, tzinfo=timezone.utc),
-        updated_at=datetime(2025, 1, 10, 8, 45, 0, tzinfo=timezone.utc),
-    ),
-]
 
 
 # ---------------------------------------------------------------------------
@@ -65,14 +22,47 @@ _CLIENTS: list[ClientRead] = [
 # ---------------------------------------------------------------------------
 
 
-@router.get("/", response_model=list[ClientRead], summary="List all clients")
-async def list_clients() -> list[ClientRead]:
-    """Return all clients.
+@router.get("/", response_model=list[ClientRead], summary="List clients")
+async def list_clients(
+    include_archived: bool = Query(
+        default=False,
+        description="When true, return all clients including archived (is_active=False).",
+    ),
+) -> list[ClientRead]:
+    """Return clients, optionally including archived ones.
+
+    Args:
+        include_archived: If ``False`` (default), only active clients are
+            returned. If ``True``, all clients (active and archived) are
+            returned.
 
     Returns:
-        A list of all clients in the system.
+        A list of :class:`~app.models.clients.ClientRead` objects, sorted
+        by name.
     """
-    return _CLIENTS
+    if include_archived:
+        rows = db.fetch_all("SELECT * FROM clients ORDER BY name")
+    else:
+        rows = db.fetch_all(
+            "SELECT * FROM clients WHERE is_active = TRUE ORDER BY name"
+        )
+    return [ClientRead(**row) for row in rows]
+
+
+@router.get("/{client_id}", response_model=ClientRead, summary="Get a client")
+async def get_client(client_id: UUID) -> ClientRead:
+    """Return a single client by ID.
+
+    Raises:
+        HTTPException: 404 if no client with ``client_id`` exists.
+    """
+    row = db.fetch_one(
+        "SELECT * FROM clients WHERE id = :id",
+        {"id": client_id},
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Client not found")
+    return ClientRead(**row)
 
 
 @router.post(
@@ -84,19 +74,94 @@ async def list_clients() -> list[ClientRead]:
 async def create_client(body: ClientCreate) -> ClientRead:
     """Create a new client.
 
-    Args:
-        body: The client data to create.
-
-    Returns:
-        The newly created client, including server-assigned ``id``,
-        ``created_at``, and ``updated_at``.
+    Generates a fresh UUID and sets ``created_at`` / ``updated_at`` to the
+    current UTC time.
     """
     now = datetime.now(timezone.utc)
-    client = ClientRead(
-        id=uuid4(),
-        created_at=now,
-        updated_at=now,
-        **body.model_dump(),
+    params = body.model_dump()
+    params["id"] = uuid4()
+    params["created_at"] = now
+    params["updated_at"] = now
+
+    row = db.fetch_one(
+        """
+        INSERT INTO clients (
+            id, name, email, phone, address_line1, address_line2,
+            city, state, postal_code, country, tax_id, notes,
+            is_active, hourly_rate, timesheet_frequency,
+            contract_value, contract_currency,
+            contract_start_date, contract_end_date,
+            default_task_description,
+            default_taxable, default_tax_rate, default_payment_terms_days,
+            created_at, updated_at
+        ) VALUES (
+            :id, :name, :email, :phone, :address_line1, :address_line2,
+            :city, :state, :postal_code, :country, :tax_id, :notes,
+            :is_active, :hourly_rate, :timesheet_frequency,
+            :contract_value, :contract_currency,
+            :contract_start_date, :contract_end_date,
+            :default_task_description,
+            :default_taxable, :default_tax_rate, :default_payment_terms_days,
+            :created_at, :updated_at
+        )
+        RETURNING *
+        """,
+        params,
     )
-    _CLIENTS.append(client)
-    return client
+    assert row is not None  # INSERT ... RETURNING always yields one row
+    return ClientRead(**row)
+
+
+@router.put(
+    "/{client_id}",
+    response_model=ClientRead,
+    summary="Replace a client (full update)",
+)
+async def update_client(client_id: UUID, body: ClientCreate) -> ClientRead:
+    """Replace all editable fields on a client.
+
+    Preserves the original ``created_at``; sets ``updated_at`` to the
+    current UTC time. ``is_active`` may be toggled here so the Edit form
+    can archive/unarchive.
+
+    Raises:
+        HTTPException: 404 if no client with ``client_id`` exists.
+    """
+    params = body.model_dump()
+    params["id"] = client_id
+    params["updated_at"] = datetime.now(timezone.utc)
+
+    row = db.fetch_one(
+        """
+        UPDATE clients SET
+            name = :name,
+            email = :email,
+            phone = :phone,
+            address_line1 = :address_line1,
+            address_line2 = :address_line2,
+            city = :city,
+            state = :state,
+            postal_code = :postal_code,
+            country = :country,
+            tax_id = :tax_id,
+            notes = :notes,
+            is_active = :is_active,
+            hourly_rate = :hourly_rate,
+            timesheet_frequency = :timesheet_frequency,
+            contract_value = :contract_value,
+            contract_currency = :contract_currency,
+            contract_start_date = :contract_start_date,
+            contract_end_date = :contract_end_date,
+            default_task_description = :default_task_description,
+            default_taxable = :default_taxable,
+            default_tax_rate = :default_tax_rate,
+            default_payment_terms_days = :default_payment_terms_days,
+            updated_at = :updated_at
+        WHERE id = :id
+        RETURNING *
+        """,
+        params,
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Client not found")
+    return ClientRead(**row)

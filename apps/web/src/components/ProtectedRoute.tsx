@@ -1,39 +1,32 @@
 /**
  * ProtectedRoute — wraps routes that require an authenticated session.
  *
- * On mount it calls getCurrentUser() from aws-amplify/auth. If the call
- * resolves (user is signed in) the children are rendered; if it rejects
- * (no session) the user is redirected to /sign-in.
+ * Reads `authStatus` from the Amplify Authenticator context (provided at
+ * the app root in main.tsx). The state machine is the source of truth, so
+ * we don't need to roll our own getCurrentUser() polling.
  *
- * A loading state is shown while the async check is in flight to avoid
- * a flash of the protected content before the redirect.
+ *   configuring     → still resolving the cached session; show loading
+ *   authenticated   → render children
+ *   unauthenticated → redirect to / (the public sign-in page)
  */
-import { useEffect, useState } from "react";
 import { Navigate, Outlet } from "react-router-dom";
-import { getCurrentUser } from "aws-amplify/auth";
+import { useAuthenticator } from "@aws-amplify/ui-react";
 
-type AuthState = "loading" | "authenticated" | "unauthenticated";
+// Local-only escape hatch so Playwright (or anyone running the dev server)
+// can exercise the protected routes without a real Cognito session. The env
+// var is read at build time, so a production Amplify build (where it isn't
+// set) tree-shakes this branch out entirely.
+const E2E_AUTH_BYPASS =
+  import.meta.env.DEV && import.meta.env["VITE_E2E_AUTH_BYPASS"] === "true";
 
 export function ProtectedRoute() {
-  const [authState, setAuthState] = useState<AuthState>("loading");
+  const { authStatus } = useAuthenticator((c) => [c.authStatus]);
 
-  useEffect(() => {
-    let cancelled = false;
+  if (E2E_AUTH_BYPASS) {
+    return <Outlet />;
+  }
 
-    getCurrentUser()
-      .then(() => {
-        if (!cancelled) setAuthState("authenticated");
-      })
-      .catch(() => {
-        if (!cancelled) setAuthState("unauthenticated");
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  if (authState === "loading") {
+  if (authStatus === "configuring") {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <p className="text-muted-foreground">Loading…</p>
@@ -41,8 +34,8 @@ export function ProtectedRoute() {
     );
   }
 
-  if (authState === "unauthenticated") {
-    return <Navigate to="/sign-in" replace />;
+  if (authStatus !== "authenticated") {
+    return <Navigate to="/" replace />;
   }
 
   return <Outlet />;

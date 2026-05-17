@@ -1,0 +1,78 @@
+/*
+ * Amplify UI theme — overrides Amplify's design tokens so the
+ * <Authenticator> form blends in with the shadcn-styled app.
+ *
+ * Targeting [data-amplify-authenticator] keeps the override scoped:
+ * we don't change Amplify defaults globally, only inside the auth UI.
+ */
+[data-amplify-authenticator] {
+  /* Surface */
+  --amplify-colors-background-primary: hsl(var(--card));
+  --amplify-colors-background-secondary: hsl(var(--card));
+  --amplify-colors-border-primary: hsl(var(--border));
+  --amplify-colors-border-secondary: hsl(var(--border));
+  --amplify-colors-border-focus: hsl(var(--ring));
+
+  /* Text */
+  --amplify-colors-font-primary: hsl(var(--foreground));
+  --amplify-colors-font-secondary: hsl(var(--muted-foreground));
+  --amplify-colors-font-tertiary: hsl(var(--muted-foreground));
+
+  /* Brand button — matches Button default variant (near-black) */
+  --amplify-colors-brand-primary-10: hsl(var(--primary) / 0.06);
+  --amplify-colors-brand-primary-20: hsl(var(--primary) / 0.12);
+  --amplify-colors-brand-primary-40: hsl(var(--primary) / 0.6);
+  --amplify-colors-brand-primary-60: hsl(var(--primary) / 0.85);
+  --amplify-colors-brand-primary-80: hsl(var(--primary));
+  --amplify-colors-brand-primary-90: hsl(var(--primary) / 0.9);
+  --amplify-colors-brand-primary-100: hsl(var(--primary));
+
+  /* Errors → destructive */
+  --amplify-colors-red-80: hsl(var(--destructive));
+  --amplify-colors-red-90: hsl(var(--destructive));
+  --amplify-colors-font-error: hsl(var(--destructive));
+
+  /* Radii — Tailwind rounded-md */
+  --amplify-radii-small: 0.375rem;
+  --amplify-radii-medium: 0.5rem;
+  --amplify-radii-large: 0.5rem;
+
+  /* Inherit the app font instead of Amplify's default sans-serif stack */
+  --amplify-fonts-default-static: inherit;
+  --amplify-fonts-default-variable: inherit;
+
+  /* Shadow — match Card's subtle elevation */
+  --amplify-shadows-medium: 0 1px 3px 0 rgb(0 0 0 / 0.04);
+}
+
+/* Trim the outer Authenticator router so the inner card is the focal point */
+[data-amplify-authenticator] [data-amplify-router] {
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.5rem;
+  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.04);
+}
+
+/* Primary button — make it black like the rest of the app and remove
+   Amplify's gradient hover */
+[data-amplify-authenticator] button[type="submit"][data-variation="primary"],
+[data-amplify-authenticator] .amplify-button--primary {
+  background-color: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  border-color: hsl(var(--primary));
+}
+
+[data-amplify-authenticator]
+  button[type="submit"][data-variation="primary"]:hover:not(:disabled),
+[data-amplify-authenticator] .amplify-button--primary:hover:not(:disabled) {
+  background-color: hsl(var(--primary) / 0.9);
+  color: hsl(var(--primary-foreground));
+}
+
+/* Link buttons (Forgot password, Back to Sign In) — use muted-foreground */
+[data-amplify-authenticator] .amplify-button--link {
+  color: hsl(var(--muted-foreground));
+}
+
+[data-amplify-authenticator] .amplify-button--link:hover {
+  color: hsl(var(--foreground));
+}

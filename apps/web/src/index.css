@@ -1,7 +1,10 @@
 @import "tailwindcss";
 
-/* Wire up the .dark class as the dark variant (Tailwind v4 syntax). */
-@custom-variant dark (&:is(.dark *));
+/* Wire up the .dark class (and our named dark themes) as the dark variant
+ * (Tailwind v4 syntax). This lets `dark:` utilities respond to either the
+ * generic .dark class or our themed dark palettes (Catppuccin Mocha,
+ * Tokyo Night). */
+@custom-variant dark (&:is(.dark *, .theme-catppuccin *, .theme-tokyo-night *));
 
 /*
  * Map shadcn's CSS custom properties to Tailwind v4 design tokens so that
@@ -42,8 +45,13 @@
     --card-foreground: 222.2 84% 4.9%;
     --popover: 0 0% 100%;
     --popover-foreground: 222.2 84% 4.9%;
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
+    /* Brand blue — applies to action CTAs (`bg-primary`), the active nav
+     * tab indicator, the brand-mark icon, and focus rings. Tokyo Night
+     * already maps `--primary` to the same family of blue, and Catppuccin
+     * picks its own accent (mauve), so swapping the default to blue keeps
+     * the theme story consistent without per-page overrides. */
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 100%;
     --secondary: 210 40% 96.1%;
     --secondary-foreground: 222.2 47.4% 11.2%;
     --muted: 210 40% 96.1%;
@@ -65,7 +73,7 @@
     --card-foreground: 210 40% 98%;
     --popover: 222.2 84% 4.9%;
     --popover-foreground: 210 40% 98%;
-    --primary: 210 40% 98%;
+    --primary: 217 91% 65%;
     --primary-foreground: 222.2 47.4% 11.2%;
     --secondary: 217.2 32.6% 17.5%;
     --secondary-foreground: 210 40% 98%;
@@ -78,6 +86,62 @@
     --border: 217.2 32.6% 17.5%;
     --input: 217.2 32.6% 17.5%;
     --ring: 212.7 26.8% 83.9%;
+  }
+
+  /* ─────────────────────────────────────────────────────────────────────
+   * Catppuccin Mocha — palette source: https://catppuccin.com
+   * Picked Mocha because its dark surfaces + warm accents read well as
+   * the "primary" themed look most users expect from Catppuccin.
+   * ───────────────────────────────────────────────────────────────────── */
+  .theme-catppuccin {
+    /* base / mantle / crust → background tiers */
+    --background: 240 21% 15%;      /* base */
+    --foreground: 226 64% 88%;      /* text */
+    --card: 240 21% 18%;            /* mantle, slightly lighter than base */
+    --card-foreground: 226 64% 88%;
+    --popover: 240 21% 12%;         /* crust */
+    --popover-foreground: 226 64% 88%;
+    /* surface tiers → secondary/muted/accent */
+    --secondary: 237 16% 23%;       /* surface0 */
+    --secondary-foreground: 226 64% 88%;
+    --muted: 237 16% 23%;
+    --muted-foreground: 228 24% 72%; /* subtext0 */
+    --accent: 234 13% 31%;          /* surface1 */
+    --accent-foreground: 226 64% 88%;
+    /* primary → mauve; destructive → red */
+    --primary: 267 84% 81%;         /* mauve */
+    --primary-foreground: 240 21% 15%;
+    --destructive: 343 81% 75%;     /* red */
+    --destructive-foreground: 240 21% 15%;
+    --border: 234 13% 31%;          /* surface1 */
+    --input: 234 13% 31%;
+    --ring: 267 84% 81%;            /* mauve */
+  }
+
+  /* ─────────────────────────────────────────────────────────────────────
+   * Tokyo Night — palette source: https://github.com/folke/tokyonight.nvim
+   * Using the "night" variant (default tokyonight.nvim).
+   * ───────────────────────────────────────────────────────────────────── */
+  .theme-tokyo-night {
+    --background: 230 24% 14%;      /* bg #1a1b26 */
+    --foreground: 230 70% 88%;      /* fg slightly lifted from #c0caf5 */
+    --card: 232 24% 17%;            /* bg_highlight */
+    --card-foreground: 230 70% 88%;
+    --popover: 232 24% 11%;         /* bg_dark */
+    --popover-foreground: 230 70% 88%;
+    --secondary: 234 19% 24%;
+    --secondary-foreground: 230 70% 88%;
+    --muted: 234 19% 24%;
+    --muted-foreground: 232 13% 65%; /* comment lifted for readability */
+    --accent: 234 19% 28%;
+    --accent-foreground: 230 70% 88%;
+    --primary: 217 91% 65%;         /* blue #7aa2f7 */
+    --primary-foreground: 230 24% 14%;
+    --destructive: 350 100% 71%;    /* red #f7768e */
+    --destructive-foreground: 230 24% 14%;
+    --border: 234 19% 28%;
+    --input: 234 19% 28%;
+    --ring: 217 91% 65%;
   }
 }
 

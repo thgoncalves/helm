@@ -1,25 +1,33 @@
 /**
  * Tests for src/components/ProtectedRoute.tsx
  *
- * Covers:
- * - Redirects to /sign-in when no authenticated user exists.
- * - Renders child routes when a user is authenticated.
+ * Verifies the Authenticator-context-driven gate:
+ *   configuring     → loading view
+ *   unauthenticated → redirect to /
+ *   authenticated   → render the child <Outlet />
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { getCurrentUser } from "aws-amplify/auth";
-import { ProtectedRoute } from "@/components/ProtectedRoute";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+const mockUseAuthenticator = vi.fn();
+vi.mock("@aws-amplify/ui-react", () => ({
+  useAuthenticator: (
+    selector?: (ctx: { authStatus: string }) => unknown,
+  ) => {
+    const ctx = mockUseAuthenticator();
+    if (selector) selector(ctx);
+    return ctx;
+  },
+}));
+
+import { ProtectedRoute } from "@/components/ProtectedRoute";
 
 function renderWithRoutes(initialPath = "/protected") {
   return render(
     <MemoryRouter initialEntries={[initialPath]}>
       <Routes>
-        <Route path="/sign-in" element={<div>Sign In Page</div>} />
+        <Route path="/" element={<div>Sign In Page</div>} />
         <Route element={<ProtectedRoute />}>
           <Route path="/protected" element={<div>Protected Content</div>} />
         </Route>
@@ -28,49 +36,26 @@ function renderWithRoutes(initialPath = "/protected") {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 describe("ProtectedRoute", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("redirects to /sign-in when no user is authenticated", async () => {
-    vi.mocked(getCurrentUser).mockRejectedValue(
-      new Error("No current user"),
-    );
-
+  it("redirects to / when unauthenticated", () => {
+    mockUseAuthenticator.mockReturnValue({ authStatus: "unauthenticated" });
     renderWithRoutes();
-
-    await waitFor(() => {
-      expect(screen.getByText("Sign In Page")).toBeInTheDocument();
-    });
+    expect(screen.getByText("Sign In Page")).toBeInTheDocument();
   });
 
-  it("renders children when a user is authenticated", async () => {
-    vi.mocked(getCurrentUser).mockResolvedValue({
-      username: "test-user",
-      userId: "test-id",
-      signInDetails: undefined,
-    });
-
+  it("renders children when authenticated", () => {
+    mockUseAuthenticator.mockReturnValue({ authStatus: "authenticated" });
     renderWithRoutes();
-
-    await waitFor(() => {
-      expect(screen.getByText("Protected Content")).toBeInTheDocument();
-    });
+    expect(screen.getByText("Protected Content")).toBeInTheDocument();
   });
 
-  it("shows a loading state while the auth check is in flight", () => {
-    // Never resolve — keeps the component in loading state
-    vi.mocked(getCurrentUser).mockImplementation(
-      () => new Promise(() => undefined),
-    );
-
+  it("shows a loading state while configuring", () => {
+    mockUseAuthenticator.mockReturnValue({ authStatus: "configuring" });
     renderWithRoutes();
-
     expect(screen.getByText(/loading/i)).toBeInTheDocument();
   });
 });

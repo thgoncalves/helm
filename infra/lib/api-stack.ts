@@ -13,14 +13,25 @@
  * Always supply `-c userPoolClientId=<id>` before deploying.
  *
  * Route layout:
- *  GET  /health         — unauthorised (liveness probe)
- *  ANY  /{proxy+}       — JWT-authorised, proxy to Lambda
+ *  GET     /health        — unauthorised (liveness probe)
+ *  OPTIONS /{proxy+}      — unauthorised, lets browser CORS preflights through
+ *                           without a JWT (FastAPI's CORSMiddleware answers them)
+ *  ANY     /{proxy+}      — JWT-authorised, proxy to Lambda
+ *
+ * The OPTIONS route is required because the JWT authoriser, when attached to
+ * `ANY /{proxy+}`, intercepts preflights too and rejects them with 401 (the
+ * browser never sends an Authorization header on preflights), which manifests
+ * in the UI as opaque "Failed to fetch" / CORS errors.
  */
 
 import * as cdk from 'aws-cdk-lib';
+import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as lambdaEventSources from 'aws-cdk-lib/aws-lambda-event-sources';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as rds from 'aws-cdk-lib/aws-rds';
+import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as s3n from 'aws-cdk-lib/aws-s3-notifications';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as apigwv2 from 'aws-cdk-lib/aws-apigatewayv2';
 import * as apigwv2integrations from 'aws-cdk-lib/aws-apigatewayv2-integrations';
@@ -64,14 +75,47 @@ export class ApiStack extends cdk.Stack {
     });
 
     // -------------------------------------------------------------------------
+    // S3 bucket for uploaded receipts / supplier invoices.
+    // Owned by this stack so the lifecycle is tied to the API.
+    // -------------------------------------------------------------------------
+    const receiptsBucket = new s3.Bucket(this, 'ReceiptsBucket', {
+      bucketName: `helm-receipts-${config.env}`,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      versioned: false,
+      removalPolicy:
+        config.env === 'main'
+          ? cdk.RemovalPolicy.RETAIN
+          : cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: config.env !== 'main',
+      cors: [
+        {
+          // The frontend uploads via presigned PUT URL. Allow the
+          // Amplify and local-dev origins. Wildcard for V1 — tighten
+          // when prod domain is locked in.
+          allowedMethods: [s3.HttpMethods.PUT, s3.HttpMethods.GET],
+          allowedOrigins: ['*'],
+          allowedHeaders: ['*'],
+          exposedHeaders: ['ETag'],
+          maxAge: 3000,
+        },
+      ],
+    });
+
+    // The container image is shared between the HTTP API Lambda and
+    // the S3-triggered processor — build it once.
+    const apiImage = lambda.DockerImageCode.fromImageAsset(
+      path.join(__dirname, '..', '..', 'services', 'api'),
+    );
+
+    // -------------------------------------------------------------------------
     // Lambda — container image built from services/api/
     // __dirname here is infra/lib/; services/api is two levels up then down.
     // -------------------------------------------------------------------------
     const fn = new lambda.DockerImageFunction(this, 'ApiFunction', {
       functionName: `helm-api-${config.env}`,
-      code: lambda.DockerImageCode.fromImageAsset(
-        path.join(__dirname, '..', '..', 'services', 'api'),
-      ),
+      code: apiImage,
       memorySize: 1024,
       timeout: cdk.Duration.seconds(30),
       architecture: lambda.Architecture.ARM_64,
@@ -85,6 +129,7 @@ export class ApiStack extends cdk.Stack {
         HELM_DATABASE_NAME: databaseName,
         HELM_DATABASE_SECRET_ARN: secret.secretArn,
         HELM_DATABASE_RESOURCE_ARN: cluster.clusterArn,
+        HELM_RECEIPTS_BUCKET: receiptsBucket.bucketName,
       },
     });
 
@@ -96,6 +141,136 @@ export class ApiStack extends cdk.Stack {
 
     // Allow Lambda to call the RDS Data API on this cluster.
     cluster.grantDataApiAccess(fn);
+
+    // Read/write access to the receipts bucket (for presigned URL
+    // generation + the DELETE endpoint's S3 cleanup).
+    receiptsBucket.grantReadWrite(fn);
+
+    // -------------------------------------------------------------------------
+    // Receipt processor Lambda — S3 ObjectCreated → Textract → DB update.
+    // Same container image as the API Lambda, different entrypoint.
+    // -------------------------------------------------------------------------
+    const processorLogGroup = new logs.LogGroup(this, 'ReceiptProcessorLogs', {
+      logGroupName: `/aws/lambda/helm-receipt-processor-${config.env}`,
+      retention: logs.RetentionDays.ONE_MONTH,
+      removalPolicy:
+        config.env === 'main'
+          ? cdk.RemovalPolicy.RETAIN
+          : cdk.RemovalPolicy.DESTROY,
+    });
+
+    const processorFn = new lambda.DockerImageFunction(
+      this,
+      'ReceiptProcessor',
+      {
+        functionName: `helm-receipt-processor-${config.env}`,
+        code: apiImage,
+        // Override the image's default CMD (the Mangum handler) so this
+        // Lambda runs the S3-event handler instead.
+        // The Lambda runtime calls the function named here on each event.
+        // Docker image is layered on AWS's Python base image which uses
+        // `lambda-entrypoint.sh` + the CMD as the handler path.
+        memorySize: 1024,
+        timeout: cdk.Duration.seconds(60),
+        architecture: lambda.Architecture.ARM_64,
+        logGroup: processorLogGroup,
+        environment: {
+          HELM_STAGE: config.env === 'main' ? 'prod' : config.env,
+          HELM_DATABASE_NAME: databaseName,
+          HELM_DATABASE_SECRET_ARN: secret.secretArn,
+          HELM_DATABASE_RESOURCE_ARN: cluster.clusterArn,
+          HELM_RECEIPTS_BUCKET: receiptsBucket.bucketName,
+        },
+      },
+    );
+
+    // Override the Docker image CMD to point at the processor handler.
+    // The Dockerfile sets CMD ["app.main.handler"]; for this function
+    // the runtime should call app.handlers.process_receipt.handler.
+    (processorFn.node.defaultChild as lambda.CfnFunction).addPropertyOverride(
+      'ImageConfig.Command',
+      ['app.handlers.process_receipt.handler'],
+    );
+
+    // Same DB + S3 access as the API Lambda.
+    secret.grantRead(processorFn);
+    cluster.grantDataApiAccess(processorFn);
+    receiptsBucket.grantRead(processorFn);
+
+    // Textract permission — AnalyzeExpense (synchronous).
+    processorFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['textract:AnalyzeExpense'],
+        resources: ['*'],
+      }),
+    );
+
+    // Trigger: S3 ObjectCreated under the `expenses/` prefix.
+    receiptsBucket.addEventNotification(
+      s3.EventType.OBJECT_CREATED,
+      new s3n.LambdaDestination(processorFn),
+      { prefix: 'expenses/' },
+    );
+
+    // -------------------------------------------------------------------------
+    // CSV processor Lambda — S3 ObjectCreated under `imports/` →
+    // institution-specific parser → personal_transactions row inserts.
+    // Same container image as the API Lambda, different entrypoint.
+    // -------------------------------------------------------------------------
+    const csvProcessorLogGroup = new logs.LogGroup(
+      this,
+      'CsvProcessorLogs',
+      {
+        logGroupName: `/aws/lambda/helm-csv-processor-${config.env}`,
+        retention: logs.RetentionDays.ONE_MONTH,
+        removalPolicy:
+          config.env === 'main'
+            ? cdk.RemovalPolicy.RETAIN
+            : cdk.RemovalPolicy.DESTROY,
+      },
+    );
+
+    const csvProcessorFn = new lambda.DockerImageFunction(
+      this,
+      'CsvProcessor',
+      {
+        functionName: `helm-csv-processor-${config.env}`,
+        code: apiImage,
+        memorySize: 1024,
+        timeout: cdk.Duration.seconds(60),
+        architecture: lambda.Architecture.ARM_64,
+        logGroup: csvProcessorLogGroup,
+        environment: {
+          HELM_STAGE: config.env === 'main' ? 'prod' : config.env,
+          HELM_DATABASE_NAME: databaseName,
+          HELM_DATABASE_SECRET_ARN: secret.secretArn,
+          HELM_DATABASE_RESOURCE_ARN: cluster.clusterArn,
+          HELM_RECEIPTS_BUCKET: receiptsBucket.bucketName,
+        },
+      },
+    );
+
+    (
+      csvProcessorFn.node.defaultChild as lambda.CfnFunction
+    ).addPropertyOverride('ImageConfig.Command', [
+      'app.handlers.process_csv.handler',
+    ]);
+
+    // Same DB + S3 access as the receipt processor. No Textract here.
+    secret.grantRead(csvProcessorFn);
+    cluster.grantDataApiAccess(csvProcessorFn);
+    receiptsBucket.grantRead(csvProcessorFn);
+
+    // Trigger: S3 ObjectCreated under the `imports/` prefix.
+    receiptsBucket.addEventNotification(
+      s3.EventType.OBJECT_CREATED,
+      new s3n.LambdaDestination(csvProcessorFn),
+      { prefix: 'imports/' },
+    );
+
+    // Suppress unused-import warning for lambdaEventSources (re-exported
+    // so future event-source additions don't need another import).
+    void lambdaEventSources;
 
     // -------------------------------------------------------------------------
     // API Gateway HTTP API
@@ -161,6 +336,15 @@ export class ApiStack extends cdk.Stack {
       methods: [apigwv2.HttpMethod.GET],
       integration: lambdaIntegration,
       // No authorizer — open to health checkers / load balancers
+    });
+
+    // OPTIONS /{proxy+} — unauthenticated, lets browser preflights through.
+    // API Gateway's route precedence picks this over `ANY /{proxy+}` for the
+    // OPTIONS method, so the JWT authoriser is bypassed for preflights only.
+    httpApi.addRoutes({
+      path: '/{proxy+}',
+      methods: [apigwv2.HttpMethod.OPTIONS],
+      integration: lambdaIntegration,
     });
 
     // ANY /{proxy+} — all other routes require a valid Cognito JWT

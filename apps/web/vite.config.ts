@@ -1,5 +1,5 @@
 import { defineConfig } from "vitest/config";
-import react from "@vitejs/plugin-react";
+import react from "@vitejs/plugin-react-swc";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 
@@ -14,6 +14,9 @@ export default defineConfig({
   build: {
     // Source maps double rollup memory and aren't useful in production.
     sourcemap: false,
+    // Skip gzip-size measurement during emit — saves heap on the
+    // memory-constrained Amplify build container.
+    reportCompressedSize: false,
     // Split aws-amplify (the largest dep) into its own chunk so rollup
     // processes it separately. Reduces peak memory during tree-shaking
     // and silences the 500 kB chunk-size warning.
@@ -21,6 +24,7 @@ export default defineConfig({
       output: {
         manualChunks: {
           amplify: ["aws-amplify", "aws-amplify/auth"],
+          "amplify-ui": ["@aws-amplify/ui-react"],
           react: ["react", "react-dom", "react-router-dom"],
         },
       },

@@ -74,3 +74,35 @@ export async function apiFetch<T>(
 
   return body as T;
 }
+
+/**
+ * Fetch a binary endpoint (e.g. PDF) on the Helm API and return it as a
+ * Blob. Attaches the Cognito Bearer token like :func:`apiFetch`.
+ *
+ * @throws {ApiError} When the server responds with a non-2xx status.
+ */
+export async function apiFetchBlob(
+  path: string,
+  init: RequestInit = {},
+): Promise<Blob> {
+  const session = await fetchAuthSession();
+  const jwt = session.tokens?.idToken?.toString();
+
+  const headers = new Headers(init.headers);
+  if (jwt) {
+    headers.set("Authorization", `Bearer ${jwt}`);
+  }
+
+  const url = `${getApiBase()}${path}`;
+  const response = await fetch(url, { ...init, headers });
+
+  if (!response.ok) {
+    const contentType = response.headers.get("content-type") ?? "";
+    const body = contentType.includes("application/json")
+      ? await response.json()
+      : await response.text();
+    throw new ApiError(response.status, body);
+  }
+
+  return response.blob();
+}
