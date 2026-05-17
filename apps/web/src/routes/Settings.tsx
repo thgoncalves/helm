@@ -1,16 +1,21 @@
 /**
- * Settings page — Company Information, Tax Rates, Invoice Settings,
- * User Contact (for PDFs), and Theme.
+ * Settings page — three-zone layout with sidebar nav, scroll-spy, per-section
+ * save buttons, and a ThemeCard grid picker.
  *
- * Folder/Backup section from the legacy app is intentionally gone:
- * the database lives in Aurora (managed) and PDFs are streamed
- * directly from the API (no folder concept). The user can download
- * the latest PDF from each respective page.
+ * Layout: AppHeader on top, then a flex row that fills remaining height.
+ * Left: <aside w-60> with search + section nav. Right: overflow-y-auto main
+ * scroller. Each section has its own dirty flag and Save button.
  *
- * Persistence: every editable input is keyed against a settings table
- * row. Save sends a PUT /business/settings/ with just the diff.
+ * Persistence: PUT /business/settings/ with only the diff for the section
+ * being saved.
  */
-import { useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, ApiError } from "@/lib/api";
 import {
@@ -31,14 +36,17 @@ import {
   VacationPeriod,
 } from "@/lib/holidays";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AppHeader } from "@/components/AppHeader";
 
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
 type SettingsMap = Record<string, string>;
 
-/** Form-state keys — each maps to a row in the settings table. */
+/** All keys that map to rows in the settings table. */
 const FIELDS = [
   "company_name",
   "company_abn",
@@ -59,8 +67,111 @@ const FIELDS = [
   "vacations",
 ] as const;
 type FieldKey = (typeof FIELDS)[number];
-
 type FormState = Record<FieldKey, string>;
+
+// ---------------------------------------------------------------------------
+// Section metadata — single source of truth for nav + search + render
+// ---------------------------------------------------------------------------
+
+interface SectionMeta {
+  id: string;
+  title: string;
+  keywords: string[];
+  /** The FieldKey subsets that belong to this section. */
+  fields: FieldKey[];
+}
+
+const SECTIONS: SectionMeta[] = [
+  {
+    id: "theme",
+    title: "Theme",
+    keywords: ["palette", "appearance", "dark", "light", "color"],
+    fields: ["theme"],
+  },
+  {
+    id: "company",
+    title: "Company",
+    keywords: ["company", "business", "name", "abn", "gst", "number"],
+    fields: ["company_name", "company_abn"],
+  },
+  {
+    id: "taxes",
+    title: "Tax rates",
+    keywords: ["tax", "gst", "rate", "transfer", "personal", "corporate"],
+    fields: ["gst_rate", "transfer_tax_rate_company", "transfer_tax_rate_personal"],
+  },
+  {
+    id: "invoices",
+    title: "Invoice defaults",
+    keywords: ["invoice", "number", "prefix", "terms", "payment", "currency"],
+    fields: ["invoice_number_prefix", "default_payment_terms", "default_currency"],
+  },
+  {
+    id: "user-contact",
+    title: "Contact (PDFs)",
+    keywords: ["contact", "name", "address", "postal", "phone", "email", "etransfer"],
+    fields: [
+      "user_full_name",
+      "user_address",
+      "user_postal_code",
+      "user_phone",
+      "user_email",
+      "etransfer_email",
+    ],
+  },
+  {
+    id: "holidays",
+    title: "Holidays & vacation",
+    keywords: [
+      "holiday",
+      "vacation",
+      "time off",
+      "alberta",
+      "stat",
+      "statutory",
+      "custom",
+    ],
+    fields: ["custom_holidays", "vacations"],
+  },
+  {
+    id: "data-storage",
+    title: "Data storage",
+    keywords: ["data", "storage", "aurora", "database", "backup", "pdf"],
+    fields: [],
+  },
+];
+
+// ---------------------------------------------------------------------------
+// Theme swatches for ThemeCard previews
+// ---------------------------------------------------------------------------
+
+const THEME_SWATCHES: Record<Theme, { app: string; surface: string; accent: string; warning: string; danger: string }> = {
+  default: {
+    app: "#ffffff",
+    surface: "#f4f4f5",
+    accent: "#2563eb",
+    warning: "#d97706",
+    danger: "#dc2626",
+  },
+  catppuccin: {
+    app: "#1e1e2e",
+    surface: "#181825",
+    accent: "#89b4fa",
+    warning: "#fab387",
+    danger: "#f38ba8",
+  },
+  "tokyo-night": {
+    app: "#1a1b26",
+    surface: "#16161e",
+    accent: "#7aa2f7",
+    warning: "#e0af68",
+    danger: "#f7768e",
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 function emptyState(): FormState {
   return Object.fromEntries(FIELDS.map((k) => [k, ""])) as FormState;
@@ -71,18 +182,18 @@ function fromMap(map: SettingsMap): FormState {
   for (const k of FIELDS) {
     if (k in map) out[k] = map[k] ?? "";
   }
-  // Default the theme to the persisted value or "default".
   if (!out.theme) out.theme = "default";
   return out;
 }
 
-/**
- * Build the diff between the saved baseline and the form state — only
- * changed keys go to the server.
- */
-function diff(baseline: FormState, current: FormState): SettingsMap {
+/** Return only the keys in `fieldSubset` that changed between baseline and current. */
+function diffSubset(
+  baseline: FormState,
+  current: FormState,
+  fieldSubset: FieldKey[],
+): SettingsMap {
   const out: SettingsMap = {};
-  for (const k of FIELDS) {
+  for (const k of fieldSubset) {
     if ((baseline[k] ?? "") !== (current[k] ?? "")) {
       out[k] = current[k];
     }
@@ -107,6 +218,119 @@ function decimalToPercent(decimalStr: string): string {
   return `${(n * 100).toFixed(1)}%`;
 }
 
+/** Substring-AND search: every whitespace token must appear in the haystack. */
+function matchesQuery(meta: SectionMeta, q: string): boolean {
+  if (!q) return true;
+  const haystack = (meta.title + " " + meta.keywords.join(" ")).toLowerCase();
+  return q
+    .split(/\s+/)
+    .filter(Boolean)
+    .every((tok) => haystack.includes(tok));
+}
+
+// ---------------------------------------------------------------------------
+// ThemeCard component
+// ---------------------------------------------------------------------------
+
+interface ThemeCardProps {
+  theme: Theme;
+  active: boolean;
+  onSelect: () => void;
+}
+
+function ThemeCard({ theme, active, onSelect }: ThemeCardProps) {
+  const swatch = THEME_SWATCHES[theme];
+  const label = THEME_LABELS[theme];
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={active}
+      aria-label={`Select ${label} theme`}
+      className={[
+        "text-left p-2 rounded-lg border transition-all",
+        active
+          ? "border-primary ring-2 ring-primary/40 bg-muted/30"
+          : "border-border hover:border-input bg-card",
+      ].join(" ")}
+    >
+      {/* Mini app window preview */}
+      <div
+        className="h-7 rounded mb-1.5 flex items-center px-1.5 gap-1"
+        style={{
+          background: swatch.app,
+          border: `1px solid ${swatch.surface}`,
+        }}
+      >
+        <span
+          className="w-2 h-2 rounded-full"
+          style={{ background: swatch.accent }}
+        />
+        <span
+          className="w-2 h-2 rounded-full"
+          style={{ background: swatch.warning }}
+        />
+        <span
+          className="w-2 h-2 rounded-full"
+          style={{ background: swatch.danger }}
+        />
+      </div>
+      <span className="text-xs text-foreground font-semibold truncate block">
+        {label}
+      </span>
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Section save footer
+// ---------------------------------------------------------------------------
+
+interface SectionFooterProps {
+  dirty: boolean;
+  saving: boolean;
+  savedAt: number | null;
+  error: string | null;
+  onSave: () => void;
+}
+
+function SectionFooter({ dirty, saving, savedAt, error, onSave }: SectionFooterProps) {
+  return (
+    <div className="mt-4 flex items-center gap-3">
+      <button
+        type="button"
+        onClick={onSave}
+        disabled={!dirty || saving}
+        className={[
+          "px-3 py-1.5 rounded text-sm font-medium transition",
+          "bg-primary text-primary-foreground",
+          "disabled:opacity-40 disabled:cursor-not-allowed",
+          "hover:bg-primary/90",
+        ].join(" ")}
+      >
+        {saving ? "saving…" : "save"}
+      </button>
+      {savedAt !== null && !dirty && (
+        <span className="text-xs text-emerald-600 dark:text-emerald-400">
+          ✓ saved
+        </span>
+      )}
+      {dirty && (
+        <span className="text-xs text-amber-600 dark:text-amber-400">
+          ⚠ unsaved changes
+        </span>
+      )}
+      {error && (
+        <span className="text-xs text-destructive">{error}</span>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main Settings component
+// ---------------------------------------------------------------------------
+
 export function Settings() {
   const queryClient = useQueryClient();
   const { data, isLoading, isError, error } = useQuery<SettingsMap>({
@@ -116,16 +340,13 @@ export function Settings() {
 
   const [baseline, setBaseline] = useState<FormState>(emptyState);
   const [state, setState] = useState<FormState>(emptyState);
-  // Tax rates are shown as percentages but stored as decimals.
+
+  // Tax rates are displayed as percentages but stored as decimals.
   const [rateInputs, setRateInputs] = useState<{
     gst_rate: string;
     transfer_tax_rate_company: string;
     transfer_tax_rate_personal: string;
-  }>({
-    gst_rate: "",
-    transfer_tax_rate_company: "",
-    transfer_tax_rate_personal: "",
-  });
+  }>({ gst_rate: "", transfer_tax_rate_company: "", transfer_tax_rate_personal: "" });
 
   useEffect(() => {
     if (!data) return;
@@ -139,41 +360,57 @@ export function Settings() {
     });
   }, [data]);
 
-  const dirty = useMemo(() => diff(baseline, state), [baseline, state]);
-  const hasChanges = Object.keys(dirty).length > 0;
+  // Per-section saved timestamps & saving tracker
+  const [savedAt, setSavedAt] = useState<Record<string, number | null>>({});
+  const [savingSection, setSavingSection] = useState<string | null>(null);
+  const [sectionErrors, setSectionErrors] = useState<Record<string, string | null>>({});
 
-  const saveMutation = useMutation<SettingsMap, ApiError, SettingsMap>({
-    mutationFn: (payload) =>
+  const saveMutation = useMutation<SettingsMap, ApiError, { sectionId: string; payload: SettingsMap }>({
+    mutationFn: ({ payload }) =>
       apiFetch<SettingsMap>("/business/settings/", {
         method: "PUT",
         body: JSON.stringify(payload),
       }),
-    onSuccess: (saved) => {
+    onSuccess: (saved, { sectionId }) => {
       const next = fromMap(saved);
       setBaseline(next);
       setState(next);
-      // Update the rate inputs in case the server normalised the value.
       setRateInputs({
         gst_rate: decimalToPercent(next.gst_rate),
         transfer_tax_rate_company: decimalToPercent(next.transfer_tax_rate_company),
         transfer_tax_rate_personal: decimalToPercent(next.transfer_tax_rate_personal),
       });
+      setSavedAt((s) => ({ ...s, [sectionId]: Date.now() }));
+      setSavingSection(null);
+      setSectionErrors((e) => ({ ...e, [sectionId]: null }));
       void queryClient.invalidateQueries({ queryKey: ["settings"] });
       void queryClient.invalidateQueries({ queryKey: ["transfer-tax-rates"] });
     },
+    onError: (err, { sectionId }) => {
+      setSavingSection(null);
+      const msg =
+        err instanceof ApiError
+          ? typeof err.body === "object" && err.body && "detail" in err.body
+            ? String((err.body as { detail: unknown }).detail)
+            : `Server error ${err.status}`
+          : String(err);
+      setSectionErrors((e) => ({ ...e, [sectionId]: msg }));
+    },
   });
 
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!hasChanges) return;
-    saveMutation.mutate(dirty);
+  function saveSection(sectionId: string, fields: FieldKey[]) {
+    const payload = diffSubset(baseline, state, fields);
+    if (Object.keys(payload).length === 0) return;
+    setSavingSection(sectionId);
+    setSavedAt((s) => ({ ...s, [sectionId]: null }));
+    saveMutation.mutate({ sectionId, payload });
   }
 
   function patch(key: FieldKey, value: string) {
     setState((s) => ({ ...s, [key]: value }));
   }
 
-  /** Theme is applied live so the user can preview without saving. */
+  /** Theme applied live on selection — no save needed for visual feedback. */
   function patchTheme(value: string) {
     patch("theme", value);
     if (isTheme(value)) {
@@ -190,10 +427,7 @@ export function Settings() {
     patch(key, percentToDecimal(pretty));
   }
 
-  // -----------------------------------------------------------------
-  // Holidays + vacation editors (derived from the same form state via
-  // the JSON-serialized custom_holidays / vacations keys).
-  // -----------------------------------------------------------------
+  // Holidays / vacation state
   const customHolidays = useMemo(
     () => parseCustomHolidays(state.custom_holidays),
     [state.custom_holidays],
@@ -225,22 +459,18 @@ export function Settings() {
     updateCustomHolidays(
       [
         ...customHolidays,
-        {
-          date: newHoliday.date,
-          name: newHoliday.name.trim(),
-          source: "custom",
-        },
+        { date: newHoliday.date, name: newHoliday.name.trim(), source: "custom" },
       ].sort((a, b) => a.date.localeCompare(b.date)),
     );
     setNewHoliday({ date: "", name: "" });
   }
+
   function removeHoliday(date: string) {
     updateCustomHolidays(customHolidays.filter((h) => h.date !== date));
   }
+
   function addVacation() {
-    if (!newVacation.start || !newVacation.end || !newVacation.label.trim()) {
-      return;
-    }
+    if (!newVacation.start || !newVacation.end || !newVacation.label.trim()) return;
     if (newVacation.end < newVacation.start) return;
     updateVacations(
       [
@@ -254,6 +484,7 @@ export function Settings() {
     );
     setNewVacation({ start: "", end: "", label: "" });
   }
+
   function removeVacation(index: number) {
     updateVacations(vacations.filter((_, i) => i !== index));
   }
@@ -267,189 +498,409 @@ export function Settings() {
     [currentYear],
   );
 
+  // ---------------------------------------------------------------------------
+  // Layout state: search + scroll-spy
+  // ---------------------------------------------------------------------------
+
+  const [query, setQuery] = useState("");
+  const [activeId, setActiveId] = useState(SECTIONS[0].id);
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const spyLockUntilRef = useRef<number>(0);
+
+  const visibleSections = useMemo(
+    () => SECTIONS.filter((s) => matchesQuery(s, query)),
+    [query],
+  );
+  const visibleIds = useMemo(
+    () => new Set(visibleSections.map((s) => s.id)),
+    [visibleSections],
+  );
+
+  // Scroll-spy effect
+  useEffect(() => {
+    const root = scrollerRef.current;
+    if (!root) return;
+    const onScroll = () => {
+      if (Date.now() < spyLockUntilRef.current) return;
+      const rootTop = root.getBoundingClientRect().top;
+      let active = SECTIONS[0].id;
+      for (const s of SECTIONS) {
+        if (!visibleIds.has(s.id)) continue;
+        const el = document.getElementById(s.id);
+        if (!el) continue;
+        const top = el.getBoundingClientRect().top - rootTop;
+        if (top <= 80) active = s.id;
+      }
+      setActiveId(active);
+    };
+    root.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+    return () => root.removeEventListener("scroll", onScroll);
+  }, [visibleIds]);
+
+  const scrollToSection = useCallback((id: string) => {
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setActiveId(id);
+    spyLockUntilRef.current = Date.now() + 700;
+  }, []);
+
+  // ---------------------------------------------------------------------------
+  // Render helpers
+  // ---------------------------------------------------------------------------
+
+  /** Whether a section has any unsaved changes. */
+  function isSectionDirty(sectionId: string): boolean {
+    const meta = SECTIONS.find((s) => s.id === sectionId);
+    if (!meta) return false;
+    return Object.keys(diffSubset(baseline, state, meta.fields)).length > 0;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
+
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen flex flex-col bg-background">
       <AppHeader />
 
-      <main className="mx-auto max-w-3xl px-4 py-6">
-        <h2 className="mb-6 text-2xl font-bold">Settings</h2>
+      <div className="flex flex-1 min-h-0">
+        {/* ── Sidebar ── */}
+        <aside className="w-60 shrink-0 border-r border-border flex flex-col min-h-0 hidden sm:flex">
+          {/* Search */}
+          <div className="p-3 border-b border-border">
+            <input
+              type="search"
+              placeholder="Search settings…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value.toLowerCase())}
+              className={[
+                "w-full rounded-md border border-input bg-background px-3 py-1.5",
+                "text-sm placeholder:text-muted-foreground/70",
+                "focus:outline-none focus:ring-2 focus:ring-ring",
+              ].join(" ")}
+              aria-label="Search settings"
+            />
+          </div>
 
-        {isLoading && (
-          <p className="text-muted-foreground">Loading settings…</p>
-        )}
-        {isError && (
-          <p className="text-destructive">
-            Failed to load settings:{" "}
-            {error instanceof Error ? error.message : "Unknown error"}
-          </p>
-        )}
+          {/* Nav */}
+          <nav className="flex-1 overflow-y-auto py-2" aria-label="Settings sections">
+            {visibleSections.length === 0 && (
+              <p className="px-4 py-2 text-xs text-muted-foreground">no matches</p>
+            )}
+            {visibleSections.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => scrollToSection(s.id)}
+                className={[
+                  "w-full text-left px-4 py-1.5 text-sm transition",
+                  "border-l-2",
+                  activeId === s.id
+                    ? "text-foreground font-semibold bg-muted/40 border-primary"
+                    : "text-muted-foreground hover:text-foreground border-transparent",
+                ].join(" ")}
+              >
+                {s.title}
+              </button>
+            ))}
+          </nav>
+        </aside>
 
-        {!isLoading && !isError && (
-          <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Company Information</CardTitle>
-              </CardHeader>
-              <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-[180px_1fr] sm:items-center">
-                <Label htmlFor="company_name">Company Name</Label>
-                <Input
-                  id="company_name"
-                  value={state.company_name}
-                  onChange={(e) => patch("company_name", e.target.value)}
+        {/* ── Main scroller ── */}
+        <div
+          ref={scrollerRef}
+          className="flex-1 overflow-y-auto min-h-0"
+        >
+          <div className="px-6 py-6 space-y-10 max-w-5xl">
+
+            {isLoading && (
+              <p className="text-muted-foreground">Loading settings…</p>
+            )}
+            {isError && (
+              <p className="text-destructive">
+                Failed to load settings:{" "}
+                {error instanceof Error ? error.message : "Unknown error"}
+              </p>
+            )}
+
+            {/* Empty search state in main */}
+            {!isLoading && !isError && visibleSections.length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                No settings match <code className="font-mono">{query}</code>.
+              </p>
+            )}
+
+            {/* ── Theme ── */}
+            {visibleIds.has("theme") && (
+              <section id="theme" className="scroll-mt-4">
+                <h2 className="text-lg font-semibold text-foreground mb-1">Theme</h2>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Pick a colour palette. Changes apply instantly — no save required.
+                </p>
+                <div
+                  className="grid gap-2"
+                  style={{ gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))" }}
+                >
+                  {THEMES.map((t) => (
+                    <ThemeCard
+                      key={t}
+                      theme={t}
+                      active={state.theme === t}
+                      onSelect={() => patchTheme(t)}
+                    />
+                  ))}
+                </div>
+                {/* Theme is applied live; no dirty / save needed — but we still
+                    persist the key to server when other changes go through. */}
+              </section>
+            )}
+
+            {/* ── Company ── */}
+            {visibleIds.has("company") && (
+              <section id="company" className="scroll-mt-4">
+                <h2 className="text-lg font-semibold text-foreground mb-1">Company</h2>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Your legal business name and registration number, printed on every invoice.
+                </p>
+                <div
+                  className="grid gap-3"
+                  style={{ gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))" }}
+                >
+                  <div className="space-y-1">
+                    <Label htmlFor="company_name">Company Name</Label>
+                    <Input
+                      id="company_name"
+                      value={state.company_name}
+                      onChange={(e) => patch("company_name", e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="company_abn">Business Number</Label>
+                    <Input
+                      id="company_abn"
+                      placeholder="GST / business registration number"
+                      value={state.company_abn}
+                      onChange={(e) => patch("company_abn", e.target.value)}
+                    />
+                  </div>
+                </div>
+                <SectionFooter
+                  dirty={isSectionDirty("company")}
+                  saving={savingSection === "company"}
+                  savedAt={savedAt["company"] ?? null}
+                  error={sectionErrors["company"] ?? null}
+                  onSave={() => saveSection("company", SECTIONS.find((s) => s.id === "company")!.fields)}
                 />
+              </section>
+            )}
 
-                <Label htmlFor="company_abn">Business Number</Label>
-                <Input
-                  id="company_abn"
-                  placeholder="GST / business registration number"
-                  value={state.company_abn}
-                  onChange={(e) => patch("company_abn", e.target.value)}
+            {/* ── Tax rates ── */}
+            {visibleIds.has("taxes") && (
+              <section id="taxes" className="scroll-mt-4">
+                <h2 className="text-lg font-semibold text-foreground mb-1">Tax rates</h2>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Rates used when generating invoices and calculating transfer withholding.
+                </p>
+                <div
+                  className="grid gap-3"
+                  style={{ gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))" }}
+                >
+                  <div className="space-y-1">
+                    <Label htmlFor="gst_rate">GST Rate</Label>
+                    <Input
+                      id="gst_rate"
+                      placeholder="5.0%"
+                      value={rateInputs.gst_rate}
+                      onChange={(e) => patchRate("gst_rate", e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="transfer_tax_rate_company">
+                      Company Tax Rate (Transfers)
+                    </Label>
+                    <Input
+                      id="transfer_tax_rate_company"
+                      placeholder="30.0%"
+                      value={rateInputs.transfer_tax_rate_company}
+                      onChange={(e) =>
+                        patchRate("transfer_tax_rate_company", e.target.value)
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="transfer_tax_rate_personal">
+                      Personal Tax Rate (Transfers)
+                    </Label>
+                    <Input
+                      id="transfer_tax_rate_personal"
+                      placeholder="32.5%"
+                      value={rateInputs.transfer_tax_rate_personal}
+                      onChange={(e) =>
+                        patchRate("transfer_tax_rate_personal", e.target.value)
+                      }
+                    />
+                  </div>
+                </div>
+                <SectionFooter
+                  dirty={isSectionDirty("taxes")}
+                  saving={savingSection === "taxes"}
+                  savedAt={savedAt["taxes"] ?? null}
+                  error={sectionErrors["taxes"] ?? null}
+                  onSave={() => saveSection("taxes", SECTIONS.find((s) => s.id === "taxes")!.fields)}
                 />
-              </CardContent>
-            </Card>
+              </section>
+            )}
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Tax Rates</CardTitle>
-              </CardHeader>
-              <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-[260px_1fr] sm:items-center">
-                <Label htmlFor="gst_rate">GST Rate</Label>
-                <Input
-                  id="gst_rate"
-                  placeholder="5.0%"
-                  value={rateInputs.gst_rate}
-                  onChange={(e) => patchRate("gst_rate", e.target.value)}
+            {/* ── Invoice defaults ── */}
+            {visibleIds.has("invoices") && (
+              <section id="invoices" className="scroll-mt-4">
+                <h2 className="text-lg font-semibold text-foreground mb-1">
+                  Invoice defaults
+                </h2>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Applied automatically to every new invoice; overridable per invoice.
+                </p>
+                <div
+                  className="grid gap-3"
+                  style={{ gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))" }}
+                >
+                  <div className="space-y-1">
+                    <Label htmlFor="invoice_number_prefix">Invoice Number Prefix</Label>
+                    <Input
+                      id="invoice_number_prefix"
+                      placeholder="INV"
+                      value={state.invoice_number_prefix}
+                      onChange={(e) => patch("invoice_number_prefix", e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="default_payment_terms">Default Payment Terms</Label>
+                    <Input
+                      id="default_payment_terms"
+                      placeholder="Net 30"
+                      value={state.default_payment_terms}
+                      onChange={(e) => patch("default_payment_terms", e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="default_currency">Default Currency</Label>
+                    <Input
+                      id="default_currency"
+                      placeholder="CAD"
+                      maxLength={3}
+                      value={state.default_currency}
+                      onChange={(e) =>
+                        patch("default_currency", e.target.value.toUpperCase())
+                      }
+                    />
+                  </div>
+                </div>
+                <SectionFooter
+                  dirty={isSectionDirty("invoices")}
+                  saving={savingSection === "invoices"}
+                  savedAt={savedAt["invoices"] ?? null}
+                  error={sectionErrors["invoices"] ?? null}
+                  onSave={() => saveSection("invoices", SECTIONS.find((s) => s.id === "invoices")!.fields)}
                 />
+              </section>
+            )}
 
-                <Label htmlFor="transfer_tax_rate_company">
-                  Company Tax Rate (Transfers)
-                </Label>
-                <Input
-                  id="transfer_tax_rate_company"
-                  placeholder="30.0%"
-                  value={rateInputs.transfer_tax_rate_company}
-                  onChange={(e) =>
-                    patchRate("transfer_tax_rate_company", e.target.value)
+            {/* ── Contact (PDFs) ── */}
+            {visibleIds.has("user-contact") && (
+              <section id="user-contact" className="scroll-mt-4">
+                <h2 className="text-lg font-semibold text-foreground mb-1">
+                  Contact (PDFs)
+                </h2>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Your contact details as they appear in the header and footer of
+                  generated PDFs.
+                </p>
+                <div
+                  className="grid gap-3"
+                  style={{ gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))" }}
+                >
+                  <div className="space-y-1">
+                    <Label htmlFor="user_full_name">Full Name</Label>
+                    <Input
+                      id="user_full_name"
+                      value={state.user_full_name}
+                      onChange={(e) => patch("user_full_name", e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="user_address">Address</Label>
+                    <Input
+                      id="user_address"
+                      value={state.user_address}
+                      onChange={(e) => patch("user_address", e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="user_postal_code">Postal Code</Label>
+                    <Input
+                      id="user_postal_code"
+                      value={state.user_postal_code}
+                      onChange={(e) => patch("user_postal_code", e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="user_phone">Phone</Label>
+                    <Input
+                      id="user_phone"
+                      value={state.user_phone}
+                      onChange={(e) => patch("user_phone", e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="user_email">Email</Label>
+                    <Input
+                      id="user_email"
+                      type="email"
+                      value={state.user_email}
+                      onChange={(e) => patch("user_email", e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="etransfer_email">e-Transfer Email</Label>
+                    <Input
+                      id="etransfer_email"
+                      type="email"
+                      placeholder="Shown in the invoice PDF footer"
+                      value={state.etransfer_email}
+                      onChange={(e) => patch("etransfer_email", e.target.value)}
+                    />
+                  </div>
+                </div>
+                <SectionFooter
+                  dirty={isSectionDirty("user-contact")}
+                  saving={savingSection === "user-contact"}
+                  savedAt={savedAt["user-contact"] ?? null}
+                  error={sectionErrors["user-contact"] ?? null}
+                  onSave={() =>
+                    saveSection(
+                      "user-contact",
+                      SECTIONS.find((s) => s.id === "user-contact")!.fields,
+                    )
                   }
                 />
+              </section>
+            )}
 
-                <Label htmlFor="transfer_tax_rate_personal">
-                  Personal Tax Rate (Transfers)
-                </Label>
-                <Input
-                  id="transfer_tax_rate_personal"
-                  placeholder="32.5%"
-                  value={rateInputs.transfer_tax_rate_personal}
-                  onChange={(e) =>
-                    patchRate("transfer_tax_rate_personal", e.target.value)
-                  }
-                />
-              </CardContent>
-            </Card>
+            {/* ── Holidays & vacation ── */}
+            {visibleIds.has("holidays") && (
+              <section id="holidays" className="scroll-mt-4">
+                <h2 className="text-lg font-semibold text-foreground mb-1">
+                  Holidays &amp; vacation
+                </h2>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Stat holidays and vacation periods are highlighted on the Timesheet.
+                  Changes take effect on the next Timesheet refresh.
+                </p>
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Invoice Settings</CardTitle>
-              </CardHeader>
-              <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-[180px_1fr] sm:items-center">
-                <Label htmlFor="invoice_number_prefix">
-                  Invoice Number Prefix
-                </Label>
-                <Input
-                  id="invoice_number_prefix"
-                  placeholder="INV"
-                  value={state.invoice_number_prefix}
-                  onChange={(e) =>
-                    patch("invoice_number_prefix", e.target.value)
-                  }
-                />
-
-                <Label htmlFor="default_payment_terms">
-                  Default Payment Terms
-                </Label>
-                <Input
-                  id="default_payment_terms"
-                  placeholder="Net 30"
-                  value={state.default_payment_terms}
-                  onChange={(e) =>
-                    patch("default_payment_terms", e.target.value)
-                  }
-                />
-
-                <Label htmlFor="default_currency">Default Currency</Label>
-                <Input
-                  id="default_currency"
-                  placeholder="CAD"
-                  maxLength={3}
-                  value={state.default_currency}
-                  onChange={(e) =>
-                    patch("default_currency", e.target.value.toUpperCase())
-                  }
-                />
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">
-                  User Contact (printed on PDFs)
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-[180px_1fr] sm:items-center">
-                <Label htmlFor="user_full_name">Full Name</Label>
-                <Input
-                  id="user_full_name"
-                  value={state.user_full_name}
-                  onChange={(e) => patch("user_full_name", e.target.value)}
-                />
-                <Label htmlFor="user_address">Address</Label>
-                <Input
-                  id="user_address"
-                  value={state.user_address}
-                  onChange={(e) => patch("user_address", e.target.value)}
-                />
-                <Label htmlFor="user_postal_code">Postal Code</Label>
-                <Input
-                  id="user_postal_code"
-                  value={state.user_postal_code}
-                  onChange={(e) => patch("user_postal_code", e.target.value)}
-                />
-                <Label htmlFor="user_phone">Phone</Label>
-                <Input
-                  id="user_phone"
-                  value={state.user_phone}
-                  onChange={(e) => patch("user_phone", e.target.value)}
-                />
-                <Label htmlFor="user_email">Email</Label>
-                <Input
-                  id="user_email"
-                  type="email"
-                  value={state.user_email}
-                  onChange={(e) => patch("user_email", e.target.value)}
-                />
-                <Label htmlFor="etransfer_email">e-Transfer Email</Label>
-                <Input
-                  id="etransfer_email"
-                  type="email"
-                  placeholder="Shown in the invoice PDF footer"
-                  value={state.etransfer_email}
-                  onChange={(e) => patch("etransfer_email", e.target.value)}
-                />
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">
-                  Holidays &amp; Vacation
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                {/* Stat reference */}
-                <div>
-                  <p className="mb-2 text-sm font-medium">
-                    Alberta statutory holidays (auto, {currentYear}–
-                    {currentYear + 1})
+                {/* Alberta statutory holidays (read-only) */}
+                <div className="mb-6">
+                  <p className="mb-2 text-sm font-medium text-foreground">
+                    Alberta statutory holidays (auto, {currentYear}–{currentYear + 1})
                   </p>
                   <div className="flex flex-wrap gap-2">
                     {referenceHolidays.map((h) => (
@@ -468,8 +919,10 @@ export function Settings() {
                 </div>
 
                 {/* Custom holidays */}
-                <div>
-                  <p className="mb-2 text-sm font-medium">Custom holidays</p>
+                <div className="mb-6">
+                  <p className="mb-2 text-sm font-medium text-foreground">
+                    Custom holidays
+                  </p>
                   {customHolidays.length === 0 && (
                     <p className="mb-2 text-xs text-muted-foreground">
                       No custom holidays yet. Add company days off or
@@ -485,9 +938,7 @@ export function Settings() {
                         >
                           <div>
                             <span className="font-medium">{h.name}</span>{" "}
-                            <span className="text-muted-foreground">
-                              {h.date}
-                            </span>
+                            <span className="text-muted-foreground">{h.date}</span>
                           </div>
                           <Button
                             type="button"
@@ -528,9 +979,11 @@ export function Settings() {
                   </div>
                 </div>
 
-                {/* Vacations */}
-                <div>
-                  <p className="mb-2 text-sm font-medium">Vacation periods</p>
+                {/* Vacation periods */}
+                <div className="mb-4">
+                  <p className="mb-2 text-sm font-medium text-foreground">
+                    Vacation periods
+                  </p>
                   {vacations.length === 0 && (
                     <p className="mb-2 text-xs text-muted-foreground">
                       No vacation periods set. Add ranges of days off — the
@@ -609,88 +1062,52 @@ export function Settings() {
                     )}
                 </div>
 
-                <p className="text-xs text-muted-foreground">
-                  Changes only take effect once you save. The Timesheet
-                  page picks them up on its next refresh.
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Appearance</CardTitle>
-              </CardHeader>
-              <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-[180px_1fr] sm:items-center">
-                <Label htmlFor="theme">Theme</Label>
-                <select
-                  id="theme"
-                  className={
-                    "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm " +
-                    "ring-offset-background focus-visible:outline-none focus-visible:ring-2 " +
-                    "focus-visible:ring-ring focus-visible:ring-offset-2"
+                <SectionFooter
+                  dirty={isSectionDirty("holidays")}
+                  saving={savingSection === "holidays"}
+                  savedAt={savedAt["holidays"] ?? null}
+                  error={sectionErrors["holidays"] ?? null}
+                  onSave={() =>
+                    saveSection(
+                      "holidays",
+                      SECTIONS.find((s) => s.id === "holidays")!.fields,
+                    )
                   }
-                  value={state.theme || "default"}
-                  onChange={(e) => patchTheme(e.target.value)}
-                >
-                  {THEMES.map((t) => (
-                    <option key={t} value={t}>
-                      {THEME_LABELS[t as Theme]}
-                    </option>
-                  ))}
-                </select>
-              </CardContent>
-            </Card>
-
-            {/* Where things used to be: folder paths + database backup. */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">
-                  Data Storage (read-only)
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2 text-sm text-muted-foreground">
-                <p>
-                  <strong>Database:</strong> Aurora Serverless v2
-                  (managed). Backups are taken automatically by AWS.
-                </p>
-                <p>
-                  <strong>Timesheet PDFs:</strong> generated on demand —
-                  use the "Export PDF" button on the Timesheets page.
-                </p>
-                <p>
-                  <strong>Invoice PDFs:</strong> generated on demand — use
-                  the "Download PDF" button on the Invoice edit page.
-                </p>
-              </CardContent>
-            </Card>
-
-            {saveMutation.isError && (
-              <p className="text-sm text-destructive">
-                Save failed:{" "}
-                {saveMutation.error instanceof ApiError
-                  ? typeof saveMutation.error.body === "object" &&
-                    saveMutation.error.body &&
-                    "detail" in saveMutation.error.body
-                    ? String(
-                        (saveMutation.error.body as { detail: unknown })
-                          .detail,
-                      )
-                    : `Server error ${saveMutation.error.status}`
-                  : String(saveMutation.error)}
-              </p>
+                />
+              </section>
             )}
 
-            <div className="flex justify-end">
-              <Button
-                type="submit"
-                disabled={!hasChanges || saveMutation.isPending}
-              >
-                {saveMutation.isPending ? "Saving…" : "Save Settings"}
-              </Button>
-            </div>
-          </form>
-        )}
-      </main>
+            {/* ── Data storage (read-only) ── */}
+            {visibleIds.has("data-storage") && (
+              <section id="data-storage" className="scroll-mt-4">
+                <h2 className="text-lg font-semibold text-foreground mb-1">
+                  Data storage
+                </h2>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Infrastructure details — these are managed and cannot be changed here.
+                </p>
+                <div className="space-y-2 text-sm text-muted-foreground">
+                  <p>
+                    <strong className="text-foreground">Database:</strong> Aurora
+                    Serverless v2 (managed). Backups are taken automatically by AWS.
+                  </p>
+                  <p>
+                    <strong className="text-foreground">Timesheet PDFs:</strong>{" "}
+                    generated on demand — use the "Export PDF" button on the
+                    Timesheets page.
+                  </p>
+                  <p>
+                    <strong className="text-foreground">Invoice PDFs:</strong>{" "}
+                    generated on demand — use the "Download PDF" button on the
+                    Invoice edit page.
+                  </p>
+                </div>
+              </section>
+            )}
+
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

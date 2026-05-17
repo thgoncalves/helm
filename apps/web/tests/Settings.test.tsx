@@ -1,8 +1,12 @@
 /**
  * Tests for src/routes/Settings.tsx.
+ *
+ * The page now uses per-section Save buttons instead of a single "Save Settings"
+ * button. Each section renders a button labelled "save" within its own <section>.
+ * Theme is selected via ThemeCard buttons (aria-pressed), not a <select>.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -100,27 +104,43 @@ describe("Settings page", () => {
     ).toBe("32.5%");
   });
 
-  it("Save button is disabled until something changes", async () => {
+  it("Company save button is disabled until something changes", async () => {
+    const user = userEvent.setup();
     renderPage();
-    const save = await screen.findByRole("button", { name: /Save Settings/ });
+    // Wait for the Company section to appear
+    await screen.findByLabelText(/Company Name/i);
+    const companySection = document.getElementById("company")!;
+    const save = within(companySection).getByRole("button", { name: /^save$/i });
     await waitFor(() => expect(save).toBeDisabled());
 
     const name = screen.getByLabelText(/Company Name/i);
-    await userEvent.type(name, " (Updated)");
+    await user.type(name, " (Updated)");
     await waitFor(() => expect(save).not.toBeDisabled());
   });
 
-  it("PUT body contains only the changed keys", async () => {
+  it("PUT body contains only the changed keys (Invoice section save)", async () => {
+    const user = userEvent.setup();
     renderPage();
-    await screen.findByLabelText(/Company Name/i);
+    // Wait for the page to hydrate
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText(/Invoice Number Prefix/i) as HTMLInputElement).value,
+      ).toBe("INV"),
+    );
 
     const prefix = screen.getByLabelText(/Invoice Number Prefix/i);
-    await userEvent.clear(prefix);
-    await userEvent.type(prefix, "BILL");
+    // triple-click to select all text, then type replaces it
+    await user.tripleClick(prefix);
+    await user.keyboard("BILL");
 
-    await userEvent.click(
-      screen.getByRole("button", { name: /Save Settings/ }),
-    );
+    // Wait for the save button to become enabled (dirty state)
+    const saveBtn = await waitFor(() => {
+      const invoicesSection = document.getElementById("invoices")!;
+      const btn = within(invoicesSection).getByRole("button", { name: /^save$/i });
+      expect(btn).not.toBeDisabled();
+      return btn;
+    });
+    await user.click(saveBtn);
 
     await waitFor(() => {
       const putCall = apiFetchMock.mock.calls.find(
@@ -134,14 +154,22 @@ describe("Settings page", () => {
     });
   });
 
-  it("selecting a theme applies the class immediately", async () => {
+  it("selecting a ThemeCard applies the class immediately", async () => {
+    const user = userEvent.setup();
     renderPage();
-    const select = (await screen.findByLabelText(/Theme/i)) as HTMLSelectElement;
-    await userEvent.selectOptions(select, "catppuccin");
+    // Wait for the theme cards to render
+    const catppuccin = await screen.findByRole("button", {
+      name: /Select Catppuccin/i,
+    });
+    await user.click(catppuccin);
     expect(
       document.documentElement.classList.contains("theme-catppuccin"),
     ).toBe(true);
-    await userEvent.selectOptions(select, "tokyo-night");
+
+    const tokyoNight = screen.getByRole("button", {
+      name: /Select Tokyo Night/i,
+    });
+    await user.click(tokyoNight);
     expect(
       document.documentElement.classList.contains("theme-tokyo-night"),
     ).toBe(true);
@@ -151,13 +179,29 @@ describe("Settings page", () => {
   });
 
   it("entering a percent value converts to the decimal sent to the server", async () => {
+    const user = userEvent.setup();
     renderPage();
-    const gst = await screen.findByLabelText(/^GST Rate/i);
-    await userEvent.clear(gst);
-    await userEvent.type(gst, "13%");
-    await userEvent.click(
-      screen.getByRole("button", { name: /Save Settings/ }),
+    // Wait for page to hydrate with the seeded GST rate
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText(/^GST Rate/i) as HTMLInputElement).value,
+      ).toBe("5.0%"),
     );
+
+    const gst = screen.getByLabelText(/^GST Rate/i);
+    // triple-click selects all, then keyboard replaces it
+    await user.tripleClick(gst);
+    await user.keyboard("13%");
+
+    // Wait for the save button to become enabled (dirty state)
+    const saveBtn = await waitFor(() => {
+      const taxesSection = document.getElementById("taxes")!;
+      const btn = within(taxesSection).getByRole("button", { name: /^save$/i });
+      expect(btn).not.toBeDisabled();
+      return btn;
+    });
+    await user.click(saveBtn);
+
     await waitFor(() => {
       const putCall = apiFetchMock.mock.calls.find(
         (c) => (c[1] as RequestInit | undefined)?.method === "PUT",
