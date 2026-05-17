@@ -1,227 +1,180 @@
 /**
  * Tests for src/lib/pacing.ts.
  *
- * Covers the main business-day counting cases used by the Timesheets
- * pacing widget: weekends-only spans, stat holidays, vacation overlap,
- * and inverted date ranges.
+ * The spec table here is identical to the one in
+ * `scripts/pacing_calc.py::_run_spec_table()` so any drift between
+ * the TypeScript and Python implementations is caught.
  */
 import { describe, it, expect } from "vitest";
-import { businessDaysBetween, requiredPace } from "@/lib/pacing";
-import type { VacationPeriod } from "@/lib/holidays";
+import { computePace, PacingError } from "@/lib/pacing";
 
-// ---------------------------------------------------------------------------
-// businessDaysBetween
-// ---------------------------------------------------------------------------
+const HOURS = 1992.03;
 
-describe("businessDaysBetween", () => {
-  it("returns 0 business days for a weekend-only span", () => {
-    // 2026-05-16 = Saturday, 2026-05-17 = Sunday
-    const result = businessDaysBetween(
-      "2026-05-16",
-      "2026-05-17",
-      new Set<string>(),
-      [],
-    );
-    expect(result.totalBusinessDays).toBe(0);
-    expect(result.holidayDaysDeducted).toBe(0);
-    expect(result.vacationDaysDeducted).toBe(0);
-    expect(result.remaining).toBe(0);
+describe("computePace — spec table", () => {
+  const cases: Array<{
+    label: string;
+    base: number;
+    customs: number;
+    vacations: number;
+    loggedDays: number;
+    loggedHours: number;
+    expected: number;
+  }> = [
+    { label: "Baseline",
+      base: 249, customs: 0, vacations: 0, loggedDays: 0, loggedHours: 0,
+      expected: 8.0 },
+    { label: "10 vacation days, no logging",
+      base: 249, customs: 0, vacations: 10, loggedDays: 0, loggedHours: 0,
+      expected: 8.33 },
+    { label: "1 day logged at 8h",
+      base: 249, customs: 0, vacations: 0, loggedDays: 1, loggedHours: 8,
+      expected: 8.0 },
+    { label: "1 day logged at 10h",
+      base: 249, customs: 0, vacations: 0, loggedDays: 1, loggedHours: 10,
+      expected: 7.99 },
+    { label: "1 day logged at 6h",
+      base: 249, customs: 0, vacations: 0, loggedDays: 1, loggedHours: 6,
+      expected: 8.01 },
+    { label: "10 vacation + 10 days at 10h",
+      base: 249, customs: 0, vacations: 10, loggedDays: 10, loggedHours: 100,
+      expected: 8.26 },
+  ];
+
+  for (const c of cases) {
+    it(c.label, () => {
+      const result = computePace({
+        totalContractHours: HOURS,
+        baseBillableDays: c.base,
+        customHolidays: c.customs,
+        vacationDays: c.vacations,
+        loggedDays: c.loggedDays,
+        loggedHours: c.loggedHours,
+      });
+      expect(result).not.toBeNull();
+      expect(result!.displayedPace).toBeCloseTo(c.expected, 2);
+    });
+  }
+});
+
+describe("computePace — edge cases", () => {
+  it("returns null when net billable days hits zero (fully consumed)", () => {
+    const out = computePace({
+      totalContractHours: 100,
+      baseBillableDays: 5,
+      loggedDays: 5,
+    });
+    expect(out).toBeNull();
   });
 
-  it("counts Mon–Fri inclusive for a normal work week", () => {
-    // 2026-05-11 (Mon) to 2026-05-15 (Fri) = 5 days
-    const result = businessDaysBetween(
-      "2026-05-11",
-      "2026-05-15",
-      new Set<string>(),
-      [],
-    );
-    expect(result.totalBusinessDays).toBe(5);
-    expect(result.remaining).toBe(5);
+  it("throws when more days are consumed than base allows", () => {
+    expect(() =>
+      computePace({
+        totalContractHours: 100,
+        baseBillableDays: 5,
+        vacationDays: 10,
+      }),
+    ).toThrow(PacingError);
   });
 
-  it("deducts exactly one holiday from a ten-business-day span", () => {
-    // 2026-09-07 is Labour Day (1st Mon Sep) — falls in the Mon–Fri window.
-    // Span: 2026-08-31 (Mon) to 2026-09-11 (Fri) = 10 business days.
-    const holidays = new Set<string>(["2026-09-07"]);
-    const result = businessDaysBetween(
-      "2026-08-31",
-      "2026-09-11",
-      holidays,
-      [],
-    );
-    expect(result.totalBusinessDays).toBe(10);
-    expect(result.holidayDaysDeducted).toBe(1);
-    expect(result.vacationDaysDeducted).toBe(0);
-    expect(result.remaining).toBe(9);
+  it("pins remaining to 0 (and pace to 0) when over-billed", () => {
+    const out = computePace({
+      totalContractHours: 100,
+      baseBillableDays: 10,
+      loggedHours: 200,
+    });
+    expect(out).not.toBeNull();
+    expect(out!.remainingHours).toBe(0);
+    expect(out!.pace).toBe(0);
   });
 
-  it("deducts vacation days from the same ten-business-day span", () => {
-    // Same span + 1 holiday, plus a vacation that overlaps two business days.
-    // Vacation: 2026-09-08 (Tue) to 2026-09-09 (Wed) — both weekdays.
-    const holidays = new Set<string>(["2026-09-07"]);
-    const vacations: VacationPeriod[] = [
-      { start: "2026-09-08", end: "2026-09-09", label: "Long weekend extension" },
-    ];
-    const result = businessDaysBetween(
-      "2026-08-31",
-      "2026-09-11",
-      holidays,
-      vacations,
-    );
-    expect(result.totalBusinessDays).toBe(10);
-    expect(result.holidayDaysDeducted).toBe(1);
-    expect(result.vacationDaysDeducted).toBe(2);
-    expect(result.remaining).toBe(7);
+  it("stat holidays are informational only — no effect on pace", () => {
+    const a = computePace({
+      totalContractHours: HOURS,
+      baseBillableDays: 249,
+      statHolidaysInWindow: 0,
+    });
+    const b = computePace({
+      totalContractHours: HOURS,
+      baseBillableDays: 249,
+      statHolidaysInWindow: 99,
+    });
+    expect(a!.pace).toBe(b!.pace);
   });
 
-  it("a holiday that overlaps a vacation day counts as a holiday (not vacation)", () => {
-    // Holiday on 2026-09-07, vacation spans 2026-09-05 to 2026-09-07.
-    // 2026-09-07 is Labour Day → holiday wins. 2026-09-05 (Sat) is a weekend.
-    // Only 2026-09-07 (Mon) in the span: vacation can only claim 0 business days
-    // from the overlap because the holiday already covers the one overlapping weekday.
-    const holidays = new Set<string>(["2026-09-07"]);
-    const vacations: VacationPeriod[] = [
-      { start: "2026-09-05", end: "2026-09-07", label: "Weekend camping" },
-    ];
-    const result = businessDaysBetween(
-      "2026-09-07",
-      "2026-09-07",
-      holidays,
-      vacations,
-    );
-    expect(result.totalBusinessDays).toBe(1);
-    expect(result.holidayDaysDeducted).toBe(1);
-    expect(result.vacationDaysDeducted).toBe(0);
-    expect(result.remaining).toBe(0);
-  });
-
-  it("logged days drop out of the day pool entirely (already consumed)", () => {
-    // Mon–Fri of one week: 5 business days. Two of them already have
-    // logged hours → should drop to 3 billable days, no holiday/vacation
-    // deduction.
-    const logged = new Set(["2026-05-11", "2026-05-13"]);
-    const result = businessDaysBetween(
-      "2026-05-11",
-      "2026-05-15",
-      new Set<string>(),
-      [],
-      new Set<string>(),
-      logged,
-    );
-    expect(result.totalBusinessDays).toBe(3); // 5 weekdays minus 2 logged
-    expect(result.holidayDaysDeducted).toBe(0);
-    expect(result.vacationDaysDeducted).toBe(0);
-    expect(result.remaining).toBe(3);
-  });
-
-  it("logged days take priority over holidays and vacations", () => {
-    // Mon Sep 7 (Labour Day stat-like) and Tue Sep 8 (vacation) both
-    // already have logged hours — neither should be deducted as
-    // holiday/vacation, just dropped from the pool.
-    const logged = new Set(["2026-09-07", "2026-09-08"]);
-    const holidays = new Set(["2026-09-07"]);
-    const vacations: VacationPeriod[] = [
-      { start: "2026-09-08", end: "2026-09-08", label: "PTO" },
-    ];
-    const result = businessDaysBetween(
-      "2026-09-07",
-      "2026-09-11",
-      holidays,
-      vacations,
-      new Set<string>(),
-      logged,
-    );
-    expect(result.totalBusinessDays).toBe(3); // 5 weekdays minus 2 logged
-    expect(result.holidayDaysDeducted).toBe(0);
-    expect(result.vacationDaysDeducted).toBe(0);
-    expect(result.remaining).toBe(3);
-  });
-
-  it("exempt days (e.g. stat holidays) are not deducted even inside a vacation", () => {
-    // Christmas week: vacation Dec 21–25. Dec 25 is a stat (exempt).
-    // Dec 21–24 are vacation deductions; Dec 25 is exempt → counted as
-    // a plain business day with zero deduction.
-    const vacations: VacationPeriod[] = [
-      { start: "2026-12-21", end: "2026-12-25", label: "Christmas" },
-    ];
-    const exempt = new Set(["2026-12-25"]);
-    const result = businessDaysBetween(
-      "2026-12-21",
-      "2026-12-25",
-      new Set<string>(),
-      vacations,
-      exempt,
-    );
-    expect(result.totalBusinessDays).toBe(5);
-    expect(result.holidayDaysDeducted).toBe(0);
-    expect(result.vacationDaysDeducted).toBe(4); // Dec 25 NOT counted
-    expect(result.remaining).toBe(1); // only the exempt Dec 25 remains billable
+  it("rejects negative inputs", () => {
+    expect(() =>
+      computePace({ totalContractHours: -1, baseBillableDays: 100 }),
+    ).toThrow(PacingError);
+    expect(() =>
+      computePace({
+        totalContractHours: 100,
+        baseBillableDays: 100,
+        loggedHours: -1,
+      }),
+    ).toThrow(PacingError);
+    expect(() =>
+      computePace({
+        totalContractHours: 100,
+        baseBillableDays: -1,
+      }),
+    ).toThrow(PacingError);
   });
 });
 
-// ---------------------------------------------------------------------------
-// requiredPace
-// ---------------------------------------------------------------------------
-
-describe("requiredPace", () => {
-  it("returns null when end is before start (inverted range)", () => {
-    const result = requiredPace({
-      remainingHours: 100,
-      fromIso: "2026-05-17",
-      toIso: "2026-05-11",
-      holidayIsos: new Set<string>(),
-      vacations: [],
-    });
-    expect(result).toBeNull();
+describe("computePace — invariants", () => {
+  it("logging exactly the target rate on one day keeps pace flat", () => {
+    const base = computePace({
+      totalContractHours: HOURS,
+      baseBillableDays: 249,
+    })!;
+    const target = base.pace;
+    const after = computePace({
+      totalContractHours: HOURS,
+      baseBillableDays: 249,
+      loggedDays: 1,
+      loggedHours: target,
+    })!;
+    expect(after.pace).toBeCloseTo(target, 9);
   });
 
-  it("returns Infinity hoursPerDay when remaining days is 0", () => {
-    // Span is a weekend only — 0 business days available.
-    const result = requiredPace({
-      remainingHours: 50,
-      fromIso: "2026-05-16",
-      toIso: "2026-05-17",
-      holidayIsos: new Set<string>(),
-      vacations: [],
-    });
-    expect(result).not.toBeNull();
-    expect(result!.hoursPerDay).toBe(Infinity);
-    expect(result!.businessDaysRemaining).toBe(0);
+  it("adding vacation days raises pace", () => {
+    const noVac = computePace({
+      totalContractHours: HOURS,
+      baseBillableDays: 249,
+    })!;
+    const withVac = computePace({
+      totalContractHours: HOURS,
+      baseBillableDays: 249,
+      vacationDays: 5,
+    })!;
+    expect(withVac.pace).toBeGreaterThan(noVac.pace);
   });
 
-  it("computes correct pace for ten business days with holiday and vacation", () => {
-    // 10 business days, -1 holiday, -2 vacation = 7 available.
-    // 200 remaining hours / 7 days ≈ 28.57 h/day.
-    const holidays = new Set<string>(["2026-09-07"]);
-    const vacations: VacationPeriod[] = [
-      { start: "2026-09-08", end: "2026-09-09", label: "Extension" },
-    ];
-    const result = requiredPace({
-      remainingHours: 200,
-      fromIso: "2026-08-31",
-      toIso: "2026-09-11",
-      holidayIsos: holidays,
-      vacations,
-    });
-    expect(result).not.toBeNull();
-    expect(result!.businessDaysRemaining).toBe(7);
-    expect(result!.holidayDaysDeducted).toBe(1);
-    expect(result!.vacationDaysDeducted).toBe(2);
-    expect(result!.hoursPerDay).toBeCloseTo(200 / 7, 5);
+  it("logging > target drops pace (catch-up)", () => {
+    const base = computePace({
+      totalContractHours: HOURS,
+      baseBillableDays: 249,
+    })!;
+    const over = computePace({
+      totalContractHours: HOURS,
+      baseBillableDays: 249,
+      loggedDays: 1,
+      loggedHours: 10,
+    })!;
+    expect(over.pace).toBeLessThan(base.pace);
   });
 
-  it("handles same-day range (single business day)", () => {
-    // 2026-05-11 is a Monday → 1 business day.
-    const result = requiredPace({
-      remainingHours: 8,
-      fromIso: "2026-05-11",
-      toIso: "2026-05-11",
-      holidayIsos: new Set<string>(),
-      vacations: [],
-    });
-    expect(result).not.toBeNull();
-    expect(result!.businessDaysRemaining).toBe(1);
-    expect(result!.hoursPerDay).toBe(8);
+  it("logging < target raises pace (debt)", () => {
+    const base = computePace({
+      totalContractHours: HOURS,
+      baseBillableDays: 249,
+    })!;
+    const under = computePace({
+      totalContractHours: HOURS,
+      baseBillableDays: 249,
+      loggedDays: 1,
+      loggedHours: 6,
+    })!;
+    expect(under.pace).toBeGreaterThan(base.pace);
   });
 });

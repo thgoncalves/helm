@@ -1,217 +1,142 @@
 /**
- * Pacing helpers for the Timesheets page.
+ * Contract pacing — TypeScript port of `scripts/pacing_calc.py`.
  *
- * Computes how many hours per business day are needed to exhaust a contract's
- * remaining hours before the contract end date, taking Alberta stat holidays
- * and user-defined vacation periods into account.
+ * The Python module is the source of truth (it has the spec written
+ * out in the docstring and a runnable test table). This file mirrors
+ * it 1:1 so the running app and the offline calculator never drift.
  *
- * All date arithmetic is done in local-calendar space (string ISO dates) so
- * the results are independent of the user's timezone.
+ * Formula:
+ *
+ *     net_billable_days = base − customs − vacations − logged_days
+ *     remaining_hours   = total_contract_hours − logged_hours
+ *     pace              = remaining_hours / net_billable_days
+ *
+ * Critical invariants (any change to this file MUST keep these true):
+ *
+ *   - Logging exactly the current pace on one day keeps pace flat
+ *     (numerator drops by `pace`, denominator drops by 1).
+ *   - Logging > pace drops pace (catch-up).
+ *   - Logging < pace raises pace (debt).
+ *   - Stat holidays are informational only — already excluded from
+ *     `baseBillableDays`, so they don't appear in the formula.
+ *
+ * See `apps/web/tests/pacing.test.ts` for the full table of cases.
  */
-
-import type { HolidayEntry, VacationPeriod } from "@/lib/holidays";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export interface BusinessDayBreakdown {
-  /** Total Mon–Fri days in [fromIso, toIso] inclusive. */
-  totalBusinessDays: number;
-  /** Stat/custom holidays that fall on a business day in the window. */
-  holidayDaysDeducted: number;
-  /** Vacation-period days that fall on a business day (not already a holiday). */
-  vacationDaysDeducted: number;
-  /** Business days actually available: totalBusinessDays − holidays − vacations. */
-  remaining: number;
-}
-
 export interface PacingResult {
-  /** Required hours per available business day (may be Infinity if remaining=0). */
-  hoursPerDay: number;
-  /** Mon–Fri count in the window, before any deductions. */
-  totalBusinessDays: number;
-  /** Available business days (Mon–Fri minus holidays minus vacations). */
-  businessDaysRemaining: number;
-  /** Stat/custom holidays deducted. */
-  holidayDaysDeducted: number;
-  /** Vacation days deducted. */
-  vacationDaysDeducted: number;
-}
-
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Convert an ISO date string to an integer day number (days since epoch).
- * We use this only for iteration; results are not timezone-sensitive because
- * we work in calendar-date strings throughout.
- */
-function isoToDayNumber(iso: string): number {
-  // Parse as UTC noon to avoid any DST boundary surprises when converting back.
-  return Math.round(Date.UTC(
-    Number(iso.slice(0, 4)),
-    Number(iso.slice(5, 7)) - 1,
-    Number(iso.slice(8, 10)),
-  ) / 86_400_000);
-}
-
-function dayNumberToIso(n: number): string {
-  const d = new Date(n * 86_400_000);
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(d.getUTCDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-/** Return the day-of-week for an ISO date: 0=Mon … 6=Sun (matches getUTCDay offset). */
-function dowOfIso(iso: string): number {
-  const d = new Date(
-    Number(iso.slice(0, 4)),
-    Number(iso.slice(5, 7)) - 1,
-    Number(iso.slice(8, 10)),
-  );
-  // getDay(): 0=Sun…6=Sat → shift so 0=Mon…6=Sun
-  return (d.getDay() + 6) % 7;
-}
-
-function isBusinessDay(iso: string): boolean {
-  const dow = dowOfIso(iso);
-  return dow < 5; // Mon–Fri
-}
-
-function isInVacation(iso: string, vacations: VacationPeriod[]): boolean {
-  for (const v of vacations) {
-    if (iso >= v.start && iso <= v.end) return true;
-  }
-  return false;
-}
-
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
-
-/**
- * Count business days in the inclusive range [fromIso, toIso], then subtract
- * holidays and vacation days.
- *
- * Counting rule: each day is deducted **at most once**. Priority is
- * holiday > vacation, so a day that is both a holiday and inside a
- * vacation range counts as a holiday deduction only.
- *
- * `exemptIsos` lists days that are treated as plain business days even if
- * they fall inside a vacation range — used by Timesheets to exempt
- * Alberta statutory holidays (which are billable by virtue of the
- * hourly rate, so a vacation overlapping one shouldn't reduce capacity).
- *
- * @param fromIso  Start date (YYYY-MM-DD), inclusive.
- * @param toIso    End date (YYYY-MM-DD), inclusive. Must be >= fromIso.
- * @param holidayIsos  Set of ISO dates that are deductible holidays.
- * @param vacations    Vacation periods. Days inside any period are deducted
- *                     unless they're also in `holidayIsos` or `exemptIsos`.
- * @param exemptIsos   Days that suppress both holiday and vacation
- *                     deduction (i.e. count as plain business days).
- */
-export function businessDaysBetween(
-  fromIso: string,
-  toIso: string,
-  holidayIsos: Set<string>,
-  vacations: VacationPeriod[],
-  exemptIsos: Set<string> = new Set(),
-  loggedDayIsos: Set<string> = new Set(),
-): BusinessDayBreakdown {
-  const fromN = isoToDayNumber(fromIso);
-  const toN = isoToDayNumber(toIso);
-
-  let totalBusinessDays = 0;
-  let holidayDaysDeducted = 0;
-  let vacationDaysDeducted = 0;
-
-  for (let n = fromN; n <= toN; n++) {
-    const iso = dayNumberToIso(n);
-    if (!isBusinessDay(iso)) continue;
-    // A day with any logged hours is "consumed" — drop it from the
-    // forward-planning pool entirely (the hours it carries are already
-    // reflected in the caller's remainingHours number).
-    if (loggedDayIsos.has(iso)) continue;
-    totalBusinessDays++;
-    if (exemptIsos.has(iso)) continue;
-    if (holidayIsos.has(iso)) {
-      holidayDaysDeducted++;
-    } else if (isInVacation(iso, vacations)) {
-      vacationDaysDeducted++;
-    }
-  }
-
-  const remaining = totalBusinessDays - holidayDaysDeducted - vacationDaysDeducted;
-  return { totalBusinessDays, holidayDaysDeducted, vacationDaysDeducted, remaining };
-}
-
-/**
- * Compute the required hourly pace (hours/available business day) to log
- * ``remainingHours`` of work before ``toIso``.
- *
- * Returns ``null`` when ``toIso < fromIso`` (contract window already ended or
- * inverted dates).
- *
- * When ``remaining`` available business days is 0 (all days are holidays /
- * vacations, or today is the last day), ``hoursPerDay`` is ``Infinity``.
- *
- * @param params.remainingHours  Hours still to be logged.
- * @param params.fromIso         Start of the window (today, typically).
- * @param params.toIso           Contract end date.
- * @param params.holidayIsos     Set of ISO holiday dates in the window.
- * @param params.vacations       Vacation periods to deduct.
- */
-export function requiredPace(params: {
+  baseBillableDays: number;
+  /** Informational only — never feeds the formula. */
+  statHolidaysInWindow: number;
+  customHolidays: number;
+  vacationDays: number;
+  loggedDays: number;
+  loggedHours: number;
+  netBillableDays: number;
+  totalContractHours: number;
   remainingHours: number;
-  fromIso: string;
-  toIso: string;
-  holidayIsos: Set<string>;
-  vacations: VacationPeriod[];
-  /** Days exempt from both holiday and vacation deduction. */
-  exemptIsos?: Set<string>;
-  /** Days that already have logged hours — removed from the day pool. */
-  loggedDayIsos?: Set<string>;
-}): PacingResult | null {
+  /** Unrounded — useful for assertions and downstream math. */
+  pace: number;
+  /** Rounded to 2 decimal places for the UI. */
+  displayedPace: number;
+}
+
+export class PacingError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PacingError";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Core
+// ---------------------------------------------------------------------------
+
+export interface PacingInputs {
+  totalContractHours: number;
+  baseBillableDays: number;
+  customHolidays?: number;
+  vacationDays?: number;
+  loggedDays?: number;
+  loggedHours?: number;
+  /** Informational only; surfaced in the result but not used in math. */
+  statHolidaysInWindow?: number;
+}
+
+/**
+ * Compute the pacing audit, or null when the contract is fully
+ * consumed (no future days to spread over).
+ *
+ * Throws PacingError when inputs are mutually inconsistent.
+ */
+export function computePace(inputs: PacingInputs): PacingResult | null {
   const {
-    remainingHours,
-    fromIso,
-    toIso,
-    holidayIsos,
-    vacations,
-    exemptIsos,
-    loggedDayIsos,
-  } = params;
+    totalContractHours,
+    baseBillableDays,
+    customHolidays = 0,
+    vacationDays = 0,
+    loggedDays = 0,
+    loggedHours = 0,
+    statHolidaysInWindow = 0,
+  } = inputs;
 
-  if (toIso < fromIso) return null;
+  if (baseBillableDays < 0) {
+    throw new PacingError(
+      `baseBillableDays must be ≥ 0; got ${baseBillableDays}`,
+    );
+  }
+  for (const [name, value] of [
+    ["customHolidays", customHolidays],
+    ["vacationDays", vacationDays],
+    ["loggedDays", loggedDays],
+  ] as const) {
+    if (value < 0) throw new PacingError(`${name} must be ≥ 0; got ${value}`);
+  }
+  if (loggedHours < 0) {
+    throw new PacingError(`loggedHours must be ≥ 0; got ${loggedHours}`);
+  }
+  if (totalContractHours < 0) {
+    throw new PacingError(
+      `totalContractHours must be ≥ 0; got ${totalContractHours}`,
+    );
+  }
 
-  const breakdown = businessDaysBetween(
-    fromIso,
-    toIso,
-    holidayIsos,
-    vacations,
-    exemptIsos,
-    loggedDayIsos,
-  );
-  const {
-    totalBusinessDays,
-    remaining,
-    holidayDaysDeducted,
-    vacationDaysDeducted,
-  } = breakdown;
+  const netBillableDays =
+    baseBillableDays - customHolidays - vacationDays - loggedDays;
+  if (netBillableDays < 0) {
+    throw new PacingError(
+      `More days consumed than the contract base allows: ` +
+        `base=${baseBillableDays} - customs=${customHolidays} ` +
+        `- vacations=${vacationDays} - logged=${loggedDays} ` +
+        `= ${netBillableDays}`,
+    );
+  }
+  if (netBillableDays === 0) {
+    // Caller renders "contract complete" or similar.
+    return null;
+  }
 
-  const hoursPerDay = remaining === 0 ? Infinity : remainingHours / remaining;
+  const rawRemaining = totalContractHours - loggedHours;
+  // Over-billed: pin to zero rather than throwing — the UI still wants
+  // the audit fields.
+  const remainingHours = rawRemaining < 0 ? 0 : rawRemaining;
+  const pace = remainingHours / netBillableDays;
+  const displayedPace = Math.round(pace * 100) / 100;
 
   return {
-    hoursPerDay,
-    totalBusinessDays,
-    businessDaysRemaining: remaining,
-    holidayDaysDeducted,
-    vacationDaysDeducted,
+    baseBillableDays,
+    statHolidaysInWindow,
+    customHolidays,
+    vacationDays,
+    loggedDays,
+    loggedHours,
+    netBillableDays,
+    totalContractHours,
+    remainingHours,
+    pace,
+    displayedPace,
   };
 }
-
-// Re-export the types from holidays so consumers can import from one place.
-export type { HolidayEntry, VacationPeriod };

@@ -240,9 +240,10 @@ describe("Timesheets page", () => {
     );
     await userEvent.selectOptions(select, WENCO_ID);
     expect(await screen.findByText(/Remaining:/)).toBeInTheDocument();
-    // 1982.03 hrs × $95.38/hr = $189,046.02 (computed live from the
-    // remaining hours, not whatever the fixture's amount field says).
-    expect(await screen.findByText(/\$189,046\.02/)).toBeInTheDocument();
+    // $190,000 contract − ($953.80 actual) = $189,046.20. The widget
+    // computes Remaining as contract_value − actual to dodge the
+    // hours×rate quantization that otherwise loses ~18¢.
+    expect(await screen.findByText(/\$189,046\.20/)).toBeInTheDocument();
   });
 
   it("disables out-of-month cells", async () => {
