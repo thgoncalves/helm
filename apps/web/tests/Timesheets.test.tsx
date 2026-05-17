@@ -159,6 +159,11 @@ function setupApiMock(initialEntries: { work_date: string; hours: string }[] = [
       const cid = url.searchParams.get("client_id") ?? SULPETRO_ID;
       return summaryFor(cid);
     }
+    // Settings/holidays query the Timesheets page fires for the pacing
+    // widget. Tests don't need real values — empty map is fine.
+    if (path.startsWith("/business/settings/")) {
+      return {};
+    }
     throw new Error(`Unhandled path: ${path}`);
   });
 }
@@ -199,27 +204,45 @@ describe("Timesheets page", () => {
     });
   });
 
-  it("auto-selects the first client and shows its rate", async () => {
+  it("auto-selects the first client and exposes its rate in the dropdown", async () => {
     renderPage();
-    expect(await screen.findByText(/Hourly Rate:/)).toBeInTheDocument();
-    expect(await screen.findByText("$100.00")).toBeInTheDocument();
-    expect(screen.getByText(/Frequency:/)).toBeInTheDocument();
+    // Rate now lives only inside the dropdown option text — there's no
+    // separate "Hourly Rate:" label anymore.
+    const select = await screen.findByLabelText(/Client:/i);
+    await waitFor(() => {
+      expect(
+        within(select).getByText(/Sulpetro \(\$100\.00\/hr\)/),
+      ).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/Hourly Rate:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Frequency:/)).not.toBeInTheDocument();
   });
 
   it("hides the Remaining row when the client has no contract_value", async () => {
     renderPage();
-    await screen.findByText("$100.00");
+    // Wait until the auto-pick fires; the dropdown option is our cue.
+    const select = await screen.findByLabelText(/Client:/i);
+    await waitFor(() =>
+      expect(
+        within(select).getByText(/Sulpetro \(\$100\.00\/hr\)/),
+      ).toBeInTheDocument(),
+    );
     expect(screen.queryByText(/Remaining:/)).not.toBeInTheDocument();
   });
 
   it("shows Remaining when the client has a contract_value", async () => {
     renderPage();
-    // Wait for the auto-pick to fire (rate visible == clients loaded).
-    await screen.findByText("$100.00");
-    const select = screen.getByLabelText(/Client:/i);
+    const select = await screen.findByLabelText(/Client:/i);
+    await waitFor(() =>
+      expect(
+        within(select).getByText(/Sulpetro \(\$100\.00\/hr\)/),
+      ).toBeInTheDocument(),
+    );
     await userEvent.selectOptions(select, WENCO_ID);
     expect(await screen.findByText(/Remaining:/)).toBeInTheDocument();
-    expect(await screen.findByText(/\$189,046\.20/)).toBeInTheDocument();
+    // 1982.03 hrs × $95.38/hr = $189,046.02 (computed live from the
+    // remaining hours, not whatever the fixture's amount field says).
+    expect(await screen.findByText(/\$189,046\.02/)).toBeInTheDocument();
   });
 
   it("disables out-of-month cells", async () => {
@@ -234,7 +257,12 @@ describe("Timesheets page", () => {
   it("editing a cell updates the weekly subtotal", async () => {
     renderPage();
     // Wait for the auto-pick to fire so the in-month cells become enabled.
-    await screen.findByText("$100.00");
+    const select = await screen.findByLabelText(/Client:/i);
+    await waitFor(() =>
+      expect(
+        within(select).getByText(/Sulpetro \(\$100\.00\/hr\)/),
+      ).toBeInTheDocument(),
+    );
     const inputs = await screen.findAllByRole("textbox");
     const firstEnabled = inputs.find(
       (el) => !(el as HTMLInputElement).disabled,
@@ -249,7 +277,12 @@ describe("Timesheets page", () => {
     // Wait for the auto-picked client before clicking submit, so the button
     // is enabled.
     renderPage();
-    await screen.findByText("$100.00");
+    const select = await screen.findByLabelText(/Client:/i);
+    await waitFor(() =>
+      expect(
+        within(select).getByText(/Sulpetro \(\$100\.00\/hr\)/),
+      ).toBeInTheDocument(),
+    );
 
     // Extend the API mock so /business/timesheets/submit returns an invoice.
     apiFetchMock.mockImplementation(async (path: string) => {
@@ -259,6 +292,7 @@ describe("Timesheets page", () => {
       if (path.startsWith("/business/timesheets/summary")) {
         return summaryFor(SULPETRO_ID);
       }
+      if (path.startsWith("/business/settings/")) return {};
       if (path === "/business/timesheets/submit") {
         return {
           invoice: {

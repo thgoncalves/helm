@@ -31,7 +31,7 @@
  * weekly subtotal so weekly billing makes sense for first/last rows.
  */
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiFetchBlob, ApiError } from "@/lib/api";
 import type {
@@ -49,6 +49,7 @@ import {
   toIsoDate,
 } from "@/lib/timesheet";
 import {
+  albertaHolidays,
   buildHolidayLookup,
   findVacation,
   parseCustomHolidays,
@@ -355,36 +356,112 @@ export function Timesheets() {
   const today = todayIso();
 
   // ---------------------------------------------------------------------
-  // Pacing widget — requires contract_end_date + remaining hours
+  // Pacing widget — "Expected hours a day to fulfill contract"
+  //
+  // Dynamic: takes contract_remaining_hours from the summary (which
+  // includes every saved time entry across the whole contract) and
+  // subtracts the **unsaved** delta the user has typed into the visible
+  // grid but not yet blurred. The number updates on every keystroke.
+  //
+  // Window is [today, contract_end_date]. Hidden when contract dates
+  // aren't set.
   // ---------------------------------------------------------------------
 
-  // Build a holiday lookup spanning today → contract_end_date so it covers
-  // every year in the contract window (may cross a year boundary).
   const contractEndDate = selectedClient?.contract_end_date ?? null;
-  const pacingHolidayLookup = useMemo(
-    () =>
-      buildHolidayLookup(
-        customHolidays,
-        contractEndDate
-          ? { startIso: today, endIso: contractEndDate }
-          : null,
-      ),
-    [customHolidays, today, contractEndDate],
+
+  // Pacing intentionally ignores Alberta stat holidays — those are
+  // baked into the negotiated hourly rate (paid days, no time logged).
+  // Only **custom** holidays + vacations reduce billable capacity.
+  const pacingHolidaySet = useMemo(
+    () => new Set(customHolidays.map((h) => h.date)),
+    [customHolidays],
   );
+
+  // Stat holidays are NOT deducted, but if a vacation period overlaps
+  // one, that day shouldn't be deducted as vacation either (it was
+  // already "free" by virtue of being a stat). Pass them to pacing as
+  // exempt days so the overlap is counted once (zero deductions).
+  const pacingExemptSet = useMemo(() => {
+    const set = new Set<string>();
+    if (!contractEndDate) return set;
+    const startYear = Number(today.slice(0, 4));
+    const endYear = Number(contractEndDate.slice(0, 4));
+    for (let y = startYear; y <= endYear; y++) {
+      for (const h of albertaHolidays(y)) set.add(h.date);
+    }
+    return set;
+  }, [today, contractEndDate]);
+
+  // Hours the user typed into the current month but hasn't blurred (and
+  // therefore haven't yet been saved or rolled into the summary). Sum
+  // hoursByDate vs the server-side entries for the same window — the
+  // difference is the unsaved delta.
+  const localUnsavedDelta = useMemo(() => {
+    const serverByDate: Record<string, number> = {};
+    for (const e of entriesQuery.data ?? []) {
+      serverByDate[e.work_date] = num(e.hours);
+    }
+    let delta = 0;
+    for (const [iso, hours] of Object.entries(hoursByDate)) {
+      delta += hours - (serverByDate[iso] ?? 0);
+    }
+    return delta;
+  }, [hoursByDate, entriesQuery.data]);
+
+  const effectiveRemainingHours =
+    num(summary?.contract_remaining_hours) - localUnsavedDelta;
+
+  // Fetch every saved time entry between today and contract_end so we can
+  // mark already-worked days as consumed in the pacing day count.
+  const pacingEntriesQuery = useQuery<TimeEntryRead[]>({
+    queryKey: ["time-entries-pacing", clientId, today, contractEndDate],
+    queryFn: () =>
+      apiFetch<TimeEntryRead[]>(
+        `/business/time-entries/?client_id=${clientId}&start=${today}&end=${contractEndDate}`,
+      ),
+    enabled: Boolean(clientId && contractEndDate),
+  });
+
+  // Days in [today, contract_end] that already carry logged hours (either
+  // saved on the server or typed locally in the current view). Used to
+  // shrink the billable-day pool — once a day has work on it, it shouldn't
+  // count toward "days still to plan for".
+  const loggedDaySet = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of pacingEntriesQuery.data ?? []) {
+      if (e.work_date >= today && num(e.hours) > 0) set.add(e.work_date);
+    }
+    for (const [iso, hours] of Object.entries(hoursByDate)) {
+      if (iso < today) continue;
+      if (hours > 0) set.add(iso);
+      else set.delete(iso); // user zeroed it locally
+    }
+    return set;
+  }, [pacingEntriesQuery.data, hoursByDate, today]);
 
   const pacingResult = useMemo(() => {
     if (!contractEndDate) return null;
-    const remainingHours = num(summary?.contract_remaining_hours);
-    if (remainingHours <= 0) return "complete" as const;
-    const holidaySet = new Set(Object.keys(pacingHolidayLookup));
+    if (summary?.contract_remaining_hours == null) return null;
+    if (effectiveRemainingHours <= 0) return "complete" as const;
     return requiredPace({
-      remainingHours,
+      remainingHours: effectiveRemainingHours,
       fromIso: today,
       toIso: contractEndDate,
-      holidayIsos: holidaySet,
+      holidayIsos: pacingHolidaySet,
       vacations,
+      exemptIsos: pacingExemptSet,
+      loggedDayIsos: loggedDaySet,
     });
-  }, [contractEndDate, summary, pacingHolidayLookup, today, vacations]);
+  }, [
+    contractEndDate,
+    summary,
+    effectiveRemainingHours,
+    pacingHolidaySet,
+    pacingExemptSet,
+    loggedDaySet,
+    today,
+    vacations,
+  ]);
 
   // ---------------------------------------------------------------------
   // Render
@@ -444,94 +521,159 @@ export function Timesheets() {
             </select>
           </div>
 
-          {selectedClient && (
-            <>
-              <div className="text-sm">
-                <span className="text-muted-foreground">Hourly Rate:</span>{" "}
-                <span className="font-semibold">{formatCAD(rate)}</span>
-              </div>
-              <div className="text-sm">
-                <span className="text-muted-foreground">Frequency:</span>{" "}
-                <span className="font-semibold">
-                  {selectedClient.timesheet_frequency
-                    ? capitalise(selectedClient.timesheet_frequency)
-                    : "Monthly"}
-                </span>
-              </div>
-              {summary?.contract_remaining_amount !== null &&
-                summary?.contract_remaining_amount !== undefined && (
-                  <div className="text-sm">
-                    <span className="text-muted-foreground">Remaining:</span>{" "}
-                    <span className="font-semibold text-emerald-600 dark:text-emerald-400">
-                      {formatCAD(num(summary.contract_remaining_amount))}
-                    </span>{" "}
-                    <span className="text-muted-foreground">
-                      / {num(summary.contract_remaining_hours).toFixed(2)} hrs
-                    </span>
-                  </div>
-                )}
+          {selectedClient &&
+            (() => {
+              // Lifetime "actual" comes straight from the summary (saved
+              // hours/$), plus any unsaved local delta so the number
+              // ticks live as the user types. We avoid deriving it from
+              // (contract_value / rate − remaining) because the server
+              // quantises that division to 2dp, leaving sub-cent rounding
+              // noise that surfaces as e.g. "$0.18" on a clean contract.
+              const actualHours =
+                num(summary?.contract_hours_logged) + localUnsavedDelta;
+              const actualAmount = actualHours * rate;
+              const remainingHours = pacingResult
+                ? effectiveRemainingHours
+                : num(summary?.contract_remaining_hours);
+              const remainingAmount = remainingHours * rate;
+              const showFinancials =
+                summary?.contract_remaining_amount !== null &&
+                summary?.contract_remaining_amount !== undefined;
 
-              {/* Pacing widget — one of four states */}
-              {(() => {
-                // State 1: no contract end date set
-                if (!contractEndDate) {
-                  return (
-                    <div className="text-sm text-muted-foreground">
-                      <Link
-                        to={`/clients/${selectedClient.id}/edit`}
-                        className="underline underline-offset-2 hover:text-foreground"
-                      >
-                        Set contract dates on the client
-                      </Link>
-                    </div>
-                  );
+              // Pacing-specific bits — only used when a live pace value
+              // is computable.
+              const livePace =
+                pacingResult &&
+                pacingResult !== "complete" &&
+                pacingResult.businessDaysRemaining > 0 &&
+                Number.isFinite(pacingResult.hoursPerDay)
+                  ? pacingResult
+                  : null;
+              const isBehind = livePace ? livePace.hoursPerDay > 10 : false;
+              const paceColour = isBehind
+                ? "text-amber-600 dark:text-amber-400"
+                : "text-emerald-600 dark:text-emerald-400";
+
+              // "Worked" = all days with saved hours across the whole
+              // contract window. Merge today→end + visible month +
+              // local edits so the count is consistent regardless of
+              // which month the user is viewing.
+              const workedData = (() => {
+                const byDate: Record<string, number> = {};
+                for (const e of pacingEntriesQuery.data ?? []) {
+                  if (num(e.hours) > 0) byDate[e.work_date] = num(e.hours);
                 }
-                // State 2: contract complete (remaining hours exhausted)
-                if (pacingResult === "complete") {
-                  return (
-                    <div className="text-sm">
+                for (const e of entriesQuery.data ?? []) {
+                  if (num(e.hours) > 0) byDate[e.work_date] = num(e.hours);
+                }
+                for (const [iso, h] of Object.entries(hoursByDate)) {
+                  if (h > 0) byDate[iso] = h;
+                  else delete byDate[iso];
+                }
+                const days = Object.keys(byDate).length;
+                const hours = Object.values(byDate).reduce(
+                  (a, b) => a + b,
+                  0,
+                );
+                return { days, hours };
+              })();
+
+              const vac = livePace?.vacationDaysDeducted ?? 0;
+              const hol = livePace?.holidayDaysDeducted ?? 0;
+
+              return (
+                <div className="basis-full text-sm">
+                  {/* Hero metric row: Expected · Actual · Remaining */}
+                  <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5">
+                    {pacingResult === "complete" && (
                       <span className="font-semibold text-emerald-600 dark:text-emerald-400">
                         ✓ Contract complete
                       </span>
-                    </div>
-                  );
-                }
-                // State 3: contract window ended (end date in past or requiredPace null)
-                if (
-                  pacingResult === null ||
-                  contractEndDate < today ||
-                  pacingResult.businessDaysRemaining === 0
-                ) {
-                  return (
-                    <div className="text-sm text-muted-foreground">
-                      Contract window ended
-                    </div>
-                  );
-                }
-                // State 4: active pacing
-                const vDays = pacingResult.vacationDaysDeducted;
-                const hDays = pacingResult.holidayDaysDeducted;
-                return (
-                  <div className="text-sm">
-                    <span className="text-muted-foreground">Required pace:</span>{" "}
-                    <span className="font-semibold text-emerald-600 dark:text-emerald-400">
-                      {pacingResult.hoursPerDay.toFixed(2)} h/day
-                    </span>{" "}
-                    <span className="text-muted-foreground">
-                      · {pacingResult.businessDaysRemaining} business day
-                      {pacingResult.businessDaysRemaining !== 1 ? "s" : ""} left
-                      {vDays > 0
-                        ? ` · ${vDays} vacation day${vDays !== 1 ? "s" : ""} deducted`
-                        : ""}
-                      {hDays > 0
-                        ? ` · ${hDays} holiday${hDays !== 1 ? "s" : ""} deducted`
-                        : ""}
-                    </span>
+                    )}
+                    {livePace && (
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className="text-muted-foreground">
+                          Expected:
+                        </span>
+                        <span className={`font-bold ${paceColour}`}>
+                          {livePace.hoursPerDay.toFixed(2)} h/day
+                        </span>
+                        {isBehind && (
+                          <span className="rounded-sm bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
+                            behind pace
+                          </span>
+                        )}
+                      </span>
+                    )}
+                    {showFinancials && (
+                      <>
+                        <span>
+                          <span className="text-muted-foreground">
+                            Actual:
+                          </span>{" "}
+                          <span className="font-semibold">
+                            {formatCAD(actualAmount)}
+                          </span>{" "}
+                          <span className="text-muted-foreground">
+                            / {actualHours.toFixed(2)} hrs
+                          </span>
+                        </span>
+                        <span>
+                          <span className="text-muted-foreground">
+                            Remaining:
+                          </span>{" "}
+                          <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                            {formatCAD(remainingAmount)}
+                          </span>{" "}
+                          <span className="text-muted-foreground">
+                            / {remainingHours.toFixed(2)} hrs
+                          </span>
+                        </span>
+                      </>
+                    )}
                   </div>
-                );
-              })()}
-            </>
-          )}
+
+                  {/* Breakdown row: Worked + Forecasted with deductions */}
+                  {livePace && (
+                    <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className="rounded-sm bg-muted px-1.5 py-0.5 font-medium text-foreground">
+                          Worked
+                        </span>
+                        {workedData.days} day
+                        {workedData.days !== 1 ? "s" : ""} (
+                        {workedData.hours}h)
+                      </span>
+                      <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                        <span className="inline-flex items-center gap-1.5">
+                          <span className="rounded-sm bg-muted px-1.5 py-0.5 font-medium text-foreground">
+                            Forecasted
+                          </span>
+                          {livePace.totalBusinessDays} day
+                          {livePace.totalBusinessDays !== 1 ? "s" : ""} (
+                          {effectiveRemainingHours.toFixed(2)}h)
+                        </span>
+                        {(vac > 0 || hol > 0) && (
+                          <span className="opacity-60">
+                            {"− "}
+                            {[
+                              vac > 0
+                                ? `${vac} vacation day${vac !== 1 ? "s" : ""}`
+                                : null,
+                              hol > 0
+                                ? `${hol} custom holiday${hol !== 1 ? "s" : ""}`
+                                : null,
+                            ]
+                              .filter(Boolean)
+                              .join(" − ")}
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
         </div>
 
         {/* Month nav */}

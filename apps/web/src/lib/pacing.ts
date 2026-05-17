@@ -29,7 +29,9 @@ export interface BusinessDayBreakdown {
 export interface PacingResult {
   /** Required hours per available business day (may be Infinity if remaining=0). */
   hoursPerDay: number;
-  /** Available business days (after deducting holidays and vacations). */
+  /** Mon–Fri count in the window, before any deductions. */
+  totalBusinessDays: number;
+  /** Available business days (Mon–Fri minus holidays minus vacations). */
   businessDaysRemaining: number;
   /** Stat/custom holidays deducted. */
   holidayDaysDeducted: number;
@@ -92,20 +94,32 @@ function isInVacation(iso: string, vacations: VacationPeriod[]): boolean {
 
 /**
  * Count business days in the inclusive range [fromIso, toIso], then subtract
- * stat/custom holidays and vacation days.
+ * holidays and vacation days.
+ *
+ * Counting rule: each day is deducted **at most once**. Priority is
+ * holiday > vacation, so a day that is both a holiday and inside a
+ * vacation range counts as a holiday deduction only.
+ *
+ * `exemptIsos` lists days that are treated as plain business days even if
+ * they fall inside a vacation range — used by Timesheets to exempt
+ * Alberta statutory holidays (which are billable by virtue of the
+ * hourly rate, so a vacation overlapping one shouldn't reduce capacity).
  *
  * @param fromIso  Start date (YYYY-MM-DD), inclusive.
  * @param toIso    End date (YYYY-MM-DD), inclusive. Must be >= fromIso.
- * @param holidayIsos  Set of ISO dates that are holidays.
- * @param vacations    Vacation periods (each day counted only once; holidays
- *                     take priority so a holiday during vacation is counted as
- *                     a holiday, not a vacation day).
+ * @param holidayIsos  Set of ISO dates that are deductible holidays.
+ * @param vacations    Vacation periods. Days inside any period are deducted
+ *                     unless they're also in `holidayIsos` or `exemptIsos`.
+ * @param exemptIsos   Days that suppress both holiday and vacation
+ *                     deduction (i.e. count as plain business days).
  */
 export function businessDaysBetween(
   fromIso: string,
   toIso: string,
   holidayIsos: Set<string>,
   vacations: VacationPeriod[],
+  exemptIsos: Set<string> = new Set(),
+  loggedDayIsos: Set<string> = new Set(),
 ): BusinessDayBreakdown {
   const fromN = isoToDayNumber(fromIso);
   const toN = isoToDayNumber(toIso);
@@ -117,7 +131,12 @@ export function businessDaysBetween(
   for (let n = fromN; n <= toN; n++) {
     const iso = dayNumberToIso(n);
     if (!isBusinessDay(iso)) continue;
+    // A day with any logged hours is "consumed" — drop it from the
+    // forward-planning pool entirely (the hours it carries are already
+    // reflected in the caller's remainingHours number).
+    if (loggedDayIsos.has(iso)) continue;
     totalBusinessDays++;
+    if (exemptIsos.has(iso)) continue;
     if (holidayIsos.has(iso)) {
       holidayDaysDeducted++;
     } else if (isInVacation(iso, vacations)) {
@@ -151,18 +170,43 @@ export function requiredPace(params: {
   toIso: string;
   holidayIsos: Set<string>;
   vacations: VacationPeriod[];
+  /** Days exempt from both holiday and vacation deduction. */
+  exemptIsos?: Set<string>;
+  /** Days that already have logged hours — removed from the day pool. */
+  loggedDayIsos?: Set<string>;
 }): PacingResult | null {
-  const { remainingHours, fromIso, toIso, holidayIsos, vacations } = params;
+  const {
+    remainingHours,
+    fromIso,
+    toIso,
+    holidayIsos,
+    vacations,
+    exemptIsos,
+    loggedDayIsos,
+  } = params;
 
   if (toIso < fromIso) return null;
 
-  const breakdown = businessDaysBetween(fromIso, toIso, holidayIsos, vacations);
-  const { remaining, holidayDaysDeducted, vacationDaysDeducted } = breakdown;
+  const breakdown = businessDaysBetween(
+    fromIso,
+    toIso,
+    holidayIsos,
+    vacations,
+    exemptIsos,
+    loggedDayIsos,
+  );
+  const {
+    totalBusinessDays,
+    remaining,
+    holidayDaysDeducted,
+    vacationDaysDeducted,
+  } = breakdown;
 
   const hoursPerDay = remaining === 0 ? Infinity : remainingHours / remaining;
 
   return {
     hoursPerDay,
+    totalBusinessDays,
     businessDaysRemaining: remaining,
     holidayDaysDeducted,
     vacationDaysDeducted,

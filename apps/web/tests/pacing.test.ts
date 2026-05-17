@@ -95,6 +95,69 @@ describe("businessDaysBetween", () => {
     expect(result.vacationDaysDeducted).toBe(0);
     expect(result.remaining).toBe(0);
   });
+
+  it("logged days drop out of the day pool entirely (already consumed)", () => {
+    // Mon–Fri of one week: 5 business days. Two of them already have
+    // logged hours → should drop to 3 billable days, no holiday/vacation
+    // deduction.
+    const logged = new Set(["2026-05-11", "2026-05-13"]);
+    const result = businessDaysBetween(
+      "2026-05-11",
+      "2026-05-15",
+      new Set<string>(),
+      [],
+      new Set<string>(),
+      logged,
+    );
+    expect(result.totalBusinessDays).toBe(3); // 5 weekdays minus 2 logged
+    expect(result.holidayDaysDeducted).toBe(0);
+    expect(result.vacationDaysDeducted).toBe(0);
+    expect(result.remaining).toBe(3);
+  });
+
+  it("logged days take priority over holidays and vacations", () => {
+    // Mon Sep 7 (Labour Day stat-like) and Tue Sep 8 (vacation) both
+    // already have logged hours — neither should be deducted as
+    // holiday/vacation, just dropped from the pool.
+    const logged = new Set(["2026-09-07", "2026-09-08"]);
+    const holidays = new Set(["2026-09-07"]);
+    const vacations: VacationPeriod[] = [
+      { start: "2026-09-08", end: "2026-09-08", label: "PTO" },
+    ];
+    const result = businessDaysBetween(
+      "2026-09-07",
+      "2026-09-11",
+      holidays,
+      vacations,
+      new Set<string>(),
+      logged,
+    );
+    expect(result.totalBusinessDays).toBe(3); // 5 weekdays minus 2 logged
+    expect(result.holidayDaysDeducted).toBe(0);
+    expect(result.vacationDaysDeducted).toBe(0);
+    expect(result.remaining).toBe(3);
+  });
+
+  it("exempt days (e.g. stat holidays) are not deducted even inside a vacation", () => {
+    // Christmas week: vacation Dec 21–25. Dec 25 is a stat (exempt).
+    // Dec 21–24 are vacation deductions; Dec 25 is exempt → counted as
+    // a plain business day with zero deduction.
+    const vacations: VacationPeriod[] = [
+      { start: "2026-12-21", end: "2026-12-25", label: "Christmas" },
+    ];
+    const exempt = new Set(["2026-12-25"]);
+    const result = businessDaysBetween(
+      "2026-12-21",
+      "2026-12-25",
+      new Set<string>(),
+      vacations,
+      exempt,
+    );
+    expect(result.totalBusinessDays).toBe(5);
+    expect(result.holidayDaysDeducted).toBe(0);
+    expect(result.vacationDaysDeducted).toBe(4); // Dec 25 NOT counted
+    expect(result.remaining).toBe(1); // only the exempt Dec 25 remains billable
+  });
 });
 
 // ---------------------------------------------------------------------------
