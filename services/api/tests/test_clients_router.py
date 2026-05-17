@@ -220,6 +220,32 @@ class TestUpdateClient:
         assert response.status_code == 404
 
 
+class TestContractDates:
+    def test_contract_end_date_round_trips_via_post_and_get(
+        self, client: TestClient
+    ) -> None:
+        """A client created with contract_end_date returns the same date on GET."""
+        payload = {
+            "name": "Pacing Test Client",
+            "hourly_rate": "95.38",
+            "contract_value": "190000.00",
+            "contract_start_date": "2026-01-01",
+            "contract_end_date": "2026-12-31",
+        }
+        create_resp = client.post("/business/clients/", json=payload)
+        assert create_resp.status_code == 201
+        created = create_resp.json()
+        assert created["contract_start_date"] == "2026-01-01"
+        assert created["contract_end_date"] == "2026-12-31"
+
+        # Verify round-trip via GET
+        get_resp = client.get(f"/business/clients/{created['id']}")
+        assert get_resp.status_code == 200
+        fetched = get_resp.json()
+        assert fetched["contract_start_date"] == "2026-01-01"
+        assert fetched["contract_end_date"] == "2026-12-31"
+
+
 class TestHealthCheck:
     def test_health_returns_200_ok(self, client: TestClient) -> None:
         """GET /health returns 200 with {\"status\": \"ok\"}."""

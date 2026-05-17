@@ -63,6 +63,16 @@ export interface ClientRead {
   contract_value: number | string | null;
   /** ISO currency code for ``contract_value`` (default ``"CAD"``). */
   contract_currency: string | null;
+  /**
+   * Start of the contract window (YYYY-MM-DD). Used by the pacing widget
+   * on the Timesheets page to compute required hours/day.
+   */
+  contract_start_date: string | null;
+  /**
+   * End of the contract window (YYYY-MM-DD). When set, the pacing widget
+   * shows required pace = remaining_hours / business_days_remaining.
+   */
+  contract_end_date: string | null;
   /** Default task description printed on every populated PDF row. */
   default_task_description: string | null;
   /**

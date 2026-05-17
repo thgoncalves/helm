@@ -66,6 +66,8 @@ const clientSchema = z.object({
       return Number.isNaN(n) ? null : v;
     }),
   contract_currency: z.string().nullable().optional(),
+  contract_start_date: z.string().nullable().optional(),
+  contract_end_date: z.string().nullable().optional(),
   default_task_description: z.string().nullable().optional(),
   default_taxable: z.boolean().optional(),
   default_tax_rate: z
@@ -110,6 +112,8 @@ function toFormValues(client: ClientRead): ClientFormValues {
         ? String(client.contract_value)
         : "",
     contract_currency: client.contract_currency ?? "CAD",
+    contract_start_date: client.contract_start_date ?? "",
+    contract_end_date: client.contract_end_date ?? "",
     default_task_description: client.default_task_description ?? "",
     default_taxable: client.default_taxable,
     default_tax_rate:
@@ -138,6 +142,8 @@ function toApiPayload(values: ClientFormValues): ClientCreate {
     timesheet_frequency: values.timesheet_frequency ?? "monthly",
     contract_value: values.contract_value ?? null,
     contract_currency: values.contract_currency || "CAD",
+    contract_start_date: values.contract_start_date || null,
+    contract_end_date: values.contract_end_date || null,
     default_task_description: values.default_task_description || null,
     default_taxable: values.default_taxable ?? true,
     default_tax_rate: values.default_tax_rate ?? null,
@@ -403,6 +409,27 @@ function ClientFormInner({ mode, defaultValues, clientId }: ClientFormProps) {
               />
             </div>
 
+            <div className="space-y-1">
+              <Label htmlFor="contract_start_date">Contract start</Label>
+              <Input
+                id="contract_start_date"
+                type="date"
+                {...register("contract_start_date")}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="contract_end_date">Contract end</Label>
+              <Input
+                id="contract_end_date"
+                type="date"
+                {...register("contract_end_date")}
+              />
+              <p className="text-xs text-muted-foreground">
+                When set, the Timesheets page shows required pace (h/day).
+              </p>
+            </div>
+
             <div className="sm:col-span-2 space-y-1">
               <Label htmlFor="default_task_description">
                 Default Task Description (PDF)
@@ -535,6 +562,8 @@ const newClientDefaults: ClientFormValues = {
   timesheet_frequency: "monthly",
   contract_value: "",
   contract_currency: "CAD",
+  contract_start_date: "",
+  contract_end_date: "",
   default_task_description: "",
   default_taxable: true,
   default_tax_rate: "0.05",

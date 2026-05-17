@@ -31,7 +31,7 @@
  * weekly subtotal so weekly billing makes sense for first/last rows.
  */
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiFetchBlob, ApiError } from "@/lib/api";
 import type {
@@ -54,6 +54,7 @@ import {
   parseCustomHolidays,
   parseVacations,
 } from "@/lib/holidays";
+import { requiredPace } from "@/lib/pacing";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { AppHeader } from "@/components/AppHeader";
@@ -354,6 +355,38 @@ export function Timesheets() {
   const today = todayIso();
 
   // ---------------------------------------------------------------------
+  // Pacing widget — requires contract_end_date + remaining hours
+  // ---------------------------------------------------------------------
+
+  // Build a holiday lookup spanning today → contract_end_date so it covers
+  // every year in the contract window (may cross a year boundary).
+  const contractEndDate = selectedClient?.contract_end_date ?? null;
+  const pacingHolidayLookup = useMemo(
+    () =>
+      buildHolidayLookup(
+        customHolidays,
+        contractEndDate
+          ? { startIso: today, endIso: contractEndDate }
+          : null,
+      ),
+    [customHolidays, today, contractEndDate],
+  );
+
+  const pacingResult = useMemo(() => {
+    if (!contractEndDate) return null;
+    const remainingHours = num(summary?.contract_remaining_hours);
+    if (remainingHours <= 0) return "complete" as const;
+    const holidaySet = new Set(Object.keys(pacingHolidayLookup));
+    return requiredPace({
+      remainingHours,
+      fromIso: today,
+      toIso: contractEndDate,
+      holidayIsos: holidaySet,
+      vacations,
+    });
+  }, [contractEndDate, summary, pacingHolidayLookup, today, vacations]);
+
+  // ---------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------
 
@@ -437,6 +470,66 @@ export function Timesheets() {
                     </span>
                   </div>
                 )}
+
+              {/* Pacing widget — one of four states */}
+              {(() => {
+                // State 1: no contract end date set
+                if (!contractEndDate) {
+                  return (
+                    <div className="text-sm text-muted-foreground">
+                      <Link
+                        to={`/clients/${selectedClient.id}/edit`}
+                        className="underline underline-offset-2 hover:text-foreground"
+                      >
+                        Set contract dates on the client
+                      </Link>
+                    </div>
+                  );
+                }
+                // State 2: contract complete (remaining hours exhausted)
+                if (pacingResult === "complete") {
+                  return (
+                    <div className="text-sm">
+                      <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                        ✓ Contract complete
+                      </span>
+                    </div>
+                  );
+                }
+                // State 3: contract window ended (end date in past or requiredPace null)
+                if (
+                  pacingResult === null ||
+                  contractEndDate < today ||
+                  pacingResult.businessDaysRemaining === 0
+                ) {
+                  return (
+                    <div className="text-sm text-muted-foreground">
+                      Contract window ended
+                    </div>
+                  );
+                }
+                // State 4: active pacing
+                const vDays = pacingResult.vacationDaysDeducted;
+                const hDays = pacingResult.holidayDaysDeducted;
+                return (
+                  <div className="text-sm">
+                    <span className="text-muted-foreground">Required pace:</span>{" "}
+                    <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                      {pacingResult.hoursPerDay.toFixed(2)} h/day
+                    </span>{" "}
+                    <span className="text-muted-foreground">
+                      · {pacingResult.businessDaysRemaining} business day
+                      {pacingResult.businessDaysRemaining !== 1 ? "s" : ""} left
+                      {vDays > 0
+                        ? ` · ${vDays} vacation day${vDays !== 1 ? "s" : ""} deducted`
+                        : ""}
+                      {hDays > 0
+                        ? ` · ${hDays} holiday${hDays !== 1 ? "s" : ""} deducted`
+                        : ""}
+                    </span>
+                  </div>
+                );
+              })()}
             </>
           )}
         </div>

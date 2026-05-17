@@ -50,6 +50,13 @@
       "when": 1778530980623,
       "tag": "0006_violet_jack_power",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1779032337097,
+      "tag": "0007_milky_rumiko_fujikawa",
+      "breakpoints": true
     }
   ]
 }

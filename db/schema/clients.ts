@@ -7,6 +7,7 @@ import {
   numeric,
   timestamp,
   varchar,
+  date,
   index,
 } from 'drizzle-orm/pg-core';
 
@@ -36,6 +37,10 @@ export const clients = pgTable(
     // client). Used to compute "remaining $ / hours" on the timesheet page.
     contractValue: numeric('contract_value', { precision: 15, scale: 2 }),
     contractCurrency: varchar('contract_currency', { length: 3 }).default('CAD'),
+    // Contract window dates for the pacing widget on the Timesheets page.
+    // Both are optional; the widget is hidden when contract_end_date is null.
+    contractStartDate: date('contract_start_date'),
+    contractEndDate: date('contract_end_date'),
     // Default line-item description that shows up on every populated row of
     // the exported PDF timesheet (e.g. "Consulting services in ETL, ML and AI").
     defaultTaskDescription: text('default_task_description'),

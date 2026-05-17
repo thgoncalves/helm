@@ -3,7 +3,7 @@
 Mirrors the Drizzle schema in ``db/schema/clients.ts``.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -33,6 +33,10 @@ class ClientBase(BaseModel):
             compute remaining $/hours on the timesheet page). Optional.
         contract_currency: ISO currency code for ``contract_value``.
             Defaults to ``"CAD"``.
+        contract_start_date: Start of the contract window (for pacing widget).
+            Optional.
+        contract_end_date: End of the contract window (for pacing widget).
+            When set, the Timesheets page computes required hours/day. Optional.
         default_task_description: Default line-item text printed on every
             populated row of the exported PDF timesheet. Optional.
     """
@@ -53,6 +57,8 @@ class ClientBase(BaseModel):
     timesheet_frequency: str | None = "monthly"
     contract_value: Decimal | None = None
     contract_currency: str | None = "CAD"
+    contract_start_date: date | None = None
+    contract_end_date: date | None = None
     default_task_description: str | None = None
     # Invoicing defaults (applied when auto-creating an invoice from a
     # submitted timesheet).
@@ -108,6 +114,8 @@ class ClientUpdate(BaseModel):
     timesheet_frequency: str | None = None
     contract_value: Decimal | None = None
     contract_currency: str | None = None
+    contract_start_date: date | None = None
+    contract_end_date: date | None = None
     default_task_description: str | None = None
     default_taxable: bool | None = None
     default_tax_rate: Decimal | None = None

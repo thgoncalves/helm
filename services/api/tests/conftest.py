@@ -43,6 +43,8 @@ def _seed_clients() -> dict[UUID, dict[str, Any]]:
         "notes": None,
         "contract_value": None,
         "contract_currency": "CAD",
+        "contract_start_date": None,
+        "contract_end_date": None,
         "default_task_description": None,
         "default_taxable": True,
         "default_tax_rate": Decimal("0.0500"),
