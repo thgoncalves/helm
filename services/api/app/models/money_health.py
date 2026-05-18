@@ -42,6 +42,20 @@ class MonthlyFlow(BaseModel):
     net_cad: Decimal
 
 
+class NetWorthSnapshot(BaseModel):
+    """One point on the 12-month net-worth trend line.
+
+    Pulled from the ``net_worth_snapshots`` table; the writer fills it
+    after every balance-changing operation (YNAB refresh, manual /
+    investment account edits, tag PATCHes).
+    """
+
+    month: date
+    net_worth_cad: Decimal
+    personal_cad: Decimal
+    business_cad: Decimal
+
+
 class HealthMetric(BaseModel):
     """One health KPI: value vs target with a derived status.
 
@@ -73,10 +87,13 @@ class MoneyHealthResponse(BaseModel):
     expenses_monthly_cad: Decimal | None
 
     # The four ratio KPIs the dashboard renders. Net worth itself is
-    # the anchor; the other three are below-target signals.
+    # the anchor; the other three are below-target signals. Growth is
+    # ``unavailable`` until there's a ~3-month-old snapshot to compare
+    # against.
     savings_ratio: HealthMetric
     debt_to_income: HealthMetric
     liquidity_months: HealthMetric
+    net_worth_growth: HealthMetric
 
     # Freshness — surfaces "Last YNAB sync …" on the dashboard.
     last_ynab_sync_at: datetime | None
@@ -86,6 +103,7 @@ class MoneyHealthResponse(BaseModel):
     # frontend can render visuals without a second round-trip.
     allocation: list[KindAllocation] = []
     monthly_flows: list[MonthlyFlow] = []
+    net_worth_trend: list[NetWorthSnapshot] = []
 
     # Soft warnings the UI shows as banner / footnote. Stale FX, very
     # old manual balances, etc.

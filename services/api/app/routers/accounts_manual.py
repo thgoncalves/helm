@@ -23,6 +23,7 @@ from app.models.manual_accounts import (
     ManualAccountRead,
     ManualAccountUpdate,
 )
+from app.money.snapshots import record_snapshot
 
 router = APIRouter(
     prefix="/accounts/manual",
@@ -81,6 +82,7 @@ def create_manual_account(payload: ManualAccountCreate) -> dict[str, Any]:
     )
     if row is None:
         raise HTTPException(status_code=500, detail="Insert returned no row")
+    record_snapshot()
     return row
 
 
@@ -120,6 +122,7 @@ def update_manual_account(
     )
     if row is None:
         raise HTTPException(status_code=404, detail="Account not found")
+    record_snapshot()
     return row
 
 
@@ -131,6 +134,7 @@ def delete_manual_account(account_id: UUID) -> None:
         "DELETE FROM manual_accounts WHERE id = :id",
         {"id": account_id},
     )
+    record_snapshot()
 
 
 def _read_one(account_id: UUID) -> dict[str, Any]:

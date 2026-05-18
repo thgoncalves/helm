@@ -28,6 +28,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from app import db
 from app.deps import get_current_user
 from app.investments.fx import FxRateUnavailable, get_rate
+from app.money.snapshots import record_snapshot
 from app.models.accounts import (
     AccountListResponse,
     AccountRow,
@@ -126,6 +127,7 @@ def update_tags(
             raise HTTPException(
                 status_code=404, detail="YNAB account not cached."
             )
+        record_snapshot()
         return _ynab_row_to_account(row)
 
     if source == "manual":
@@ -156,6 +158,7 @@ def update_tags(
             raise HTTPException(
                 status_code=404, detail="Manual account not found."
             )
+        record_snapshot()
         return _manual_row_to_account(row)
 
     if source == "investment":
@@ -176,6 +179,7 @@ def update_tags(
             raise HTTPException(
                 status_code=404, detail="Investment account not found."
             )
+        record_snapshot()
         return _investment_row_to_account(row)
 
     raise HTTPException(

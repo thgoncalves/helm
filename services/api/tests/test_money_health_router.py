@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 
 from app import db as db_module
 from app.investments import fx as fx_module
+from app.money import balances as balances_module
 from app.routers import money_health as health_module
 
 
@@ -46,6 +47,8 @@ def money_db(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     # YNAB transactions for the 12-month flow math. Each row: dict with
     # amount (signed milliunits), posted_date (date), transfer_account_id.
     ynab_transactions: list[dict[str, Any]] = []
+    # Seeded monthly snapshots keyed by snapshot_month (date).
+    net_worth_snapshots: dict[date, dict[str, Any]] = {}
 
     stores = {
         "ynab_budgets": ynab_budgets,
@@ -54,6 +57,7 @@ def money_db(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         "investment_accounts": investment_accounts,
         "investment_holdings": investment_holdings,
         "ynab_transactions": ynab_transactions,
+        "net_worth_snapshots": net_worth_snapshots,
     }
 
     def fetch_all(
@@ -75,6 +79,15 @@ def money_db(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
             return [
                 r for r in investment_accounts.values() if r["is_active"]
             ]
+        if "FROM net_worth_snapshots" in sql:
+            # Return the snapshots seeded by the test, newest first
+            # (matches the router's ORDER BY DESC).
+            rows = sorted(
+                net_worth_snapshots.values(),
+                key=lambda r: r["snapshot_month"],
+                reverse=True,
+            )
+            return rows[: params.get("limit", len(rows))]
         if (
             "FROM ynab_transactions" in sql
             and "GROUP BY" in sql
@@ -165,30 +178,18 @@ def money_db(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     )
 
     # FX: deterministic rates. CAD short-circuits to 1.0.
-    monkeypatch.setattr(
-        fx_module,
-        "get_rate",
-        lambda f, t, on=None: fx_module.FxRate(
-            f,
-            t,
-            on or date.today(),
-            {"BRL": Decimal("0.25"), "USD": Decimal("1.35")}.get(
-                f, Decimal("1")
-            ),
+    fake_rate = lambda f, t, on=None: fx_module.FxRate(
+        f,
+        t,
+        on or date.today(),
+        {"BRL": Decimal("0.25"), "USD": Decimal("1.35")}.get(
+            f, Decimal("1")
         ),
     )
-    monkeypatch.setattr(
-        health_module,
-        "get_rate",
-        lambda f, t, on=None: fx_module.FxRate(
-            f,
-            t,
-            on or date.today(),
-            {"BRL": Decimal("0.25"), "USD": Decimal("1.35")}.get(
-                f, Decimal("1")
-            ),
-        ),
-    )
+    monkeypatch.setattr(fx_module, "get_rate", fake_rate)
+    # The shared aggregator imports `get_rate` directly, so we patch the
+    # binding in that module too.
+    monkeypatch.setattr(balances_module, "get_rate", fake_rate)
     return stores
 
 
@@ -390,6 +391,68 @@ class TestDebtToIncome:
         # Below 30% target = healthy ("above" in the higher-is-better sense
         # of the status enum, which means on or beyond the goal).
         assert body["debt_to_income"]["status"] == "above"
+
+
+class TestNetWorthGrowth:
+    def test_returns_unavailable_with_no_history(
+        self, client: TestClient, money_db: dict[str, Any]
+    ) -> None:
+        resp = client.get("/money/health")
+        body = resp.json()
+        assert body["net_worth_growth"]["value"] is None
+        assert body["net_worth_growth"]["status"] == "unavailable"
+        assert body["net_worth_trend"] == []
+
+    def test_computes_growth_pct_against_oldest_snapshot(
+        self, client: TestClient, money_db: dict[str, Any]
+    ) -> None:
+        """4 monthly snapshots: 100k → current 120k = +20% growth."""
+        # Seed an account so the live net worth comes back at 120k.
+        money_db["ynab_accounts"]["chk"] = {
+            "id": "chk",
+            "budget_id": _BUDGET_ID,
+            "name": "TD",
+            "type": "checking",
+            "on_budget": True,
+            "closed": False,
+            "deleted": False,
+            "balance": 120_000_000,  # $120k
+            "cleared_balance": 120_000_000,
+            "uncleared_balance": 0,
+            "helm_kind": None,
+            "helm_owner": "personal",
+            "last_synced_at": datetime.now(timezone.utc),
+        }
+        today = date.today()
+        for i, value in enumerate(["100000", "105000", "110000", "115000"]):
+            # Oldest first → month 4 ago, 3 ago, 2 ago, 1 ago.
+            year = today.year
+            month = today.month - (4 - i)
+            while month <= 0:
+                month += 12
+                year -= 1
+            m = date(year, month, 1)
+            money_db["net_worth_snapshots"][m] = {
+                "snapshot_month": m,
+                "assets_cad": Decimal(value),
+                "liabilities_cad": Decimal("0"),
+                "checking_cad": Decimal(value),
+                "savings_cad": Decimal("0"),
+                "investing_cad": Decimal("0"),
+                "lending_cad": Decimal("0"),
+                "personal_cad": Decimal(value),
+                "business_cad": Decimal("0"),
+            }
+
+        resp = client.get("/money/health")
+        body = resp.json()
+        trend = body["net_worth_trend"]
+        # Trend returns 12 snapshots max, oldest first.
+        assert len(trend) == 4
+        assert Decimal(trend[0]["net_worth_cad"]) == Decimal("100000.00")
+        # Growth: (120000 − 100000) / 100000 × 100 = 20%.
+        assert Decimal(body["net_worth_growth"]["value"]) == Decimal("20.00")
+        assert body["net_worth_growth"]["status"] == "above"
 
 
 class TestAllocation:

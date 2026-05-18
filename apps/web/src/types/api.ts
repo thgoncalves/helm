@@ -553,6 +553,14 @@ export interface MonthlyFlow {
   net_cad: number | string;
 }
 
+export interface NetWorthSnapshot {
+  /** First day of the month, YYYY-MM-DD. */
+  month: string;
+  net_worth_cad: number | string;
+  personal_cad: number | string;
+  business_cad: number | string;
+}
+
 export interface MoneyHealthResponse {
   net_worth_cad: number | string;
   assets_cad: number | string;
@@ -564,10 +572,12 @@ export interface MoneyHealthResponse {
   savings_ratio: HealthMetric;
   debt_to_income: HealthMetric;
   liquidity_months: HealthMetric;
+  net_worth_growth: HealthMetric;
   last_ynab_sync_at: string | null;
   computed_at: string;
   allocation: KindAllocation[];
   monthly_flows: MonthlyFlow[];
+  net_worth_trend: NetWorthSnapshot[];
   warnings: string[];
 }
 

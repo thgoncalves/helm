@@ -33,13 +33,20 @@ from fastapi import APIRouter, Depends
 from app import db
 from app.config import settings
 from app.deps import get_current_user
-from app.investments.fx import FxRateUnavailable, get_rate
+from app.money.balances import (
+    ASSET_KINDS,
+    LIABILITY_KINDS,
+    Balances,
+    compute_balances,
+)
+from app.money.snapshots import fetch_trend
 from app.models.money_health import (
     HealthMetric,
     HealthStatus,
     KindAllocation,
     MonthlyFlow,
     MoneyHealthResponse,
+    NetWorthSnapshot,
 )
 
 router = APIRouter(tags=["money"], dependencies=[Depends(get_current_user)])
@@ -52,22 +59,6 @@ _INCOME_WINDOW_DAYS = 365
 _TARGET_SAVINGS_PCT = Decimal("20")
 _TARGET_DEBT_TO_INCOME_PCT = Decimal("30")
 _TARGET_LIQUIDITY_MONTHS = Decimal("3")
-
-# Which Helm kinds count as which side of the ledger.
-_ASSET_KINDS = frozenset(
-    {"checking", "savings", "investing_fund", "investing_stock"}
-)
-_LIABILITY_KINDS = frozenset({"credit_card", "line_of_credit"})
-_CASH_KINDS = frozenset({"checking", "savings"})
-
-# YNAB's account types we auto-map to Helm kinds when ``helm_kind`` is
-# still unset. Mirrors the table in ``app.routers.accounts``.
-_YNAB_TYPE_TO_KIND: dict[str, str] = {
-    "checking": "checking",
-    "savings": "savings",
-    "lineOfCredit": "line_of_credit",
-    "creditCard": "credit_card",
-}
 
 
 def _db_configured() -> bool:
@@ -91,25 +82,17 @@ def get_health() -> MoneyHealthResponse:
         )
 
     # ---- Balances ---------------------------------------------------------
-    balances = _balances_by_kind_and_owner(warnings)
-    assets_cad = sum(
-        (v for k, v in balances["by_kind"].items() if k in _ASSET_KINDS),
-        Decimal("0"),
-    )
-    liabilities_cad = sum(
-        (v for k, v in balances["by_kind"].items() if k in _LIABILITY_KINDS),
-        Decimal("0"),
-    )
-    cash_cad = sum(
-        (v for k, v in balances["by_kind"].items() if k in _CASH_KINDS),
-        Decimal("0"),
-    )
+    balances = compute_balances()
+    warnings.extend(balances.warnings)
+    assets_cad = balances.assets_cad
+    liabilities_cad = balances.liabilities_cad
+    cash_cad = balances.cash_cad
     net_worth_cad = (assets_cad - liabilities_cad).quantize(_TWO_DP)
     personal_nw = (
-        balances["personal_assets"] - balances["personal_liabilities"]
+        balances.personal_assets - balances.personal_liabilities
     ).quantize(_TWO_DP)
     business_nw = (
-        balances["business_assets"] - balances["business_liabilities"]
+        balances.business_assets - balances.business_liabilities
     ).quantize(_TWO_DP)
 
     # ---- Flows (trailing 12 months) --------------------------------------
@@ -130,8 +113,10 @@ def get_health() -> MoneyHealthResponse:
     liquidity = _liquidity_metric(cash_cad, expenses_monthly)
 
     # ---- Chart data -------------------------------------------------------
-    allocation = _allocation_slices(balances["by_kind"], assets_cad)
+    allocation = _allocation_slices(balances.by_kind, assets_cad)
     monthly_flows = _monthly_flows(12)
+    trend = _net_worth_trend(12)
+    growth = _net_worth_growth_metric(net_worth_cad, trend)
 
     return MoneyHealthResponse(
         net_worth_cad=net_worth_cad,
@@ -148,146 +133,14 @@ def get_health() -> MoneyHealthResponse:
         savings_ratio=savings_ratio,
         debt_to_income=debt_to_income,
         liquidity_months=liquidity,
+        net_worth_growth=growth,
         last_ynab_sync_at=last_sync,
         computed_at=now,
         allocation=allocation,
         monthly_flows=monthly_flows,
+        net_worth_trend=trend,
         warnings=warnings,
     )
-
-
-# ---------------------------------------------------------------------------
-# Balance aggregation
-# ---------------------------------------------------------------------------
-
-
-def _balances_by_kind_and_owner(
-    warnings: list[str],
-) -> dict[str, Any]:
-    """Sum CAD-converted balances across the three account sources.
-
-    Returns a dict with ``by_kind`` (mapping kind → CAD total) and
-    per-owner asset / liability totals for the net-worth split. Each
-    row's FX failure logs a warning rather than blowing up — the
-    dashboard should render even with partial coverage.
-    """
-    by_kind: dict[str, Decimal] = {}
-    personal_assets = Decimal("0")
-    personal_liabilities = Decimal("0")
-    business_assets = Decimal("0")
-    business_liabilities = Decimal("0")
-
-    def _add(kind: str, owner: str | None, amount_cad: Decimal) -> None:
-        nonlocal personal_assets, personal_liabilities
-        nonlocal business_assets, business_liabilities
-        by_kind[kind] = by_kind.get(kind, Decimal("0")) + amount_cad
-        if owner == "personal":
-            if kind in _ASSET_KINDS:
-                personal_assets += amount_cad
-            elif kind in _LIABILITY_KINDS:
-                personal_liabilities += amount_cad
-        elif owner == "business":
-            if kind in _ASSET_KINDS:
-                business_assets += amount_cad
-            elif kind in _LIABILITY_KINDS:
-                business_liabilities += amount_cad
-        # owner=unassigned → counted in by_kind but not in personal/business.
-
-    # YNAB rows: milliunits, in budget currency.
-    budgets = db.fetch_all(
-        "SELECT id, currency_code FROM ynab_budgets WHERE is_active = TRUE"
-    )
-    ccy_by_budget = {
-        b["id"]: (b.get("currency_code") or "CAD") for b in budgets
-    }
-    ynab_rows = db.fetch_all(
-        """
-        SELECT *
-        FROM ynab_accounts
-        WHERE closed = FALSE AND deleted = FALSE
-        """
-    )
-    for row in ynab_rows:
-        currency = ccy_by_budget.get(row.get("budget_id") or "", "CAD")
-        balance = (Decimal(int(row.get("balance") or 0)) / _MILLI)
-        kind = row.get("helm_kind") or _YNAB_TYPE_TO_KIND.get(
-            row.get("type") or "", "unassigned"
-        )
-        if kind in _LIABILITY_KINDS:
-            balance = abs(balance)
-        cad = _to_cad(balance, currency, warnings)
-        if cad is None:
-            continue
-        _add(kind, row.get("helm_owner"), cad)
-
-    # Manual accounts: numeric balance in their own currency.
-    manual_rows = db.fetch_all(
-        "SELECT * FROM manual_accounts WHERE is_active = TRUE"
-    )
-    for row in manual_rows:
-        balance = Decimal(row.get("balance") or 0)
-        currency = row.get("currency") or "CAD"
-        kind = row.get("kind") or "unassigned"
-        if kind in _LIABILITY_KINDS:
-            balance = abs(balance)
-        cad = _to_cad(balance, currency, warnings)
-        if cad is None:
-            continue
-        _add(kind, row.get("owner"), cad)
-
-    # Investment accounts: cash + holdings @ last price, in account ccy.
-    inv_rows = db.fetch_all(
-        "SELECT * FROM investment_accounts WHERE is_active = TRUE"
-    )
-    for row in inv_rows:
-        currency = row.get("currency") or "CAD"
-        cash_balance = Decimal(row.get("cash_balance") or 0)
-        holdings_total = _holdings_total(row["id"])
-        total = cash_balance + holdings_total
-        # Investments default to "investing" if untagged.
-        kind = row.get("helm_kind") or "investing_fund"
-        cad = _to_cad(total, currency, warnings)
-        if cad is None:
-            continue
-        _add(kind, row.get("owner"), cad)
-
-    return {
-        "by_kind": by_kind,
-        "personal_assets": personal_assets,
-        "personal_liabilities": personal_liabilities,
-        "business_assets": business_assets,
-        "business_liabilities": business_liabilities,
-    }
-
-
-def _holdings_total(account_id: Any) -> Decimal:
-    row = db.fetch_one(
-        """
-        SELECT COALESCE(SUM(shares * current_price), 0) AS total
-        FROM investment_holdings
-        WHERE account_id = :id
-        """,
-        {"id": account_id},
-    )
-    return Decimal(row.get("total") or 0) if row else Decimal("0")
-
-
-def _to_cad(
-    amount: Decimal,
-    currency: str,
-    warnings: list[str],
-) -> Decimal | None:
-    if (currency or "").upper() == "CAD":
-        return amount
-    try:
-        rate = get_rate(currency, "CAD")
-    except FxRateUnavailable:
-        warnings.append(
-            f"FX rate unavailable for {currency}→CAD; "
-            f"some balances excluded from totals."
-        )
-        return None
-    return amount * rate.rate
 
 
 # ---------------------------------------------------------------------------
@@ -514,6 +367,77 @@ def _monthly_flows(months: int) -> list[MonthlyFlow]:
     return out
 
 
+def _net_worth_trend(months: int) -> list[NetWorthSnapshot]:
+    """Pull the most recent ``months`` snapshots from the table."""
+    rows = fetch_trend(months)
+    out: list[NetWorthSnapshot] = []
+    for r in rows:
+        assets = Decimal(r.get("assets_cad") or 0)
+        liab = Decimal(r.get("liabilities_cad") or 0)
+        out.append(
+            NetWorthSnapshot(
+                month=r["snapshot_month"],
+                net_worth_cad=(assets - liab).quantize(_TWO_DP),
+                personal_cad=Decimal(
+                    r.get("personal_cad") or 0
+                ).quantize(_TWO_DP),
+                business_cad=Decimal(
+                    r.get("business_cad") or 0
+                ).quantize(_TWO_DP),
+            )
+        )
+    return out
+
+
+# Net-worth-growth KPI default target: 5% growth quarter-over-quarter.
+# The spec doesn't lock a target — picking a mild positive default so
+# the dashboard has something to colour against.
+_TARGET_NET_WORTH_GROWTH_PCT = Decimal("5")
+
+
+def _net_worth_growth_metric(
+    current_net_worth: Decimal,
+    trend: list[NetWorthSnapshot],
+) -> HealthMetric:
+    """3-month change in net worth, expressed as a percentage.
+
+    Hidden (``unavailable``) when there aren't at least two snapshots
+    in the trend window — we need history to know what changed.
+    """
+    if len(trend) < 2:
+        return HealthMetric(
+            value=None,
+            target=_TARGET_NET_WORTH_GROWTH_PCT,
+            status="unavailable",
+            reason=(
+                "Net worth growth needs at least one prior monthly "
+                "snapshot. Come back next month."
+            ),
+        )
+
+    # Aim for the snapshot ~3 months back; fall back to the oldest in
+    # the window if there's less than three months of history.
+    target_idx = max(0, len(trend) - 4)
+    baseline = trend[target_idx].net_worth_cad
+    if baseline == 0:
+        return HealthMetric(
+            value=None,
+            target=_TARGET_NET_WORTH_GROWTH_PCT,
+            status="unavailable",
+            reason=(
+                "Baseline net worth is zero; growth math is undefined."
+            ),
+        )
+    pct = (
+        (current_net_worth - baseline) / baseline * Decimal(100)
+    ).quantize(_TWO_DP)
+    return HealthMetric(
+        value=pct,
+        target=_TARGET_NET_WORTH_GROWTH_PCT,
+        status=_status_higher_better(pct, _TARGET_NET_WORTH_GROWTH_PCT),
+    )
+
+
 def _status_higher_better(value: Decimal, target: Decimal) -> HealthStatus:
     if value >= target:
         return "above"
@@ -558,6 +482,12 @@ def _empty_response(
         liquidity_months=HealthMetric(
             value=None,
             target=_TARGET_LIQUIDITY_MONTHS,
+            status="unavailable",
+            reason="Database unavailable.",
+        ),
+        net_worth_growth=HealthMetric(
+            value=None,
+            target=_TARGET_NET_WORTH_GROWTH_PCT,
             status="unavailable",
             reason="Database unavailable.",
         ),

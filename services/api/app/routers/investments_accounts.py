@@ -15,6 +15,7 @@ from app.models.investments import (
     InvestmentAccountRead,
     InvestmentAccountUpdate,
 )
+from app.money.snapshots import record_snapshot
 
 router = APIRouter(tags=["investments"], dependencies=[Depends(get_current_user)])
 
@@ -82,6 +83,7 @@ def create_account(payload: InvestmentAccountCreate) -> dict[str, Any]:
     )
     if row is None:
         raise HTTPException(status_code=500, detail="Insert returned no row")
+    record_snapshot()
     return row
 
 
@@ -125,6 +127,7 @@ def update_account(
     )
     if row is None:
         raise HTTPException(status_code=404, detail="Account not found")
+    record_snapshot()
     return row
 
 
@@ -138,6 +141,7 @@ def delete_account(account_id: UUID) -> None:
     db.execute(
         "DELETE FROM investment_accounts WHERE id = :id", {"id": account_id}
     )
+    record_snapshot()
 
 
 def _read_one(account_id: UUID) -> dict[str, Any]:

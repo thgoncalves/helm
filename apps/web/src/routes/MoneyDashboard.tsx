@@ -16,8 +16,11 @@ import { Link } from "react-router-dom";
 import {
   Bar,
   BarChart,
+  CartesianGrid,
   Cell,
   Legend,
+  Line,
+  LineChart,
   Pie,
   PieChart,
   ResponsiveContainer,
@@ -38,6 +41,10 @@ const CHART_COLORS = {
   investing: "hsl(267 84% 65%)", // mauve
   income: "hsl(158 64% 45%)",
   expenses: "hsl(0 84% 60%)",
+  netWorth: "hsl(217 91% 60%)",
+  personal: "hsl(158 64% 45%)",
+  business: "hsl(38 92% 50%)",
+  grid: "hsl(var(--border))",
   axis: "hsl(var(--muted-foreground))",
 };
 
@@ -179,6 +186,13 @@ export function MoneyDashboard() {
                       {fmtMoney(data.assets_cad)} assets ·{" "}
                       {fmtMoney(data.liabilities_cad)} liabilities
                     </p>
+                    {(data.income_monthly_cad !== null ||
+                      data.expenses_monthly_cad !== null) && (
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        Trailing 12mo · {fmtMoney(data.income_monthly_cad)} in
+                        · {fmtMoney(data.expenses_monthly_cad)} out
+                      </p>
+                    )}
                   </div>
                   <div className="flex gap-6 text-sm">
                     <div>
@@ -227,26 +241,116 @@ export function MoneyDashboard() {
                 status={data.liquidity_months.status}
                 reason={data.liquidity_months.reason}
               />
-              <Card>
-                <CardContent className="p-4">
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                    Monthly income · expenses
-                  </p>
-                  <p className="mt-1 text-base font-semibold tabular-nums">
-                    {fmtMoney(data.income_monthly_cad)}
-                    <span className="text-muted-foreground"> · </span>
-                    {fmtMoney(data.expenses_monthly_cad)}
-                  </p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Trailing 12 months · CAD
-                  </p>
-                  <p className="mt-3 text-xs text-muted-foreground">
-                    Net worth trend chart lands in Phase 2 (needs
-                    snapshot history).
-                  </p>
-                </CardContent>
-              </Card>
+              <HealthKpiCard
+                label="Net worth growth"
+                value={num(data.net_worth_growth.value)}
+                unit="%"
+                targetLabel={`≥${Number(data.net_worth_growth.target).toFixed(0)}%`}
+                status={data.net_worth_growth.status}
+                reason={data.net_worth_growth.reason}
+              />
             </section>
+
+            {/* Net worth trend (line) — full width to give the chart room */}
+            <Card className="mb-6">
+              <CardContent className="p-4">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Net worth trend
+                </p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Monthly snapshots, oldest to newest. Captured after
+                  every YNAB sync and account edit.
+                </p>
+                {data.net_worth_trend.length < 2 ? (
+                  <p className="mt-8 text-center text-sm text-muted-foreground">
+                    Not enough history yet. Come back next month — Helm
+                    captures a snapshot after every balance change.
+                  </p>
+                ) : (
+                  <div className="mt-3 h-56">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart
+                        data={data.net_worth_trend.map((s) => ({
+                          month: s.month.slice(0, 7), // YYYY-MM
+                          net: num(s.net_worth_cad) ?? 0,
+                          personal: num(s.personal_cad) ?? 0,
+                          business: num(s.business_cad) ?? 0,
+                        }))}
+                        margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
+                      >
+                        <CartesianGrid
+                          stroke={CHART_COLORS.grid}
+                          strokeDasharray="3 3"
+                          vertical={false}
+                        />
+                        <XAxis
+                          dataKey="month"
+                          stroke={CHART_COLORS.axis}
+                          fontSize={11}
+                          tickLine={false}
+                        />
+                        <YAxis
+                          stroke={CHART_COLORS.axis}
+                          fontSize={11}
+                          tickLine={false}
+                          tickFormatter={(v: number) =>
+                            v >= 1000
+                              ? `${Math.round(v / 1000)}k`
+                              : `${v}`
+                          }
+                        />
+                        <Tooltip
+                          formatter={((value: unknown) =>
+                            fmtMoney(
+                              typeof value === "number"
+                                ? value
+                                : Number(value),
+                            )) as never}
+                          contentStyle={{
+                            background: "hsl(var(--card))",
+                            border: "1px solid hsl(var(--border))",
+                            borderRadius: "6px",
+                            fontSize: "12px",
+                          }}
+                        />
+                        <Legend
+                          verticalAlign="bottom"
+                          height={24}
+                          iconSize={8}
+                          wrapperStyle={{ fontSize: "12px" }}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="net"
+                          name="Net worth"
+                          stroke={CHART_COLORS.netWorth}
+                          strokeWidth={2}
+                          dot={false}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="personal"
+                          name="Personal"
+                          stroke={CHART_COLORS.personal}
+                          strokeWidth={1.5}
+                          strokeDasharray="4 4"
+                          dot={false}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="business"
+                          name="Business"
+                          stroke={CHART_COLORS.business}
+                          strokeWidth={1.5}
+                          strokeDasharray="4 4"
+                          dot={false}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
 
             {/* Charts: allocation donut + monthly flows bars */}
             <section className="mb-6 grid grid-cols-1 gap-3 lg:grid-cols-2">

@@ -28,6 +28,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from app import db
+from app.money.snapshots import record_snapshot
 from app.ynab.client import YnabClient
 
 TRANSACTION_WINDOW_DAYS = 60
@@ -273,6 +274,11 @@ def refresh(
             },
         )
         txn_rows += 1
+
+    # Capture a net-worth snapshot now that the YNAB balances are fresh.
+    # Safe even when accounts haven't changed — the helper upserts on
+    # snapshot_month and swallows its own errors.
+    record_snapshot()
 
     return SyncResult(
         budget_id=target_id,
