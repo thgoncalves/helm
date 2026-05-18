@@ -29,6 +29,8 @@ class AssetClass(StrEnum):
 
 
 AccountKind = Literal["itrade", "rrsp", "tfsa", "brazil", "corp"]
+HelmKind = Literal["investing_fund", "investing_stock"]
+HelmOwner = Literal["personal", "business"]
 
 
 # ---------------------------------------------------------------------------
@@ -44,6 +46,13 @@ class InvestmentAccountBase(BaseModel):
     contribution_limit: Decimal | None = None
     notes: str | None = None
     is_active: bool = True
+    # Accounts-page taxonomy (cross-source). All optional — a brand new
+    # row is untagged until the user assigns these on the Accounts page.
+    owner: HelmOwner | None = None
+    helm_kind: HelmKind | None = None
+    bank: str | None = None
+    cash_balance: Decimal = Decimal("0")
+    cash_currency: str | None = Field(default=None, min_length=3, max_length=3)
 
 
 class InvestmentAccountCreate(InvestmentAccountBase):
@@ -58,12 +67,18 @@ class InvestmentAccountUpdate(BaseModel):
     contribution_limit: Decimal | None = None
     notes: str | None = None
     is_active: bool | None = None
+    owner: HelmOwner | None = None
+    helm_kind: HelmKind | None = None
+    bank: str | None = None
+    cash_balance: Decimal | None = None
+    cash_currency: str | None = Field(default=None, min_length=3, max_length=3)
 
 
 class InvestmentAccountRead(InvestmentAccountBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
+    balance_as_of: date | None = None
     created_at: datetime
     updated_at: datetime
 

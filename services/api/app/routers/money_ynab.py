@@ -168,6 +168,7 @@ def refresh() -> YnabRefreshResponse:
     return YnabRefreshResponse(
         budget_id=result.budget_id,
         budget_name=result.budget_name,
+        accounts_upserted=result.accounts_upserted,
         categories_upserted=result.categories_upserted,
         month_rows_upserted=result.month_rows_upserted,
         transactions_upserted=result.transactions_upserted,

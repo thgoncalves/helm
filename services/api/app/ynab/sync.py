@@ -7,9 +7,12 @@ Strategy:
 
 1. Fetch budgets, mark the chosen one ``is_active=True`` (and others
    ``False``). Stamp ``last_synced_at``.
-2. Upsert the category catalogue (groups + categories, hidden flag).
-3. Upsert the current month's category amounts.
-4. Upsert the last ``TRANSACTION_WINDOW_DAYS`` of transactions so the
+2. Upsert the budget's account list (name, type, balances). The
+   Helm-side ``helm_kind`` / ``helm_owner`` tags are preserved across
+   syncs — only the upstream-controlled columns refresh.
+3. Upsert the category catalogue (groups + categories, hidden flag).
+4. Upsert the current month's category amounts.
+5. Upsert the last ``TRANSACTION_WINDOW_DAYS`` of transactions so the
    dashboard's pacing chart has the data it needs without pulling the
    entire transaction history every refresh.
 
@@ -25,6 +28,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from app import db
+from app.money.snapshots import record_snapshot
 from app.ynab.client import YnabClient
 
 TRANSACTION_WINDOW_DAYS = 60
@@ -36,6 +40,7 @@ class SyncResult:
 
     budget_id: str
     budget_name: str
+    accounts_upserted: int
     categories_upserted: int
     month_rows_upserted: int
     transactions_upserted: int
@@ -98,7 +103,58 @@ def refresh(
         },
     )
 
-    # 2) Categories (and groups).
+    # 2) Accounts — cache the budget's account list. Upstream columns
+    # refresh on every sync; the Helm-side `helm_kind` / `helm_owner`
+    # tags are mutated only by the Accounts page and never overwritten
+    # here.
+    accounts = client.get_accounts(target_id)
+    accounts_upserted = 0
+    for acct in accounts:
+        db.execute(
+            """
+            INSERT INTO ynab_accounts (
+                id, budget_id, name, type,
+                on_budget, closed, deleted,
+                balance, cleared_balance, uncleared_balance,
+                last_synced_at
+            )
+            VALUES (
+                :id, :budget_id, :name, :type,
+                :on_budget, :closed, :deleted,
+                :balance, :cleared_balance, :uncleared_balance,
+                :now
+            )
+            ON CONFLICT (id) DO UPDATE SET
+                budget_id = EXCLUDED.budget_id,
+                name = EXCLUDED.name,
+                type = EXCLUDED.type,
+                on_budget = EXCLUDED.on_budget,
+                closed = EXCLUDED.closed,
+                deleted = EXCLUDED.deleted,
+                balance = EXCLUDED.balance,
+                cleared_balance = EXCLUDED.cleared_balance,
+                uncleared_balance = EXCLUDED.uncleared_balance,
+                last_synced_at = EXCLUDED.last_synced_at
+            """,
+            {
+                "id": acct["id"],
+                "budget_id": target_id,
+                "name": acct.get("name") or "",
+                "type": acct.get("type") or "otherAsset",
+                "on_budget": bool(acct.get("on_budget", True)),
+                "closed": bool(acct.get("closed", False)),
+                "deleted": bool(acct.get("deleted", False)),
+                "balance": int(acct.get("balance") or 0),
+                "cleared_balance": int(acct.get("cleared_balance") or 0),
+                "uncleared_balance": int(
+                    acct.get("uncleared_balance") or 0
+                ),
+                "now": now,
+            },
+        )
+        accounts_upserted += 1
+
+    # 3) Categories (and groups).
     groups = client.get_categories(target_id)
     categories_upserted = 0
     for group in groups:
@@ -133,7 +189,7 @@ def refresh(
             )
             categories_upserted += 1
 
-    # 3) Current month — assigned / activity / balance per category.
+    # 4) Current month — assigned / activity / balance per category.
     month_str = date.today().replace(day=1).isoformat()
     month_detail = client.get_month(target_id, month_str)
     month_categories = month_detail.get("categories", []) or []
@@ -167,7 +223,7 @@ def refresh(
         )
         month_rows += 1
 
-    # 4) Recent transactions — last TRANSACTION_WINDOW_DAYS days.
+    # 5) Recent transactions — last TRANSACTION_WINDOW_DAYS days.
     since = (date.today() - timedelta(days=TRANSACTION_WINDOW_DAYS)).isoformat()
     txns = client.get_transactions(target_id, since_date=since)
     txn_rows = 0
@@ -219,9 +275,15 @@ def refresh(
         )
         txn_rows += 1
 
+    # Capture a net-worth snapshot now that the YNAB balances are fresh.
+    # Safe even when accounts haven't changed — the helper upserts on
+    # snapshot_month and swallows its own errors.
+    record_snapshot()
+
     return SyncResult(
         budget_id=target_id,
         budget_name=summary.get("name") or target_id,
+        accounts_upserted=accounts_upserted,
         categories_upserted=categories_upserted,
         month_rows_upserted=month_rows,
         transactions_upserted=txn_rows,

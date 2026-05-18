@@ -33,6 +33,7 @@ import { Landing } from "@/routes/Landing";
 import { SignIn } from "@/routes/SignIn";
 import { AccountType } from "@/routes/AccountType";
 import { MoneyDashboard } from "@/routes/MoneyDashboard";
+import { Accounts } from "@/routes/Accounts";
 import { Investments } from "@/routes/Investments";
 import { InvestmentAccounts } from "@/routes/InvestmentAccounts";
 import { NewHolding, EditHolding } from "@/routes/HoldingForm";
@@ -96,6 +97,7 @@ export function App() {
             element={<Navigate to="/money/dashboard" replace />}
           />
           <Route path="/money/dashboard" element={<MoneyDashboard />} />
+          <Route path="/accounts" element={<Accounts />} />
 
           {/* Investments module — portfolio tracker (V1). */}
           <Route path="/investments" element={<Investments />} />

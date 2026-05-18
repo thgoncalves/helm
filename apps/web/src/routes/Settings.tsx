@@ -66,6 +66,12 @@ const FIELDS = [
   "theme",
   "custom_holidays",
   "vacations",
+  // Money dashboard targets (Phase 3). Numeric strings stored as-is;
+  // the backend falls back to defaults when unset or malformed.
+  "money_target_savings_pct",
+  "money_target_debt_to_income_pct",
+  "money_target_liquidity_months",
+  "money_target_net_worth_growth_pct",
 ] as const;
 type FieldKey = (typeof FIELDS)[number];
 type FormState = Record<FieldKey, string>;
@@ -133,6 +139,28 @@ const SECTIONS: SectionMeta[] = [
       "custom",
     ],
     fields: ["custom_holidays", "vacations"],
+  },
+  {
+    id: "money-health",
+    title: "Money health targets",
+    keywords: [
+      "money",
+      "health",
+      "target",
+      "savings",
+      "ratio",
+      "debt",
+      "income",
+      "liquidity",
+      "growth",
+      "kpi",
+    ],
+    fields: [
+      "money_target_savings_pct",
+      "money_target_debt_to_income_pct",
+      "money_target_liquidity_months",
+      "money_target_net_worth_growth_pct",
+    ],
   },
   {
     id: "ynab",
@@ -1383,6 +1411,114 @@ export function Settings() {
                     saveSection(
                       "holidays",
                       SECTIONS.find((s) => s.id === "holidays")!.fields,
+                    )
+                  }
+                />
+              </section>
+            )}
+
+            {/* ── Money health targets ── */}
+            {visibleIds.has("money-health") && (
+              <section id="money-health" className="scroll-mt-4">
+                <h2 className="mb-1 text-lg font-semibold text-foreground">
+                  Money health targets
+                </h2>
+                <p className="mb-4 text-sm text-muted-foreground">
+                  Goal lines for the four KPIs on the Money dashboard.
+                  Leave blank to use Helm's defaults (20% savings, 30%
+                  debt-to-income, 3 months liquidity, 5% net-worth
+                  growth).
+                </p>
+                <div
+                  className="grid gap-3"
+                  style={{
+                    gridTemplateColumns:
+                      "repeat(auto-fit, minmax(220px, 1fr))",
+                  }}
+                >
+                  <div className="space-y-1">
+                    <Label htmlFor="money_target_savings_pct">
+                      Savings ratio target (%)
+                    </Label>
+                    <Input
+                      id="money_target_savings_pct"
+                      type="number"
+                      step="0.1"
+                      placeholder="20"
+                      value={state.money_target_savings_pct}
+                      onChange={(e) =>
+                        patch(
+                          "money_target_savings_pct",
+                          e.target.value,
+                        )
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="money_target_debt_to_income_pct">
+                      Debt-to-income target (%)
+                    </Label>
+                    <Input
+                      id="money_target_debt_to_income_pct"
+                      type="number"
+                      step="0.1"
+                      placeholder="30"
+                      value={state.money_target_debt_to_income_pct}
+                      onChange={(e) =>
+                        patch(
+                          "money_target_debt_to_income_pct",
+                          e.target.value,
+                        )
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="money_target_liquidity_months">
+                      Liquidity target (months)
+                    </Label>
+                    <Input
+                      id="money_target_liquidity_months"
+                      type="number"
+                      step="0.1"
+                      placeholder="3"
+                      value={state.money_target_liquidity_months}
+                      onChange={(e) =>
+                        patch(
+                          "money_target_liquidity_months",
+                          e.target.value,
+                        )
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="money_target_net_worth_growth_pct">
+                      Net worth growth target (%)
+                    </Label>
+                    <Input
+                      id="money_target_net_worth_growth_pct"
+                      type="number"
+                      step="0.1"
+                      placeholder="5"
+                      value={state.money_target_net_worth_growth_pct}
+                      onChange={(e) =>
+                        patch(
+                          "money_target_net_worth_growth_pct",
+                          e.target.value,
+                        )
+                      }
+                    />
+                  </div>
+                </div>
+                <SectionFooter
+                  dirty={isSectionDirty("money-health")}
+                  saving={savingSection === "money-health"}
+                  savedAt={savedAt["money-health"] ?? null}
+                  error={sectionErrors["money-health"] ?? null}
+                  onSave={() =>
+                    saveSection(
+                      "money-health",
+                      SECTIONS.find((s) => s.id === "money-health")!
+                        .fields,
                     )
                   }
                 />

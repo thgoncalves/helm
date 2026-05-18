@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -15,6 +15,7 @@ from app.models.investments import (
     InvestmentAccountRead,
     InvestmentAccountUpdate,
 )
+from app.money.snapshots import record_snapshot
 
 router = APIRouter(tags=["investments"], dependencies=[Depends(get_current_user)])
 
@@ -44,11 +45,15 @@ def create_account(payload: InvestmentAccountCreate) -> dict[str, Any]:
         """
         INSERT INTO investment_accounts (
             id, name, kind, currency, owner_label, contribution_limit,
-            notes, is_active, created_at, updated_at
+            notes, is_active,
+            owner, helm_kind, bank, cash_balance, cash_currency,
+            balance_as_of, created_at, updated_at
         )
         VALUES (
             :id, :name, :kind, :currency, :owner_label, :contribution_limit,
-            :notes, :is_active, :now, :now
+            :notes, :is_active,
+            :owner, :helm_kind, :bank, :cash_balance, :cash_currency,
+            :balance_as_of, :now, :now
         )
         RETURNING *
         """,
@@ -61,11 +66,24 @@ def create_account(payload: InvestmentAccountCreate) -> dict[str, Any]:
             "contribution_limit": payload.contribution_limit,
             "notes": payload.notes,
             "is_active": payload.is_active,
+            "owner": payload.owner,
+            "helm_kind": payload.helm_kind,
+            "bank": payload.bank,
+            "cash_balance": payload.cash_balance,
+            "cash_currency": (
+                payload.cash_currency.upper()
+                if payload.cash_currency
+                else None
+            ),
+            "balance_as_of": (
+                date.today() if payload.cash_balance else None
+            ),
             "now": now,
         },
     )
     if row is None:
         raise HTTPException(status_code=500, detail="Insert returned no row")
+    record_snapshot()
     return row
 
 
@@ -85,10 +103,23 @@ def update_account(
 
     if "currency" in fields and fields["currency"]:
         fields["currency"] = fields["currency"].upper()
+    if "cash_currency" in fields and fields["cash_currency"]:
+        fields["cash_currency"] = fields["cash_currency"].upper()
 
     set_clauses = [f"{k} = :{k}" for k in fields]
     set_clauses.append("updated_at = :now")
-    params: dict[str, Any] = {**fields, "now": datetime.now(timezone.utc), "id": account_id}
+    # Bump balance_as_of when the user updates the cash balance — same
+    # behaviour as manual_accounts so the Accounts page can show a
+    # consistent "as of …" hint regardless of source.
+    if "cash_balance" in fields:
+        set_clauses.append("balance_as_of = :today")
+
+    params: dict[str, Any] = {
+        **fields,
+        "now": datetime.now(timezone.utc),
+        "today": date.today(),
+        "id": account_id,
+    }
     row = db.fetch_one(
         f"UPDATE investment_accounts SET {', '.join(set_clauses)} "
         f"WHERE id = :id RETURNING *",
@@ -96,26 +127,21 @@ def update_account(
     )
     if row is None:
         raise HTTPException(status_code=404, detail="Account not found")
+    record_snapshot()
     return row
 
 
 @router.delete("/{account_id}", status_code=204)
 def delete_account(account_id: UUID) -> None:
-    holding_count = db.fetch_one(
-        "SELECT COUNT(*) AS n FROM investment_holdings WHERE account_id = :id",
-        {"id": account_id},
-    )
-    if holding_count and int(holding_count.get("n") or 0) > 0:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "Account has holdings — archive it (set is_active=false) "
-                "instead, or delete the holdings first."
-            ),
-        )
+    # Hard delete + cascade. The FK on investment_holdings.account_id
+    # is ON DELETE CASCADE (and investment_contributions likewise), so
+    # the row disappears along with its holdings and contributions. The
+    # Accounts page confirms the destructive action with the user
+    # before calling this.
     db.execute(
         "DELETE FROM investment_accounts WHERE id = :id", {"id": account_id}
     )
+    record_snapshot()
 
 
 def _read_one(account_id: UUID) -> dict[str, Any]:

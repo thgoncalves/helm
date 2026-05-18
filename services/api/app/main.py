@@ -8,6 +8,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from mangum import Mangum
 
+from app.routers import accounts as accounts_router
+from app.routers import accounts_manual as accounts_manual_router
 from app.routers import clients as clients_router
 from app.routers import dashboard as dashboard_router
 from app.routers import expenses as expenses_router
@@ -19,7 +21,7 @@ from app.routers import investments_holdings as investments_holdings_router
 from app.routers import investments_portfolio as investments_portfolio_router
 from app.routers import investments_targets as investments_targets_router
 from app.routers import invoices as invoices_router
-from app.routers import money_dashboard as money_dashboard_router
+from app.routers import money_health as money_health_router
 from app.routers import money_ynab as money_ynab_router
 from app.routers import payments as payments_router
 from app.routers import settings as settings_router
@@ -63,9 +65,9 @@ app.include_router(time_entries_router.router, prefix="/business/time-entries")
 app.include_router(timesheets_router.router, prefix="/business/timesheets")
 app.include_router(transfers_router.router, prefix="/business/transfers")
 
-# Money — YNAB-driven personal dashboard + integration management.
+# Money — YNAB integration + health-first dashboard.
 app.include_router(money_ynab_router.router, prefix="/money")
-app.include_router(money_dashboard_router.router, prefix="/money/dashboard")
+app.include_router(money_health_router.router, prefix="/money")
 
 # Investments — portfolio tracker (V1). Four sub-routers behind one prefix.
 app.include_router(
@@ -85,6 +87,12 @@ app.include_router(
 app.include_router(
     investments_contributions_router.router, prefix="/investments"
 )
+
+# Accounts — cross-cutting management page. Manual-accounts CRUD lives
+# at /accounts/manual; the aggregator + tagging + YNAB sync alias mount
+# at /accounts root.
+app.include_router(accounts_manual_router.router)
+app.include_router(accounts_router.router)
 
 # ---------------------------------------------------------------------------
 # Health check

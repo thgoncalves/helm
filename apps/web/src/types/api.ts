@@ -515,43 +515,80 @@ export interface YnabStatusResponse {
   active_budget_id: string | null;
 }
 
-/** Single category overage row, used by the bill-over-budget widget. */
-export interface MoneyCategoryOverage {
-  category_id: string;
-  category_name: string;
-  group_name: string;
-  /** YNAB amounts are returned as JSON strings to preserve precision. Helm normalises
-   *  to display dollars (assigned / 1000) on the backend so this is already in
-   *  dollar units. */
-  assigned: number | string;
-  activity: number | string;
-  overage: number | string;
-  /** Activity / assigned − 1, expressed as percentage; null when assigned ≤ 0. */
-  percent_over: number | string | null;
+/** Mirrors YnabRefreshResponse in services/api/app/models/ynab.py */
+export interface YnabRefreshResponse {
+  budget_id: string;
+  budget_name: string;
+  accounts_upserted: number;
+  categories_upserted: number;
+  month_rows_upserted: number;
+  transactions_upserted: number;
+  updated_at: string;
 }
 
-/** Spend grouped by category-group for the dashboard's top-categories chart. */
-export interface MoneyCategoryGroupSpend {
-  group_name: string;
-  amount: number | string;
+/** Health-first Money dashboard payload — mirrors MoneyHealthResponse
+ *  in services/api/app/models/money_health.py.
+ */
+export type HealthStatus = "above" | "at" | "below" | "unavailable";
+
+export interface HealthMetric {
+  value: number | string | null;
+  target: number | string;
+  status: HealthStatus;
+  reason: string | null;
 }
 
-/** Trailing-3-month grouped bars: one row per group with the last 3 months. */
-export interface MoneyT3MGroupRow {
-  group_name: string;
-  m_minus_2: number | string;
-  m_minus_1: number | string;
-  m_minus_0: number | string;
+export interface KindAllocation {
+  kind: "checking" | "savings" | "investing";
+  label: string;
+  cad_amount: number | string;
+  share_pct: number | string;
 }
 
-/** Daily cumulative spend point used by the pacing chart. */
-export interface MoneyPacingPoint {
-  /** Day of month (1-31). */
-  day: number;
-  /** Cumulative spend from day 1 through this day. */
-  cumulative: number | string;
-  /** Expected cumulative budget by this day (linear). */
-  expected: number | string;
+export interface MonthlyFlow {
+  /** First day of the month, YYYY-MM-DD. */
+  month: string;
+  income_cad: number | string;
+  expenses_cad: number | string;
+  net_cad: number | string;
+}
+
+export interface NetWorthSnapshot {
+  /** First day of the month, YYYY-MM-DD. */
+  month: string;
+  net_worth_cad: number | string;
+  personal_cad: number | string;
+  business_cad: number | string;
+}
+
+export type AttentionSeverity = "info" | "warning";
+
+export interface AttentionItem {
+  severity: AttentionSeverity;
+  title: string;
+  detail: string;
+  kpi_id: string | null;
+}
+
+export interface MoneyHealthResponse {
+  net_worth_cad: number | string;
+  assets_cad: number | string;
+  liabilities_cad: number | string;
+  personal_net_worth_cad: number | string;
+  business_net_worth_cad: number | string;
+  income_monthly_cad: number | string | null;
+  expenses_monthly_cad: number | string | null;
+  savings_ratio: HealthMetric;
+  debt_to_income: HealthMetric;
+  liquidity_months: HealthMetric;
+  net_worth_growth: HealthMetric;
+  last_ynab_sync_at: string | null;
+  computed_at: string;
+  allocation: KindAllocation[];
+  monthly_flows: MonthlyFlow[];
+  net_worth_trend: NetWorthSnapshot[];
+  attention: AttentionItem[];
+  warnings: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -576,6 +613,10 @@ export type AssetClass =
   | "crypto"
   | "other";
 
+/** Cross-source Helm taxonomy. NULL = unassigned. */
+export type HelmAccountKind = "investing_fund" | "investing_stock";
+export type HelmAccountOwner = "personal" | "business";
+
 export interface InvestmentAccountRead {
   id: string;
   name: string;
@@ -585,6 +626,13 @@ export interface InvestmentAccountRead {
   contribution_limit: number | string | null;
   notes: string | null;
   is_active: boolean;
+  // Accounts-page taxonomy + per-account brokerage cash. All optional.
+  owner: HelmAccountOwner | null;
+  helm_kind: HelmAccountKind | null;
+  bank: string | null;
+  cash_balance: number | string;
+  cash_currency: string | null;
+  balance_as_of: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -597,6 +645,11 @@ export interface InvestmentAccountCreate {
   contribution_limit?: number | string | null;
   notes?: string | null;
   is_active?: boolean;
+  owner?: HelmAccountOwner | null;
+  helm_kind?: HelmAccountKind | null;
+  bank?: string | null;
+  cash_balance?: number | string;
+  cash_currency?: string | null;
 }
 
 export type InvestmentAccountUpdate = Partial<InvestmentAccountCreate>;
@@ -738,31 +791,100 @@ export interface ContributionRoom {
   remaining: number | string;
 }
 
-/** Full Money dashboard payload — single GET serves the whole page. */
-export interface MoneyDashboardResponse {
-  /** Current month (YYYY-MM-01). */
-  month: string;
-  /** Budget currency (ISO code, e.g. "CAD"). */
+
+// ---------------------------------------------------------------------------
+// Unified Accounts page (services/api/app/routers/accounts.py)
+// ---------------------------------------------------------------------------
+
+export type AccountSource = "ynab" | "manual" | "investment";
+
+/** Cross-source kind. `"unassigned"` is the sentinel for rows the user
+ *  hasn't tagged yet (and for new YNAB rows whose YNAB type doesn't
+ *  auto-map to one of the Helm kinds). */
+export type AccountKind =
+  | "checking"
+  | "savings"
+  | "credit_card"
+  | "line_of_credit"
+  | "investing_fund"
+  | "investing_stock"
+  | "unassigned";
+
+export type AccountOwner = "personal" | "business" | "unassigned";
+
+export interface AccountRow {
+  source: AccountSource;
+  /** Namespaced id, e.g. `"ynab:..."`, `"manual:<uuid>"`. */
+  id: string;
+  name: string;
+  bank: string | null;
   currency: string;
-  /** ISO timestamp the data was last synced from YNAB. */
+  /** Native-currency balance. */
+  balance: number | string;
+  /** Balance converted to CAD via the fx_rates cache. `null` when the
+   *  conversion failed (no FX cached for this currency). */
+  balance_cad: number | string | null;
+  /** ISO date string when balance was last touched (manual + investment
+   *  rows) or `null` for YNAB rows (use `last_synced_at` instead). */
+  balance_as_of: string | null;
   last_synced_at: string | null;
-  /** Spent this month (positive number; YNAB outflows). */
-  spent: number | string;
-  /** Income this month (positive number; YNAB inflows). */
-  income: number | string;
-  /** spent vs income; positive = surplus, negative = overspend. */
-  net: number | string;
-  /** Count of categories where activity > assigned this month. */
-  categories_over_budget_count: number;
-  /** Bill-over-budget rows, sorted by overage DESC. */
-  overages: MoneyCategoryOverage[];
-  /** Spend by category group, sorted DESC, top 8 only. */
-  top_groups: MoneyCategoryGroupSpend[];
-  /** Daily pacing points for the current month. */
-  pacing: MoneyPacingPoint[];
-  /** Trailing-3-month spend grouped by category group. */
-  trailing_3m: MoneyT3MGroupRow[];
+  kind: AccountKind;
+  owner: AccountOwner;
+  /** `false` for YNAB rows — the only mutable Helm field is kind/owner. */
+  is_editable: boolean;
+  is_active: boolean;
+  /** Source-specific extras. Shape varies by `source`. */
+  extra: Record<string, unknown>;
 }
+
+export interface AccountListResponse {
+  accounts: AccountRow[];
+}
+
+/** Body for `PATCH /accounts/{source}/{id}/tags`. */
+export interface AccountTagsUpdate {
+  kind?: AccountKind;
+  owner?: AccountOwner;
+}
+
+// ---------------------------------------------------------------------------
+// Manual accounts (services/api/app/routers/accounts_manual.py)
+// ---------------------------------------------------------------------------
+
+export type ManualAccountKind =
+  | "checking"
+  | "savings"
+  | "credit_card"
+  | "line_of_credit";
+export type ManualAccountOwner = "personal" | "business";
+
+export interface ManualAccountRead {
+  id: string;
+  name: string;
+  bank: string | null;
+  currency: string;
+  balance: number | string;
+  balance_as_of: string;
+  kind: ManualAccountKind;
+  owner: ManualAccountOwner;
+  notes: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ManualAccountCreate {
+  name: string;
+  bank?: string | null;
+  currency?: string;
+  balance?: number | string;
+  kind: ManualAccountKind;
+  owner: ManualAccountOwner;
+  notes?: string | null;
+  is_active?: boolean;
+}
+
+export type ManualAccountUpdate = Partial<ManualAccountCreate>;
 
 /** Mirrors TimesheetSummary in services/api/app/routers/timesheets.py */
 export interface TimesheetSummary {

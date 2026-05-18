@@ -85,6 +85,34 @@
       "when": 1747526600000,
       "tag": "0011_investment_contributions",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1763424000000,
+      "tag": "0012_ynab_accounts",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1763510400000,
+      "tag": "0013_manual_accounts",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1763596800000,
+      "tag": "0014_account_taxonomy",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1763683200000,
+      "tag": "0015_net_worth_snapshots",
+      "breakpoints": true
     }
   ]
 }
