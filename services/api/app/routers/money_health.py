@@ -24,6 +24,7 @@ user-editable via Settings.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
@@ -41,6 +42,7 @@ from app.money.balances import (
 )
 from app.money.snapshots import fetch_trend
 from app.models.money_health import (
+    AttentionItem,
     HealthMetric,
     HealthStatus,
     KindAllocation,
@@ -49,16 +51,76 @@ from app.models.money_health import (
     NetWorthSnapshot,
 )
 
+# Manual balances older than this trigger a "stale balance" attention
+# item so the user remembers to refresh accounts that don't sync on
+# their own (Brazilian checking, etc.).
+_STALE_BALANCE_DAYS = 14
+
 router = APIRouter(tags=["money"], dependencies=[Depends(get_current_user)])
 
 _MILLI = Decimal(1000)
 _TWO_DP = Decimal("0.01")
 _INCOME_WINDOW_DAYS = 365
 
-# Default targets — Phase 3 will override these from Settings.
+# Default targets — overridden by ``settings`` rows when present (Phase 3).
 _TARGET_SAVINGS_PCT = Decimal("20")
 _TARGET_DEBT_TO_INCOME_PCT = Decimal("30")
 _TARGET_LIQUIDITY_MONTHS = Decimal("3")
+
+# Settings keys that hold user-overridden targets. Values are parsed as
+# Decimal; malformed strings fall back to the defaults above so a typo
+# in Settings can't break the dashboard.
+_SETTING_KEY_SAVINGS = "money_target_savings_pct"
+_SETTING_KEY_DEBT = "money_target_debt_to_income_pct"
+_SETTING_KEY_LIQUIDITY = "money_target_liquidity_months"
+_SETTING_KEY_GROWTH = "money_target_net_worth_growth_pct"
+
+
+@dataclass(frozen=True)
+class HealthTargets:
+    """Resolved targets for the four KPIs."""
+
+    savings_pct: Decimal
+    debt_to_income_pct: Decimal
+    liquidity_months: Decimal
+    net_worth_growth_pct: Decimal
+
+
+def _load_targets() -> HealthTargets:
+    """Read user-set targets from settings; fall back to defaults."""
+    rows = db.fetch_all(
+        "SELECT key, value FROM settings WHERE key IN ("
+        ":k1, :k2, :k3, :k4)",
+        {
+            "k1": _SETTING_KEY_SAVINGS,
+            "k2": _SETTING_KEY_DEBT,
+            "k3": _SETTING_KEY_LIQUIDITY,
+            "k4": _SETTING_KEY_GROWTH,
+        },
+    )
+    by_key = {r["key"]: r.get("value") for r in rows}
+
+    def _decimal(key: str, default: Decimal) -> Decimal:
+        raw = by_key.get(key)
+        if raw is None or raw == "":
+            return default
+        try:
+            return Decimal(str(raw))
+        except (ArithmeticError, ValueError):
+            return default
+
+    return HealthTargets(
+        savings_pct=_decimal(_SETTING_KEY_SAVINGS, _TARGET_SAVINGS_PCT),
+        debt_to_income_pct=_decimal(
+            _SETTING_KEY_DEBT, _TARGET_DEBT_TO_INCOME_PCT
+        ),
+        liquidity_months=_decimal(
+            _SETTING_KEY_LIQUIDITY, _TARGET_LIQUIDITY_MONTHS
+        ),
+        net_worth_growth_pct=_decimal(
+            _SETTING_KEY_GROWTH, Decimal("5")
+        ),
+    )
 
 
 def _db_configured() -> bool:
@@ -108,15 +170,29 @@ def get_health() -> MoneyHealthResponse:
         )
 
     # ---- KPI assembly -----------------------------------------------------
-    savings_ratio = _savings_ratio_metric(income_monthly, expenses_monthly)
-    debt_to_income = _debt_to_income_metric(liabilities_cad, income_monthly)
-    liquidity = _liquidity_metric(cash_cad, expenses_monthly)
+    targets = _load_targets()
+    savings_ratio = _savings_ratio_metric(
+        income_monthly, expenses_monthly, targets.savings_pct
+    )
+    debt_to_income = _debt_to_income_metric(
+        liabilities_cad, income_monthly, targets.debt_to_income_pct
+    )
+    liquidity = _liquidity_metric(
+        cash_cad, expenses_monthly, targets.liquidity_months
+    )
 
     # ---- Chart data -------------------------------------------------------
     allocation = _allocation_slices(balances.by_kind, assets_cad)
     monthly_flows = _monthly_flows(12)
     trend = _net_worth_trend(12)
-    growth = _net_worth_growth_metric(net_worth_cad, trend)
+    growth = _net_worth_growth_metric(
+        net_worth_cad, trend, targets.net_worth_growth_pct
+    )
+
+    # ---- Attention items --------------------------------------------------
+    attention = _collect_attention(
+        savings_ratio, debt_to_income, liquidity, growth
+    )
 
     return MoneyHealthResponse(
         net_worth_cad=net_worth_cad,
@@ -139,6 +215,7 @@ def get_health() -> MoneyHealthResponse:
         allocation=allocation,
         monthly_flows=monthly_flows,
         net_worth_trend=trend,
+        attention=attention,
         warnings=warnings,
     )
 
@@ -209,12 +286,14 @@ def _ynab_flows(window_days: int) -> dict[str, Any]:
 
 
 def _savings_ratio_metric(
-    income: Decimal | None, expenses: Decimal | None
+    income: Decimal | None,
+    expenses: Decimal | None,
+    target: Decimal,
 ) -> HealthMetric:
     if not income or income == 0:
         return HealthMetric(
             value=None,
-            target=_TARGET_SAVINGS_PCT,
+            target=target,
             status="unavailable",
             reason="No YNAB income recorded in the last 12 months.",
         )
@@ -222,18 +301,20 @@ def _savings_ratio_metric(
     pct = (saved / income * Decimal(100)).quantize(_TWO_DP)
     return HealthMetric(
         value=pct,
-        target=_TARGET_SAVINGS_PCT,
-        status=_status_higher_better(pct, _TARGET_SAVINGS_PCT),
+        target=target,
+        status=_status_higher_better(pct, target),
     )
 
 
 def _debt_to_income_metric(
-    debt: Decimal, income_monthly: Decimal | None
+    debt: Decimal,
+    income_monthly: Decimal | None,
+    target: Decimal,
 ) -> HealthMetric:
     if not income_monthly or income_monthly == 0:
         return HealthMetric(
             value=None,
-            target=_TARGET_DEBT_TO_INCOME_PCT,
+            target=target,
             status="unavailable",
             reason="Connect YNAB to compute annualised income.",
         )
@@ -241,27 +322,29 @@ def _debt_to_income_metric(
     pct = (debt / annual * Decimal(100)).quantize(_TWO_DP)
     return HealthMetric(
         value=pct,
-        target=_TARGET_DEBT_TO_INCOME_PCT,
+        target=target,
         # Lower is better for debt-to-income.
-        status=_status_lower_better(pct, _TARGET_DEBT_TO_INCOME_PCT),
+        status=_status_lower_better(pct, target),
     )
 
 
 def _liquidity_metric(
-    cash: Decimal, expenses_monthly: Decimal | None
+    cash: Decimal,
+    expenses_monthly: Decimal | None,
+    target: Decimal,
 ) -> HealthMetric:
     if not expenses_monthly or expenses_monthly == 0:
         return HealthMetric(
             value=None,
-            target=_TARGET_LIQUIDITY_MONTHS,
+            target=target,
             status="unavailable",
             reason="Connect YNAB to estimate monthly expenses.",
         )
     months = (cash / expenses_monthly).quantize(_TWO_DP)
     return HealthMetric(
         value=months,
-        target=_TARGET_LIQUIDITY_MONTHS,
-        status=_status_higher_better(months, _TARGET_LIQUIDITY_MONTHS),
+        target=target,
+        status=_status_higher_better(months, target),
     )
 
 
@@ -389,15 +472,10 @@ def _net_worth_trend(months: int) -> list[NetWorthSnapshot]:
     return out
 
 
-# Net-worth-growth KPI default target: 5% growth quarter-over-quarter.
-# The spec doesn't lock a target — picking a mild positive default so
-# the dashboard has something to colour against.
-_TARGET_NET_WORTH_GROWTH_PCT = Decimal("5")
-
-
 def _net_worth_growth_metric(
     current_net_worth: Decimal,
     trend: list[NetWorthSnapshot],
+    target: Decimal,
 ) -> HealthMetric:
     """3-month change in net worth, expressed as a percentage.
 
@@ -407,7 +485,7 @@ def _net_worth_growth_metric(
     if len(trend) < 2:
         return HealthMetric(
             value=None,
-            target=_TARGET_NET_WORTH_GROWTH_PCT,
+            target=target,
             status="unavailable",
             reason=(
                 "Net worth growth needs at least one prior monthly "
@@ -422,7 +500,7 @@ def _net_worth_growth_metric(
     if baseline == 0:
         return HealthMetric(
             value=None,
-            target=_TARGET_NET_WORTH_GROWTH_PCT,
+            target=target,
             status="unavailable",
             reason=(
                 "Baseline net worth is zero; growth math is undefined."
@@ -433,9 +511,109 @@ def _net_worth_growth_metric(
     ).quantize(_TWO_DP)
     return HealthMetric(
         value=pct,
-        target=_TARGET_NET_WORTH_GROWTH_PCT,
-        status=_status_higher_better(pct, _TARGET_NET_WORTH_GROWTH_PCT),
+        target=target,
+        status=_status_higher_better(pct, target),
     )
+
+
+def _collect_attention(
+    savings: HealthMetric,
+    debt: HealthMetric,
+    liquidity: HealthMetric,
+    growth: HealthMetric,
+) -> list[AttentionItem]:
+    """Build the "Needs attention" panel from the assembled KPIs.
+
+    Includes any KPI below target plus stale manual balances. Items
+    are returned in the order the user should triage them: critical
+    (warning) first, then info nudges.
+    """
+    items: list[AttentionItem] = []
+
+    def _below_item(
+        metric: HealthMetric,
+        kpi_id: str,
+        title: str,
+        detail_below: str,
+    ) -> None:
+        if metric.status == "below":
+            items.append(
+                AttentionItem(
+                    severity="warning",
+                    title=title,
+                    detail=detail_below,
+                    kpi_id=kpi_id,
+                )
+            )
+
+    if savings.value is not None:
+        _below_item(
+            savings,
+            "savings_ratio",
+            "Savings ratio below target",
+            f"{savings.value}% saved against a {savings.target}% target.",
+        )
+    if debt.value is not None:
+        _below_item(
+            debt,
+            "debt_to_income",
+            "Debt-to-income above target",
+            f"{debt.value}% vs target ≤ {debt.target}%.",
+        )
+    if liquidity.value is not None:
+        _below_item(
+            liquidity,
+            "liquidity_months",
+            "Liquidity below target",
+            f"{liquidity.value} months of runway vs target ≥ {liquidity.target}.",
+        )
+    if growth.value is not None:
+        _below_item(
+            growth,
+            "net_worth_growth",
+            "Net worth growth below target",
+            f"{growth.value}% vs target ≥ {growth.target}%.",
+        )
+
+    items.extend(_stale_balance_items())
+    return items
+
+
+def _stale_balance_items() -> list[AttentionItem]:
+    """Surface manual accounts whose balance hasn't been refreshed lately."""
+    cutoff = datetime.now(timezone.utc).date() - timedelta(
+        days=_STALE_BALANCE_DAYS
+    )
+    rows = db.fetch_all(
+        """
+        SELECT name, bank, balance_as_of
+        FROM manual_accounts
+        WHERE is_active = TRUE
+          AND balance_as_of < :cutoff
+        ORDER BY balance_as_of ASC
+        """,
+        {"cutoff": cutoff},
+    )
+    today = datetime.now(timezone.utc).date()
+    out: list[AttentionItem] = []
+    for r in rows:
+        as_of = r.get("balance_as_of")
+        if as_of is None:
+            continue
+        days = (today - as_of).days
+        bank_suffix = f" ({r.get('bank')})" if r.get("bank") else ""
+        out.append(
+            AttentionItem(
+                severity="info",
+                title=f"Stale balance: {r.get('name')}{bank_suffix}",
+                detail=(
+                    f"Last updated {days} days ago — "
+                    f"edit on the Accounts page to refresh."
+                ),
+                kpi_id=None,
+            )
+        )
+    return out
 
 
 def _status_higher_better(value: Decimal, target: Decimal) -> HealthStatus:
@@ -487,7 +665,7 @@ def _empty_response(
         ),
         net_worth_growth=HealthMetric(
             value=None,
-            target=_TARGET_NET_WORTH_GROWTH_PCT,
+            target=Decimal("5"),
             status="unavailable",
             reason="Database unavailable.",
         ),

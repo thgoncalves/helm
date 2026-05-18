@@ -56,6 +56,25 @@ class NetWorthSnapshot(BaseModel):
     business_cad: Decimal
 
 
+AttentionSeverity = Literal["info", "warning"]
+
+
+class AttentionItem(BaseModel):
+    """A single row in the dashboard's "Needs attention" panel.
+
+    Each item points the user at something actionable — a KPI below
+    target, a stale manual balance, etc. ``severity`` drives the icon /
+    accent colour on the dashboard.
+    """
+
+    severity: AttentionSeverity
+    title: str
+    detail: str
+    # When the item came from a specific KPI, the ID lets the frontend
+    # scroll-into-view the matching card. ``None`` for non-KPI items.
+    kpi_id: str | None = None
+
+
 class HealthMetric(BaseModel):
     """One health KPI: value vs target with a derived status.
 
@@ -104,6 +123,10 @@ class MoneyHealthResponse(BaseModel):
     allocation: list[KindAllocation] = []
     monthly_flows: list[MonthlyFlow] = []
     net_worth_trend: list[NetWorthSnapshot] = []
+
+    # Actionable items the dashboard surfaces in a "Needs attention"
+    # panel — below-target KPIs, stale manual balances, etc.
+    attention: list[AttentionItem] = []
 
     # Soft warnings the UI shows as banner / footnote. Stale FX, very
     # old manual balances, etc.

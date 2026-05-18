@@ -49,6 +49,8 @@ def money_db(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     ynab_transactions: list[dict[str, Any]] = []
     # Seeded monthly snapshots keyed by snapshot_month (date).
     net_worth_snapshots: dict[date, dict[str, Any]] = {}
+    # KV settings — tests can seed user-overridden targets here.
+    settings_rows: dict[str, str] = {}
 
     stores = {
         "ynab_budgets": ynab_budgets,
@@ -58,6 +60,7 @@ def money_db(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         "investment_holdings": investment_holdings,
         "ynab_transactions": ynab_transactions,
         "net_worth_snapshots": net_worth_snapshots,
+        "settings": settings_rows,
     }
 
     def fetch_all(
@@ -73,11 +76,34 @@ def money_db(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
                 for r in ynab_accounts.values()
                 if not r.get("closed") and not r.get("deleted")
             ]
+        if (
+            "FROM manual_accounts" in sql
+            and "balance_as_of <" in sql
+        ):
+            # Stale-balance lookup for the Needs-attention panel.
+            cutoff = params["cutoff"]
+            return sorted(
+                (
+                    r
+                    for r in manual_accounts.values()
+                    if r["is_active"]
+                    and r.get("balance_as_of") is not None
+                    and r["balance_as_of"] < cutoff
+                ),
+                key=lambda r: r["balance_as_of"],
+            )
         if "FROM manual_accounts" in sql:
             return [r for r in manual_accounts.values() if r["is_active"]]
         if "FROM investment_accounts" in sql:
             return [
                 r for r in investment_accounts.values() if r["is_active"]
+            ]
+        if "FROM settings" in sql:
+            # money_health._load_targets queries by key list. Return any
+            # rows seeded by the test; empty list → defaults fire.
+            return [
+                {"key": k, "value": v}
+                for k, v in settings_rows.items()
             ]
         if "FROM net_worth_snapshots" in sql:
             # Return the snapshots seeded by the test, newest first
@@ -453,6 +479,89 @@ class TestNetWorthGrowth:
         # Growth: (120000 − 100000) / 100000 × 100 = 20%.
         assert Decimal(body["net_worth_growth"]["value"]) == Decimal("20.00")
         assert body["net_worth_growth"]["status"] == "above"
+
+
+class TestAttentionItems:
+    def test_below_target_savings_surfaces_warning(
+        self, client: TestClient, money_db: dict[str, Any]
+    ) -> None:
+        """Savings ratio at 5% (target 20%) triggers a warning item."""
+        today = date.today()
+        # $10k inflow, $9.5k outflow → 5% savings ratio (well below 20%).
+        for i in range(12):
+            money_db["ynab_transactions"].append(
+                {
+                    "amount": 10_000_000,
+                    "posted_date": today - timedelta(days=30 * i + 1),
+                    "transfer_account_id": None,
+                }
+            )
+            money_db["ynab_transactions"].append(
+                {
+                    "amount": -9_500_000,
+                    "posted_date": today - timedelta(days=30 * i + 1),
+                    "transfer_account_id": None,
+                }
+            )
+
+        resp = client.get("/money/health")
+        body = resp.json()
+        kpi_ids = [a["kpi_id"] for a in body["attention"]]
+        assert "savings_ratio" in kpi_ids
+        savings_item = next(
+            a for a in body["attention"] if a["kpi_id"] == "savings_ratio"
+        )
+        assert savings_item["severity"] == "warning"
+
+    def test_stale_manual_balance_surfaces_info_item(
+        self, client: TestClient, money_db: dict[str, Any]
+    ) -> None:
+        """A manual account whose balance is >14 days old shows up."""
+        from uuid import uuid4
+
+        money_db["manual_accounts"][uuid4()] = {
+            "id": uuid4(),
+            "name": "Itaú",
+            "bank": "Itaú",
+            "currency": "BRL",
+            "balance": Decimal("0"),
+            "balance_as_of": date.today() - timedelta(days=30),
+            "kind": "checking",
+            "owner": "personal",
+            "notes": None,
+            "is_active": True,
+            "created_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc),
+        }
+
+        resp = client.get("/money/health")
+        body = resp.json()
+        stale = [a for a in body["attention"] if a["severity"] == "info"]
+        assert len(stale) == 1
+        assert "Itaú" in stale[0]["title"]
+
+
+class TestTargetOverrides:
+    def test_settings_row_overrides_default_target(
+        self, client: TestClient, money_db: dict[str, Any]
+    ) -> None:
+        """Setting `money_target_savings_pct` to 25 changes the target."""
+        money_db["settings"]["money_target_savings_pct"] = "25"
+
+        resp = client.get("/money/health")
+        body = resp.json()
+        assert Decimal(body["savings_ratio"]["target"]) == Decimal("25")
+
+    def test_malformed_setting_falls_back_to_default(
+        self, client: TestClient, money_db: dict[str, Any]
+    ) -> None:
+        """A non-numeric setting value doesn't break the response."""
+        money_db["settings"]["money_target_liquidity_months"] = "not-a-number"
+
+        resp = client.get("/money/health")
+        body = resp.json()
+        # Falls back to the default of 3.
+        assert Decimal(body["liquidity_months"]["target"]) == Decimal("3")
 
 
 class TestAllocation:

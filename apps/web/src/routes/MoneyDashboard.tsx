@@ -503,6 +503,40 @@ export function MoneyDashboard() {
               </Card>
             </section>
 
+            {/* Needs attention */}
+            {data.attention.length > 0 && (
+              <Card className="mb-6">
+                <CardContent className="p-4">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                    Needs attention
+                  </p>
+                  <ul className="mt-3 space-y-2">
+                    {data.attention.map((a, i) => (
+                      <li
+                        key={i}
+                        className="flex items-start gap-3 text-sm"
+                      >
+                        <span
+                          className={
+                            a.severity === "warning"
+                              ? "mt-1 inline-block h-2 w-2 shrink-0 rounded-full bg-red-500 dark:bg-red-400"
+                              : "mt-1 inline-block h-2 w-2 shrink-0 rounded-full bg-amber-500 dark:bg-amber-400"
+                          }
+                          aria-hidden="true"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium">{a.title}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {a.detail}
+                          </p>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Warnings strip */}
             {data.warnings.length > 0 && (
               <Card className="mb-6 border-amber-500/40">

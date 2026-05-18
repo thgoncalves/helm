@@ -561,6 +561,15 @@ export interface NetWorthSnapshot {
   business_cad: number | string;
 }
 
+export type AttentionSeverity = "info" | "warning";
+
+export interface AttentionItem {
+  severity: AttentionSeverity;
+  title: string;
+  detail: string;
+  kpi_id: string | null;
+}
+
 export interface MoneyHealthResponse {
   net_worth_cad: number | string;
   assets_cad: number | string;
@@ -578,6 +587,7 @@ export interface MoneyHealthResponse {
   allocation: KindAllocation[];
   monthly_flows: MonthlyFlow[];
   net_worth_trend: NetWorthSnapshot[];
+  attention: AttentionItem[];
   warnings: string[];
 }
 
