@@ -499,82 +499,269 @@ export interface ExpenseImageUrlResponse {
 // Personal — accounts, imports, transactions
 // ---------------------------------------------------------------------------
 
-export type Institution = "RBC" | "TD" | "Scotia" | "Other";
-export type PersonalAccountType =
-  | "checking"
-  | "savings"
-  | "credit_card"
-  | "cash";
+// ---------------------------------------------------------------------------
+// Money — YNAB integration + macro dashboard
+// ---------------------------------------------------------------------------
 
-export interface PersonalAccountRead {
-  id: string;
-  name: string;
-  institution: Institution;
-  account_type: PersonalAccountType;
-  currency: string;
-  opening_balance: number | string | null;
-  is_active: boolean;
-  notes: string | null;
-  created_at: string;
-  updated_at: string;
+/** Mirrors YnabStatusResponse in services/api/app/models/ynab.py */
+export interface YnabStatusResponse {
+  /** True when a YNAB Personal Access Token has been stored in Secrets Manager. */
+  token_configured: boolean;
+  /** ISO timestamp of the last refresh (any table), or null if never synced. */
+  last_synced_at: string | null;
+  /** Name of the currently active YNAB budget, or null if no budget has been picked. */
+  active_budget_name: string | null;
+  /** YNAB UUID of the active budget. */
+  active_budget_id: string | null;
 }
 
-export interface PersonalAccountCreate {
-  name: string;
-  institution: Institution;
-  account_type: PersonalAccountType;
-  currency: string;
-  opening_balance: number | string | null;
-  is_active: boolean;
-  notes: string | null;
+/** Single category overage row, used by the bill-over-budget widget. */
+export interface MoneyCategoryOverage {
+  category_id: string;
+  category_name: string;
+  group_name: string;
+  /** YNAB amounts are returned as JSON strings to preserve precision. Helm normalises
+   *  to display dollars (assigned / 1000) on the backend so this is already in
+   *  dollar units. */
+  assigned: number | string;
+  activity: number | string;
+  overage: number | string;
+  /** Activity / assigned − 1, expressed as percentage; null when assigned ≤ 0. */
+  percent_over: number | string | null;
 }
 
-export type PersonalImportStatus =
-  | "pending"
-  | "processing"
-  | "ready"
-  | "failed";
-
-export interface PersonalImportRead {
-  id: string;
-  account_id: string;
-  institution: Institution;
-  status: PersonalImportStatus;
-  s3_key: string;
-  filename: string | null;
-  size_bytes: number | null;
-  row_count: number | null;
-  imported_count: number | null;
-  skipped_count: number | null;
-  error: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface PersonalImportCreateRequest {
-  account_id: string;
-  institution: Institution;
-  filename?: string;
-  size_bytes?: number;
-}
-
-export interface PersonalImportCreateResponse {
-  // Backend serialises the key as `import_` (Python keyword).
-  import_: PersonalImportRead;
-  upload_url: string;
-}
-
-export interface PersonalTransactionRead {
-  id: string;
-  account_id: string;
-  import_id: string | null;
-  posted_date: string;
-  description: string;
+/** Spend grouped by category-group for the dashboard's top-categories chart. */
+export interface MoneyCategoryGroupSpend {
+  group_name: string;
   amount: number | string;
-  balance: number | string | null;
-  category: string | null;
-  external_id: string | null;
+}
+
+/** Trailing-3-month grouped bars: one row per group with the last 3 months. */
+export interface MoneyT3MGroupRow {
+  group_name: string;
+  m_minus_2: number | string;
+  m_minus_1: number | string;
+  m_minus_0: number | string;
+}
+
+/** Daily cumulative spend point used by the pacing chart. */
+export interface MoneyPacingPoint {
+  /** Day of month (1-31). */
+  day: number;
+  /** Cumulative spend from day 1 through this day. */
+  cumulative: number | string;
+  /** Expected cumulative budget by this day (linear). */
+  expected: number | string;
+}
+
+// ---------------------------------------------------------------------------
+// Investments — portfolio tracker
+// ---------------------------------------------------------------------------
+
+export type InvestmentAccountKind =
+  | "itrade"
+  | "rrsp"
+  | "tfsa"
+  | "brazil"
+  | "corp";
+
+export type AssetClass =
+  | "equity_ca"
+  | "equity_us"
+  | "equity_international"
+  | "bonds"
+  | "cash"
+  | "alternative"
+  | "real_estate"
+  | "crypto"
+  | "other";
+
+export interface InvestmentAccountRead {
+  id: string;
+  name: string;
+  kind: InvestmentAccountKind;
+  currency: string;
+  owner_label: string | null;
+  contribution_limit: number | string | null;
+  notes: string | null;
+  is_active: boolean;
   created_at: string;
+  updated_at: string;
+}
+
+export interface InvestmentAccountCreate {
+  name: string;
+  kind: InvestmentAccountKind;
+  currency: string;
+  owner_label?: string | null;
+  contribution_limit?: number | string | null;
+  notes?: string | null;
+  is_active?: boolean;
+}
+
+export type InvestmentAccountUpdate = Partial<InvestmentAccountCreate>;
+
+export interface InvestmentHoldingRead {
+  id: string;
+  account_id: string;
+  ticker: string;
+  asset_class: AssetClass;
+  shares: number | string;
+  avg_cost: number | string;
+  current_price: number | string;
+  currency: string;
+  as_of: string;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InvestmentHoldingCreate {
+  account_id: string;
+  ticker: string;
+  asset_class: AssetClass;
+  shares: number | string;
+  avg_cost: number | string;
+  current_price: number | string;
+  currency: string;
+  as_of: string;
+  notes?: string | null;
+}
+
+export type InvestmentHoldingUpdate = Partial<
+  Omit<InvestmentHoldingCreate, "account_id">
+>;
+
+export interface TargetAllocationRow {
+  asset_class: AssetClass;
+  target_pct: number | string;
+}
+
+export interface TargetAllocationsPut {
+  targets: TargetAllocationRow[];
+}
+
+export interface PortfolioTotals {
+  market_value: number | string;
+  cost_basis: number | string;
+  unrealized: number | string;
+  unrealized_pct: number | string | null;
+}
+
+export interface PortfolioByKind {
+  kind: InvestmentAccountKind;
+  market_value: number | string;
+  share_pct: number | string | null;
+}
+
+export interface PortfolioAllocationRow {
+  asset_class: AssetClass;
+  market_value: number | string;
+  actual_pct: number | string;
+  target_pct: number | string | null;
+  drift_pct: number | string | null;
+}
+
+export interface PortfolioHolding {
+  id: string;
+  account_id: string;
+  account_name: string;
+  account_kind: InvestmentAccountKind;
+  ticker: string;
+  asset_class: AssetClass;
+  shares: number | string;
+  avg_cost: number | string;
+  current_price: number | string;
+  currency: string;
+  market_value_native: number | string;
+  market_value_cad: number | string;
+  unrealized: number | string;
+  unrealized_pct: number | string | null;
+  as_of: string;
+}
+
+export interface PortfolioFxUsed {
+  pair: string;
+  rate: number | string;
+  rate_date: string;
+}
+
+export interface PortfolioResponse {
+  as_of: string;
+  currency: string;
+  totals: PortfolioTotals;
+  by_account_kind: PortfolioByKind[];
+  allocation: PortfolioAllocationRow[];
+  holdings: PortfolioHolding[];
+  fx_rates_used: PortfolioFxUsed[];
+}
+
+// ---------------------------------------------------------------------------
+// Contributions (deposits / withdrawals) on investment accounts
+// ---------------------------------------------------------------------------
+
+export type ContributionKind = "deposit" | "withdrawal";
+
+export interface InvestmentContributionRead {
+  id: string;
+  account_id: string;
+  contributed_on: string;
+  kind: ContributionKind;
+  amount: number | string;
+  currency: string;
+  fx_rate_cad: number | string;
+  /** Signed by kind — deposits positive, withdrawals negative. */
+  amount_cad: number | string;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InvestmentContributionCreate {
+  contributed_on: string;
+  kind: ContributionKind;
+  amount: number | string;
+  currency: string;
+  notes?: string | null;
+}
+
+export type InvestmentContributionUpdate =
+  Partial<InvestmentContributionCreate>;
+
+export interface ContributionRoom {
+  account_id: string;
+  account_name: string;
+  account_kind: InvestmentAccountKind;
+  currency: string;
+  contribution_limit: number | string;
+  contributed_ytd: number | string;
+  remaining: number | string;
+}
+
+/** Full Money dashboard payload — single GET serves the whole page. */
+export interface MoneyDashboardResponse {
+  /** Current month (YYYY-MM-01). */
+  month: string;
+  /** Budget currency (ISO code, e.g. "CAD"). */
+  currency: string;
+  /** ISO timestamp the data was last synced from YNAB. */
+  last_synced_at: string | null;
+  /** Spent this month (positive number; YNAB outflows). */
+  spent: number | string;
+  /** Income this month (positive number; YNAB inflows). */
+  income: number | string;
+  /** spent vs income; positive = surplus, negative = overspend. */
+  net: number | string;
+  /** Count of categories where activity > assigned this month. */
+  categories_over_budget_count: number;
+  /** Bill-over-budget rows, sorted by overage DESC. */
+  overages: MoneyCategoryOverage[];
+  /** Spend by category group, sorted DESC, top 8 only. */
+  top_groups: MoneyCategoryGroupSpend[];
+  /** Daily pacing points for the current month. */
+  pacing: MoneyPacingPoint[];
+  /** Trailing-3-month spend grouped by category group. */
+  trailing_3m: MoneyT3MGroupRow[];
 }
 
 /** Mirrors TimesheetSummary in services/api/app/routers/timesheets.py */

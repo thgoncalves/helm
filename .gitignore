@@ -253,3 +253,12 @@ cdk.out/
 
 # Playwright mobile-audit screenshot output
 apps/web/screenshots/
+
+# Playwright
+apps/web/test-results/
+apps/web/playwright-report/
+.playwright/
+
+# Local-stage YNAB token store (HELM_STAGE=local fallback).
+# Plaintext PAT — never commit.
+.helm/local/

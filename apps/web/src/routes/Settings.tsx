@@ -39,6 +39,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AppHeader } from "@/components/AppHeader";
+import type { YnabStatusResponse } from "@/types/api";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -132,6 +133,21 @@ const SECTIONS: SectionMeta[] = [
       "custom",
     ],
     fields: ["custom_holidays", "vacations"],
+  },
+  {
+    id: "ynab",
+    title: "YNAB",
+    keywords: [
+      "ynab",
+      "you need a budget",
+      "money",
+      "budget",
+      "token",
+      "personal access token",
+      "pat",
+      "integration",
+    ],
+    fields: [],
   },
   {
     id: "data-storage",
@@ -325,6 +341,302 @@ function SectionFooter({ dirty, saving, savedAt, error, onSave }: SectionFooterP
       )}
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// YNAB integration section
+// ---------------------------------------------------------------------------
+
+/**
+ * YnabSection — self-contained widget for managing the YNAB integration.
+ *
+ * Lives inside the standard Settings page but talks to its own endpoints
+ * (``/money/integrations/ynab/*``) rather than the business settings PUT,
+ * because the YNAB Personal Access Token must never land in the
+ * ``settings`` key/value table — it lives in AWS Secrets Manager.
+ */
+function YnabSection() {
+  const queryClient = useQueryClient();
+  const statusQ = useQuery<YnabStatusResponse>({
+    queryKey: ["money-ynab-status"],
+    queryFn: () =>
+      apiFetch<YnabStatusResponse>("/money/integrations/ynab/status"),
+  });
+
+  const [token, setToken] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  /** When connected, the input box is hidden behind a "Rotate token"
+   *  button so the empty `<Input>` doesn't read as "Helm forgot my token". */
+  const [rotating, setRotating] = useState(false);
+
+  const saveMutation = useMutation<YnabStatusResponse, ApiError, string>({
+    mutationFn: (raw) =>
+      apiFetch<YnabStatusResponse>("/money/integrations/ynab/token", {
+        method: "PUT",
+        body: JSON.stringify({ token: raw }),
+      }),
+    onSuccess: () => {
+      setToken("");
+      setRotating(false);
+      setError(null);
+      setSuccess("Connected — initial sync ran successfully.");
+      void queryClient.invalidateQueries({ queryKey: ["money-ynab-status"] });
+      void queryClient.invalidateQueries({ queryKey: ["money-dashboard"] });
+    },
+    onError: (err) => {
+      setSuccess(null);
+      setError(extractErrorMessage(err));
+    },
+  });
+
+  const refreshMutation = useMutation({
+    mutationFn: () =>
+      apiFetch<{ updated_at: string }>("/money/ynab/refresh", {
+        method: "POST",
+      }),
+    onSuccess: () => {
+      setError(null);
+      setSuccess("Refreshed.");
+      void queryClient.invalidateQueries({ queryKey: ["money-ynab-status"] });
+      void queryClient.invalidateQueries({ queryKey: ["money-dashboard"] });
+    },
+    onError: (err) => {
+      setSuccess(null);
+      setError(extractErrorMessage(err));
+    },
+  });
+
+  const disconnectMutation = useMutation({
+    mutationFn: () =>
+      apiFetch<YnabStatusResponse>("/money/integrations/ynab/token", {
+        method: "DELETE",
+      }),
+    onSuccess: () => {
+      setError(null);
+      setRotating(false);
+      setToken("");
+      setSuccess("Disconnected.");
+      void queryClient.invalidateQueries({ queryKey: ["money-ynab-status"] });
+      void queryClient.invalidateQueries({ queryKey: ["money-dashboard"] });
+    },
+    onError: (err) => {
+      setSuccess(null);
+      setError(extractErrorMessage(err));
+    },
+  });
+
+  const status = statusQ.data;
+  const connected = status?.token_configured === true;
+
+  return (
+    <section id="ynab" className="scroll-mt-4">
+      <h2 className="mb-1 text-lg font-semibold text-foreground">YNAB</h2>
+      <p className="mb-4 text-sm text-muted-foreground">
+        Helm reads your budget from YNAB on demand using a Personal Access
+        Token. In production the token lives in AWS Secrets Manager; in
+        local dev it sits in <code>~/.helm/local/ynab-token</code> with
+        owner-only perms. Either way it's never in the database, and
+        never echoed back to the browser.
+      </p>
+
+      <div className="space-y-4">
+        {statusQ.isLoading && (
+          <p className="text-sm text-muted-foreground">Loading status…</p>
+        )}
+
+        {!statusQ.isLoading && (
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            <span
+              className={[
+                "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium",
+                connected
+                  ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-200"
+                  : "bg-muted text-muted-foreground",
+              ].join(" ")}
+            >
+              <span
+                className={[
+                  "h-1.5 w-1.5 rounded-full",
+                  connected ? "bg-emerald-500" : "bg-muted-foreground/50",
+                ].join(" ")}
+              />
+              {connected ? "Connected" : "Not connected"}
+            </span>
+            {status?.active_budget_name && (
+              <span className="text-muted-foreground">
+                Active budget:{" "}
+                <span className="font-medium text-foreground">
+                  {status.active_budget_name}
+                </span>
+              </span>
+            )}
+            {status?.last_synced_at && (
+              <span className="text-muted-foreground">
+                Last synced{" "}
+                <span className="font-medium text-foreground">
+                  {new Date(status.last_synced_at).toLocaleString("en-CA")}
+                </span>
+              </span>
+            )}
+          </div>
+        )}
+
+        <div className="space-y-2">
+          <Label htmlFor="ynab-token">
+            Personal Access Token (
+            <a
+              className="underline"
+              href="https://app.ynab.com/settings/developer"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              get one
+            </a>
+            )
+          </Label>
+
+          {connected && !rotating ? (
+            /* Connected, not rotating — show a "stored" chip instead of
+               an empty input box. The token can't be echoed back (it
+               lives in Secrets Manager); the chip removes the
+               "did Helm forget my token?" confusion. */
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <span className="inline-flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-1.5 text-sm font-mono text-muted-foreground sm:flex-1">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.75"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="h-4 w-4"
+                  aria-hidden
+                >
+                  <rect x="3" y="11" width="18" height="11" rx="2" />
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                </svg>
+                <span aria-label="Token stored — hidden">
+                  •••• •••• •••• ••••
+                </span>
+                <span className="ml-auto text-xs uppercase tracking-wide">
+                  stored
+                </span>
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setRotating(true);
+                  setToken("");
+                  setSuccess(null);
+                  setError(null);
+                }}
+              >
+                Rotate token
+              </Button>
+            </div>
+          ) : (
+            /* Disconnected, OR connected + rotating — show the input. */
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Input
+                id="ynab-token"
+                type="password"
+                autoComplete="off"
+                placeholder={
+                  connected
+                    ? "Paste the replacement token"
+                    : "Paste your YNAB PAT"
+                }
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                className="sm:flex-1"
+                autoFocus={rotating}
+              />
+              <Button
+                type="button"
+                onClick={() => saveMutation.mutate(token)}
+                disabled={!token.trim() || saveMutation.isPending}
+              >
+                {saveMutation.isPending
+                  ? "Connecting…"
+                  : connected
+                  ? "Save new token"
+                  : "Connect"}
+              </Button>
+              {connected && rotating && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setRotating(false);
+                    setToken("");
+                    setError(null);
+                  }}
+                  disabled={saveMutation.isPending}
+                >
+                  Cancel
+                </Button>
+              )}
+            </div>
+          )}
+
+          <p className="text-xs text-muted-foreground">
+            We verify the token with a YNAB <code>/user</code> probe and
+            run the first sync immediately. Rejected tokens are discarded.
+          </p>
+        </div>
+
+        {connected && (
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => refreshMutation.mutate()}
+              disabled={refreshMutation.isPending}
+            >
+              {refreshMutation.isPending ? "Refreshing…" : "Refresh now"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => disconnectMutation.mutate()}
+              disabled={disconnectMutation.isPending}
+            >
+              {disconnectMutation.isPending ? "Disconnecting…" : "Disconnect"}
+            </Button>
+          </div>
+        )}
+
+        {error && (
+          <p className="text-sm text-destructive" role="alert">
+            {error}
+          </p>
+        )}
+        {success && !error && (
+          <p className="text-sm text-emerald-600 dark:text-emerald-400">
+            {success}
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/** Pull a human-readable message out of an ApiError or generic error. */
+function extractErrorMessage(err: unknown): string {
+  if (err instanceof ApiError) {
+    const body = err.body;
+    if (body && typeof body === "object" && "detail" in body) {
+      const detail = (body as { detail: unknown }).detail;
+      if (typeof detail === "string") return detail;
+      if (detail && typeof detail === "object" && "message" in detail) {
+        return String((detail as { message: unknown }).message);
+      }
+    }
+    return `Server error ${err.status}`;
+  }
+  return err instanceof Error ? err.message : String(err);
 }
 
 // ---------------------------------------------------------------------------
@@ -1076,6 +1388,9 @@ export function Settings() {
                 />
               </section>
             )}
+
+            {/* ── YNAB integration ── */}
+            {visibleIds.has("ynab") && <YnabSection />}
 
             {/* ── Data storage (read-only) ── */}
             {visibleIds.has("data-storage") && (

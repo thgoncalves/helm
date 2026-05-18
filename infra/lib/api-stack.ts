@@ -213,60 +213,35 @@ export class ApiStack extends cdk.Stack {
     );
 
     // -------------------------------------------------------------------------
-    // CSV processor Lambda — S3 ObjectCreated under `imports/` →
-    // institution-specific parser → personal_transactions row inserts.
-    // Same container image as the API Lambda, different entrypoint.
+    // YNAB Personal Access Token — Secrets Manager.
+    //
+    // The API Lambda reads the token at runtime to call the YNAB API on
+    // behalf of the user. The Settings page in the frontend writes the
+    // token via PUT /money/integrations/ynab/token, which proxies to
+    // ``PutSecretValue`` here so the plaintext PAT never lands in a
+    // database column.
+    //
+    // Only the API Lambda role gets read + write access — processor
+    // Lambdas have no business touching this secret.
     // -------------------------------------------------------------------------
-    const csvProcessorLogGroup = new logs.LogGroup(
-      this,
-      'CsvProcessorLogs',
-      {
-        logGroupName: `/aws/lambda/helm-csv-processor-${config.env}`,
-        retention: logs.RetentionDays.ONE_MONTH,
-        removalPolicy:
-          config.env === 'main'
-            ? cdk.RemovalPolicy.RETAIN
-            : cdk.RemovalPolicy.DESTROY,
-      },
-    );
+    const ynabSecret = new secretsmanager.Secret(this, 'YnabPat', {
+      secretName: `helm/${config.env}/ynab/personal-access-token`,
+      description:
+        'YNAB Personal Access Token. Owned + rotated by the user via the ' +
+        'Helm Settings UI. Read by the API Lambda on demand.',
+      removalPolicy:
+        config.env === 'main'
+          ? cdk.RemovalPolicy.RETAIN
+          : cdk.RemovalPolicy.DESTROY,
+    });
 
-    const csvProcessorFn = new lambda.DockerImageFunction(
-      this,
-      'CsvProcessor',
-      {
-        functionName: `helm-csv-processor-${config.env}`,
-        code: apiImage,
-        memorySize: 1024,
-        timeout: cdk.Duration.seconds(60),
-        architecture: lambda.Architecture.ARM_64,
-        logGroup: csvProcessorLogGroup,
-        environment: {
-          HELM_STAGE: config.env === 'main' ? 'prod' : config.env,
-          HELM_DATABASE_NAME: databaseName,
-          HELM_DATABASE_SECRET_ARN: secret.secretArn,
-          HELM_DATABASE_RESOURCE_ARN: cluster.clusterArn,
-          HELM_RECEIPTS_BUCKET: receiptsBucket.bucketName,
-        },
-      },
-    );
+    // Read for normal YNAB calls; write for the Settings rotation endpoint.
+    ynabSecret.grantRead(fn);
+    ynabSecret.grantWrite(fn);
 
-    (
-      csvProcessorFn.node.defaultChild as lambda.CfnFunction
-    ).addPropertyOverride('ImageConfig.Command', [
-      'app.handlers.process_csv.handler',
-    ]);
-
-    // Same DB + S3 access as the receipt processor. No Textract here.
-    secret.grantRead(csvProcessorFn);
-    cluster.grantDataApiAccess(csvProcessorFn);
-    receiptsBucket.grantRead(csvProcessorFn);
-
-    // Trigger: S3 ObjectCreated under the `imports/` prefix.
-    receiptsBucket.addEventNotification(
-      s3.EventType.OBJECT_CREATED,
-      new s3n.LambdaDestination(csvProcessorFn),
-      { prefix: 'imports/' },
-    );
+    // Expose the ARN to the function so it doesn't have to know the
+    // env name to build the secret path.
+    fn.addEnvironment('HELM_YNAB_SECRET_ARN', ynabSecret.secretArn);
 
     // Suppress unused-import warning for lambdaEventSources (re-exported
     // so future event-source additions don't need another import).

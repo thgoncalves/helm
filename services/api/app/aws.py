@@ -18,6 +18,7 @@ from botocore.config import Config
 
 _S3_CLIENT: Any = None
 _TEXTRACT_CLIENT: Any = None
+_SECRETS_CLIENT: Any = None
 
 
 def s3() -> Any:
@@ -50,3 +51,16 @@ def textract() -> Any:
     if _TEXTRACT_CLIENT is None:
         _TEXTRACT_CLIENT = boto3.client("textract")
     return _TEXTRACT_CLIENT
+
+
+def secretsmanager() -> Any:
+    """Return the process-cached boto3 ``secretsmanager`` client.
+
+    Used by the Money module to read/write the YNAB Personal Access
+    Token. Tests substitute ``_SECRETS_CLIENT`` directly.
+    """
+    global _SECRETS_CLIENT
+    if _SECRETS_CLIENT is None:
+        region = os.environ.get("AWS_REGION") or "ca-central-1"
+        _SECRETS_CLIENT = boto3.client("secretsmanager", region_name=region)
+    return _SECRETS_CLIENT

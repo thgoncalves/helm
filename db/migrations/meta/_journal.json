@@ -57,6 +57,34 @@
       "when": 1779032337097,
       "tag": "0007_milky_rumiko_fujikawa",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1747440000000,
+      "tag": "0008_drop_personal_and_add_ynab",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1747526400000,
+      "tag": "0009_ynab_transfer_account_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1747526500000,
+      "tag": "0010_investments_tracker",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1747526600000,
+      "tag": "0011_investment_contributions",
+      "breakpoints": true
     }
   ]
 }

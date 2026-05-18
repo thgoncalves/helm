@@ -1,31 +1,43 @@
 /**
  * App — root Router with all application routes.
  *
+ * Helm is organised into three peer modules:
+ *
+ *   - Business       (the legacy contractor app — Dashboard, Clients,
+ *                    Invoices, Payments, Expenses, Taxes, Transfers, Settings)
+ *   - Money          (YNAB-driven personal cash-flow dashboard +
+ *                    bill-over-budget alerts)
+ *   - Investments    (portfolio tracking + LLM-assisted research; V1 is a
+ *                    placeholder while we ship Money first)
+ *
+ * The post-sign-in chooser at `/account-type` lets the user pick a module
+ * and remembers the last choice in localStorage for sticky deep-linking.
+ * The AppHeader provides an in-place 3-segment switcher so the user can
+ * flip modules at any time.
+ *
  * Public:
  *   /            → SignIn (with brand mark)
  *   /sign-in     → redirect to /  (kept for backwards compat)
  *
  * Protected (require an authenticated Cognito session):
- *   /account-type             → choose Personal or Business
- *   /personal                 → redirect to /personal/accounts
- *   /personal/accounts        → Personal: Accounts (stub)
- *   /personal/imports         → Personal: Imports (stub)
- *   /personal/transactions    → Personal: Transactions (stub)
+ *   /account-type             → 3-tile ModuleChooser
+ *   /money                    → redirect to /money/dashboard
+ *   /money/dashboard          → Money: YNAB-driven macro dashboard
+ *   /investments              → Investments placeholder
  *   /business                 → redirect to /dashboard
- *   /clients, /invoices, ... → Business routes (flat URLs, the implicit default side)
- *
- * The post-sign-in flow is: SignIn → /account-type → /personal/accounts | /dashboard.
- * Inside the app the AppHeader provides an in-place Personal/Business
- * switcher (URL-driven), so `/account-type` is reachable but not strictly
- * needed for day-to-day navigation.
+ *   /personal, /personal/*    → legacy redirect to /money/dashboard
+ *   /dashboard, /clients, ... → Business routes (flat URLs, the implicit default module)
  */
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { Landing } from "@/routes/Landing";
 import { SignIn } from "@/routes/SignIn";
 import { AccountType } from "@/routes/AccountType";
-import { PersonalAccounts } from "@/routes/PersonalAccounts";
-import { PersonalImports } from "@/routes/PersonalImports";
-import { PersonalTransactions } from "@/routes/PersonalTransactions";
+import { MoneyDashboard } from "@/routes/MoneyDashboard";
+import { Investments } from "@/routes/Investments";
+import { InvestmentAccounts } from "@/routes/InvestmentAccounts";
+import { NewHolding, EditHolding } from "@/routes/HoldingForm";
+import { InvestmentTargets } from "@/routes/InvestmentTargets";
+import { AccountContributions } from "@/routes/AccountContributions";
 import { Clients } from "@/routes/Clients";
 import { ClientDetail } from "@/routes/ClientDetail";
 import { NewClient, EditClient } from "@/routes/ClientForm";
@@ -77,16 +89,49 @@ export function App() {
         {/* Protected */}
         <Route element={<ProtectedRoute />}>
           <Route path="/account-type" element={<AccountType />} />
+
+          {/* Money module */}
+          <Route
+            path="/money"
+            element={<Navigate to="/money/dashboard" replace />}
+          />
+          <Route path="/money/dashboard" element={<MoneyDashboard />} />
+
+          {/* Investments module — portfolio tracker (V1). */}
+          <Route path="/investments" element={<Investments />} />
+          <Route
+            path="/investments/accounts"
+            element={<InvestmentAccounts />}
+          />
+          <Route
+            path="/investments/accounts/:id/contributions"
+            element={<AccountContributions />}
+          />
+          <Route
+            path="/investments/holdings/new"
+            element={<NewHolding />}
+          />
+          <Route
+            path="/investments/holdings/:id"
+            element={<EditHolding />}
+          />
+          <Route
+            path="/investments/targets"
+            element={<InvestmentTargets />}
+          />
+
+          {/* Legacy /personal/* — silent redirect into Money so any saved
+              bookmarks or browser autocompletes keep working. */}
           <Route
             path="/personal"
-            element={<Navigate to="/personal/accounts" replace />}
+            element={<Navigate to="/money/dashboard" replace />}
           />
-          <Route path="/personal/accounts" element={<PersonalAccounts />} />
-          <Route path="/personal/imports" element={<PersonalImports />} />
           <Route
-            path="/personal/transactions"
-            element={<PersonalTransactions />}
+            path="/personal/*"
+            element={<Navigate to="/money/dashboard" replace />}
           />
+
+          {/* Business module — flat URLs are the implicit default. */}
           <Route
             path="/business"
             element={<Navigate to="/dashboard" replace />}

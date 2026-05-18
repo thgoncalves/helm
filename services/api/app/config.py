@@ -36,6 +36,12 @@ class Settings(BaseSettings):
     # endpoints raise instead of returning bogus URLs.
     receipts_bucket: str | None = None
 
+    # Secrets Manager ARN holding the user's YNAB Personal Access Token.
+    # The API Lambda reads + writes this secret to power the Money module.
+    # ``None`` locally means YNAB endpoints raise with a clear error
+    # rather than silently no-op.
+    ynab_secret_arn: str | None = None
+
     model_config = SettingsConfigDict(
         env_prefix="HELM_",
         env_file=".env",
