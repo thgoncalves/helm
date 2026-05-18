@@ -130,18 +130,11 @@ def update_account(
 
 @router.delete("/{account_id}", status_code=204)
 def delete_account(account_id: UUID) -> None:
-    holding_count = db.fetch_one(
-        "SELECT COUNT(*) AS n FROM investment_holdings WHERE account_id = :id",
-        {"id": account_id},
-    )
-    if holding_count and int(holding_count.get("n") or 0) > 0:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "Account has holdings — archive it (set is_active=false) "
-                "instead, or delete the holdings first."
-            ),
-        )
+    # Hard delete + cascade. The FK on investment_holdings.account_id
+    # is ON DELETE CASCADE (and investment_contributions likewise), so
+    # the row disappears along with its holdings and contributions. The
+    # Accounts page confirms the destructive action with the user
+    # before calling this.
     db.execute(
         "DELETE FROM investment_accounts WHERE id = :id", {"id": account_id}
     )

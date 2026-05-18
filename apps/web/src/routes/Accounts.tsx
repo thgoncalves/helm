@@ -54,7 +54,7 @@ const KIND_OPTIONS: { value: AccountKind; label: string }[] = [
   { value: "checking", label: "Checking" },
   { value: "savings", label: "Savings" },
   { value: "credit_card", label: "Credit card" },
-  { value: "line_of_credit", label: "Line of credit" },
+  { value: "line_of_credit", label: "Line of credit / mortgage" },
   { value: "investing_fund", label: "Investing — fund" },
   { value: "investing_stock", label: "Investing — stock" },
 ];
@@ -69,7 +69,7 @@ const MANUAL_KIND_OPTIONS: { value: ManualAccountKind; label: string }[] = [
   { value: "checking", label: "Checking" },
   { value: "savings", label: "Savings" },
   { value: "credit_card", label: "Credit card" },
-  { value: "line_of_credit", label: "Line of credit" },
+  { value: "line_of_credit", label: "Line of credit / mortgage" },
 ];
 
 function num(v: number | string | null | undefined): number {
@@ -173,6 +173,20 @@ export function Accounts() {
     },
   });
 
+  const deleteMutation = useMutation<void, ApiError, AccountRow>({
+    mutationFn: (row) => {
+      // YNAB rows are unrouted here — the button is hidden for them.
+      const path =
+        row.source === "manual"
+          ? `/accounts/manual/${unwrapId(row.id)}`
+          : `/investments/accounts/${unwrapId(row.id)}`;
+      return apiFetch<void>(path, { method: "DELETE" });
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["accounts"] });
+    },
+  });
+
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showAddManual, setShowAddManual] = useState(false);
 
@@ -207,22 +221,16 @@ export function Accounts() {
     <div className="min-h-screen bg-background">
       <AppHeader />
       <main className="mx-auto max-w-6xl px-4 py-6">
-        <header className="mb-6 flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
-          <div>
+        <header className="mb-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-2xl font-bold">Accounts</h2>
-            <p className="text-sm text-muted-foreground">
-              Every cash and investment account, across YNAB, manual
-              entries, and your brokerage rows.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-            <span>
-              YNAB last synced{" "}
-              <span className="font-medium text-foreground">
-                {fmtRelative(lastSyncedAt)}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="mr-1 text-xs text-muted-foreground">
+                YNAB synced{" "}
+                <span className="font-medium text-foreground">
+                  {fmtRelative(lastSyncedAt)}
+                </span>
               </span>
-            </span>
-            <div className="flex items-center gap-2">
               <Button
                 type="button"
                 variant="outline"
@@ -232,15 +240,22 @@ export function Accounts() {
               >
                 {syncMutation.isPending ? "Syncing…" : "Sync YNAB"}
               </Button>
+              <Button asChild type="button" variant="outline" size="sm">
+                <Link to="/investments/accounts">Add brokerage</Link>
+              </Button>
               <Button
                 type="button"
                 size="sm"
                 onClick={() => setShowAddManual((s) => !s)}
               >
-                {showAddManual ? "Cancel" : "Add manual account"}
+                {showAddManual ? "Cancel" : "Add cash account"}
               </Button>
             </div>
           </div>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Every cash and investment account, across YNAB, manual
+            entries, and your brokerage rows.
+          </p>
         </header>
 
         {syncMutation.isError && (
@@ -328,6 +343,10 @@ export function Accounts() {
                           key={row.id}
                           row={row}
                           isEditing={editingId === row.id}
+                          isDeleting={
+                            deleteMutation.isPending &&
+                            deleteMutation.variables?.id === row.id
+                          }
                           onToggleEdit={() =>
                             setEditingId((cur) =>
                               cur === row.id ? null : row.id,
@@ -336,6 +355,17 @@ export function Accounts() {
                           onChangeTag={(tags) =>
                             tagsMutation.mutate({ row, tags })
                           }
+                          onDelete={() => {
+                            if (
+                              confirm(
+                                row.source === "investment"
+                                  ? `Delete "${row.name}" and all its holdings? This cannot be undone.`
+                                  : `Delete "${row.name}"? This cannot be undone.`,
+                              )
+                            ) {
+                              deleteMutation.mutate(row);
+                            }
+                          }}
                           onSaved={() => {
                             setEditingId(null);
                             void queryClient.invalidateQueries({
@@ -400,14 +430,18 @@ function TotalCard({
 function AccountRowItem({
   row,
   isEditing,
+  isDeleting,
   onToggleEdit,
   onChangeTag,
+  onDelete,
   onSaved,
 }: {
   row: AccountRow;
   isEditing: boolean;
+  isDeleting: boolean;
   onToggleEdit: () => void;
   onChangeTag: (tags: AccountTagsUpdate) => void;
+  onDelete: () => void;
   onSaved: () => void;
 }) {
   const balanceCad =
@@ -500,14 +534,27 @@ function AccountRowItem({
             ))}
           </select>
           {row.is_editable && (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={onToggleEdit}
-            >
-              {isEditing ? "Close" : "Edit"}
-            </Button>
+            <>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={onToggleEdit}
+              >
+                {isEditing ? "Close" : "Edit"}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={onDelete}
+                disabled={isDeleting}
+                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                aria-label={`Delete ${row.name}`}
+              >
+                {isDeleting ? "Deleting…" : "Delete"}
+              </Button>
+            </>
           )}
         </div>
       </div>

@@ -125,14 +125,11 @@ def update_manual_account(
 
 @router.delete("/{account_id}", status_code=204)
 def delete_manual_account(account_id: UUID) -> None:
-    # Soft delete via is_active. Manual accounts have no FK dependents
-    # so a hard delete would also be safe, but archiving matches how
-    # investment_accounts behaves and lets the user undo by toggling
-    # is_active back on.
+    # Hard delete — manual accounts have no FK dependents and the user
+    # expects "delete" to actually remove the row, not archive it.
     db.execute(
-        "UPDATE manual_accounts SET is_active = FALSE, updated_at = :now "
-        "WHERE id = :id",
-        {"id": account_id, "now": datetime.now(timezone.utc)},
+        "DELETE FROM manual_accounts WHERE id = :id",
+        {"id": account_id},
     )
 
 
