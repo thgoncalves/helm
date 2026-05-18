@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from mangum import Mangum
 
+from app.routers import accounts as accounts_router
 from app.routers import accounts_manual as accounts_manual_router
 from app.routers import clients as clients_router
 from app.routers import dashboard as dashboard_router
@@ -88,9 +89,10 @@ app.include_router(
 )
 
 # Accounts — cross-cutting management page. Manual-accounts CRUD lives
-# at /accounts/manual; the aggregator + YNAB-account tagging will mount
-# alongside it.
+# at /accounts/manual; the aggregator + tagging + YNAB sync alias mount
+# at /accounts root.
 app.include_router(accounts_manual_router.router)
+app.include_router(accounts_router.router)
 
 # ---------------------------------------------------------------------------
 # Health check

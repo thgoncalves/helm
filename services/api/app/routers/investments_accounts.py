@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -44,11 +44,15 @@ def create_account(payload: InvestmentAccountCreate) -> dict[str, Any]:
         """
         INSERT INTO investment_accounts (
             id, name, kind, currency, owner_label, contribution_limit,
-            notes, is_active, created_at, updated_at
+            notes, is_active,
+            owner, helm_kind, bank, cash_balance, cash_currency,
+            balance_as_of, created_at, updated_at
         )
         VALUES (
             :id, :name, :kind, :currency, :owner_label, :contribution_limit,
-            :notes, :is_active, :now, :now
+            :notes, :is_active,
+            :owner, :helm_kind, :bank, :cash_balance, :cash_currency,
+            :balance_as_of, :now, :now
         )
         RETURNING *
         """,
@@ -61,6 +65,18 @@ def create_account(payload: InvestmentAccountCreate) -> dict[str, Any]:
             "contribution_limit": payload.contribution_limit,
             "notes": payload.notes,
             "is_active": payload.is_active,
+            "owner": payload.owner,
+            "helm_kind": payload.helm_kind,
+            "bank": payload.bank,
+            "cash_balance": payload.cash_balance,
+            "cash_currency": (
+                payload.cash_currency.upper()
+                if payload.cash_currency
+                else None
+            ),
+            "balance_as_of": (
+                date.today() if payload.cash_balance else None
+            ),
             "now": now,
         },
     )
@@ -85,10 +101,23 @@ def update_account(
 
     if "currency" in fields and fields["currency"]:
         fields["currency"] = fields["currency"].upper()
+    if "cash_currency" in fields and fields["cash_currency"]:
+        fields["cash_currency"] = fields["cash_currency"].upper()
 
     set_clauses = [f"{k} = :{k}" for k in fields]
     set_clauses.append("updated_at = :now")
-    params: dict[str, Any] = {**fields, "now": datetime.now(timezone.utc), "id": account_id}
+    # Bump balance_as_of when the user updates the cash balance — same
+    # behaviour as manual_accounts so the Accounts page can show a
+    # consistent "as of …" hint regardless of source.
+    if "cash_balance" in fields:
+        set_clauses.append("balance_as_of = :today")
+
+    params: dict[str, Any] = {
+        **fields,
+        "now": datetime.now(timezone.utc),
+        "today": date.today(),
+        "id": account_id,
+    }
     row = db.fetch_one(
         f"UPDATE investment_accounts SET {', '.join(set_clauses)} "
         f"WHERE id = :id RETURNING *",

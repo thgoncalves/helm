@@ -82,7 +82,15 @@ const MONEY_NAV: readonly NavItem[] = [
   {
     to: "/money/dashboard",
     label: "Dashboard",
-    matchPrefixes: ["/money/dashboard", "/money"],
+    // matchExact keeps Dashboard from stealing the active state when
+    // the user is on /accounts (also part of the Money module).
+    matchExact: ["/money/dashboard", "/money"],
+    matchPrefixes: [],
+  },
+  {
+    to: "/accounts",
+    label: "Accounts",
+    matchPrefixes: ["/accounts"],
   },
 ] as const;
 
@@ -131,6 +139,11 @@ function isActive(pathname: string, item: NavItem): boolean {
 /** Pick the active module from the URL. */
 function moduleForPath(pathname: string): ModuleId {
   if (pathname === "/money" || pathname.startsWith("/money/")) return "money";
+  // /accounts is the unified Accounts page. It's cross-cutting in concept
+  // but lives under the Money nav because that's where the user expects
+  // "manage where my money lives."
+  if (pathname === "/accounts" || pathname.startsWith("/accounts/"))
+    return "money";
   if (pathname === "/investments" || pathname.startsWith("/investments/"))
     return "investments";
   return "business";

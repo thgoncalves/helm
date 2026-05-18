@@ -62,6 +62,40 @@ export const investmentAccounts = pgTable(
 
     is_active: boolean('is_active').notNull().default(true),
 
+    // ---- Accounts-page taxonomy (cross-source) ----
+
+    /** ``"personal" | "business"``. NULL until the user tags the row
+     *  on the Accounts page. Orthogonal to ``kind`` (which is the
+     *  regulatory bucket). */
+    owner: varchar('owner', { length: 15 }),
+
+    /** ``"investing_fund" | "investing_stock"``. NULL = unassigned.
+     *  Funds get a single editable balance on the Accounts page; stocks
+     *  use the existing holdings UI under Investments + the
+     *  ``cash_balance`` field below. */
+    helm_kind: varchar('helm_kind', { length: 30 }),
+
+    /** Issuing institution. Free-form. e.g. "Scotia iTrade", "Itaú
+     *  Investimentos". Distinct from ``name`` which is the user-facing
+     *  display label. */
+    bank: text('bank'),
+
+    /** Uninvested cash on the brokerage account. Stocks-type accounts
+     *  show this alongside their holdings; funds-type accounts use it
+     *  as the single editable balance. */
+    cash_balance: numeric('cash_balance', { precision: 15, scale: 2 })
+      .notNull()
+      .default('0'),
+
+    /** Cash currency. Falls back to ``currency`` at the API boundary
+     *  when NULL — most accounts hold cash in the same currency as
+     *  their holdings. */
+    cash_currency: varchar('cash_currency', { length: 3 }),
+
+    /** When ``cash_balance`` was last touched. Surfaces as "as of …"
+     *  on the Accounts page. */
+    balance_as_of: date('balance_as_of'),
+
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),
