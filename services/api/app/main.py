@@ -11,11 +11,17 @@ from mangum import Mangum
 from app.routers import clients as clients_router
 from app.routers import dashboard as dashboard_router
 from app.routers import expenses as expenses_router
+from app.routers import investments_accounts as investments_accounts_router
+from app.routers import (
+    investments_contributions as investments_contributions_router,
+)
+from app.routers import investments_holdings as investments_holdings_router
+from app.routers import investments_portfolio as investments_portfolio_router
+from app.routers import investments_targets as investments_targets_router
 from app.routers import invoices as invoices_router
+from app.routers import money_dashboard as money_dashboard_router
+from app.routers import money_ynab as money_ynab_router
 from app.routers import payments as payments_router
-from app.routers import personal_accounts as personal_accounts_router
-from app.routers import personal_imports as personal_imports_router
-from app.routers import personal_transactions as personal_transactions_router
 from app.routers import settings as settings_router
 from app.routers import tax_payments as tax_payments_router
 from app.routers import time_entries as time_entries_router
@@ -51,16 +57,34 @@ app.include_router(dashboard_router.router, prefix="/business/dashboard")
 app.include_router(expenses_router.router, prefix="/business/expenses")
 app.include_router(invoices_router.router, prefix="/business/invoices")
 app.include_router(payments_router.router, prefix="/business/payments")
-app.include_router(personal_accounts_router.router, prefix="/personal/accounts")
-app.include_router(personal_imports_router.router, prefix="/personal/imports")
-app.include_router(
-    personal_transactions_router.router, prefix="/personal/transactions"
-)
 app.include_router(settings_router.router, prefix="/business/settings")
 app.include_router(tax_payments_router.router, prefix="/business/tax-payments")
 app.include_router(time_entries_router.router, prefix="/business/time-entries")
 app.include_router(timesheets_router.router, prefix="/business/timesheets")
 app.include_router(transfers_router.router, prefix="/business/transfers")
+
+# Money — YNAB-driven personal dashboard + integration management.
+app.include_router(money_ynab_router.router, prefix="/money")
+app.include_router(money_dashboard_router.router, prefix="/money/dashboard")
+
+# Investments — portfolio tracker (V1). Four sub-routers behind one prefix.
+app.include_router(
+    investments_accounts_router.router, prefix="/investments/accounts"
+)
+app.include_router(
+    investments_holdings_router.router, prefix="/investments/holdings"
+)
+app.include_router(
+    investments_targets_router.router, prefix="/investments/targets"
+)
+app.include_router(
+    investments_portfolio_router.router, prefix="/investments/portfolio"
+)
+# Contributions router declares its own /accounts/{id}/contributions
+# and /contributions/room paths, so it mounts directly under /investments.
+app.include_router(
+    investments_contributions_router.router, prefix="/investments"
+)
 
 # ---------------------------------------------------------------------------
 # Health check
