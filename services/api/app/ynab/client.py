@@ -103,6 +103,16 @@ class YnabClient:
         data = self._request("GET", "/budgets")
         return data.get("budgets", [])
 
+    def get_accounts(self, budget_id: str) -> list[dict[str, Any]]:
+        """``GET /budgets/{id}/accounts`` → list of account records.
+
+        Each record includes id, name, type, on_budget, closed, deleted,
+        balance, cleared_balance and uncleared_balance — milliunits for
+        all balance fields.
+        """
+        data = self._request("GET", f"/budgets/{budget_id}/accounts")
+        return data.get("accounts", [])
+
     def get_categories(self, budget_id: str) -> list[dict[str, Any]]:
         """``GET /budgets/{id}/categories`` → list of category groups."""
         data = self._request("GET", f"/budgets/{budget_id}/categories")

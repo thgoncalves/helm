@@ -85,6 +85,20 @@
       "when": 1747526600000,
       "tag": "0011_investment_contributions",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1763424000000,
+      "tag": "0012_ynab_accounts",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1763510400000,
+      "tag": "0013_manual_accounts",
+      "breakpoints": true
     }
   ]
 }

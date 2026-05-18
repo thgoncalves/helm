@@ -195,3 +195,54 @@ export const ynabTransactions = pgTable(
 
 export type YnabTransaction = typeof ynabTransactions.$inferSelect;
 export type NewYnabTransaction = typeof ynabTransactions.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Accounts — first-class cache of the budget's accounts list
+// ---------------------------------------------------------------------------
+
+export const ynabAccounts = pgTable(
+  'ynab_accounts',
+  {
+    /** YNAB account UUID. */
+    id: text('id').primaryKey(),
+
+    budget_id: text('budget_id')
+      .notNull()
+      .references(() => ynabBudgets.id, { onDelete: 'cascade' }),
+
+    name: text('name').notNull(),
+
+    /** YNAB account type. Examples: ``"checking"``, ``"savings"``,
+     *  ``"creditCard"``, ``"lineOfCredit"``, ``"otherAsset"``,
+     *  ``"otherLiability"``. We don't normalise — store what YNAB says
+     *  and translate to Helm's taxonomy via the ``helm_kind`` column. */
+    type: varchar('type', { length: 30 }).notNull(),
+
+    on_budget: boolean('on_budget').notNull().default(true),
+    closed: boolean('closed').notNull().default(false),
+    deleted: boolean('deleted').notNull().default(false),
+
+    /** Milliunits. Signed (liabilities can be negative). */
+    balance: bigint('balance', { mode: 'number' }).notNull().default(0),
+    cleared_balance: bigint('cleared_balance', { mode: 'number' })
+      .notNull()
+      .default(0),
+    uncleared_balance: bigint('uncleared_balance', { mode: 'number' })
+      .notNull()
+      .default(0),
+
+    /** Helm-side taxonomy. NULL until the user tags the account; never
+     *  overwritten by the YNAB sync (only the user mutates these via
+     *  ``PATCH /accounts/.../tags``). */
+    helm_kind: varchar('helm_kind', { length: 30 }),
+    helm_owner: varchar('helm_owner', { length: 15 }),
+
+    last_synced_at: timestamp('last_synced_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index('ynab_accounts_budget_idx').on(t.budget_id)],
+);
+
+export type YnabAccount = typeof ynabAccounts.$inferSelect;
+export type NewYnabAccount = typeof ynabAccounts.$inferInsert;

@@ -36,6 +36,7 @@ class YnabRefreshResponse(BaseModel):
 
     budget_id: str
     budget_name: str
+    accounts_upserted: int = 0
     categories_upserted: int
     month_rows_upserted: int
     transactions_upserted: int
