@@ -24,6 +24,7 @@ AccountSource = Literal["ynab", "manual", "investment"]
 AccountKind = Literal[
     "checking",
     "savings",
+    "credit_card",
     "line_of_credit",
     "investing_fund",
     "investing_stock",

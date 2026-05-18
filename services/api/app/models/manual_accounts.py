@@ -18,7 +18,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-ManualAccountKind = Literal["checking", "savings", "line_of_credit"]
+ManualAccountKind = Literal[
+    "checking", "savings", "credit_card", "line_of_credit"
+]
 ManualAccountOwner = Literal["personal", "business"]
 
 

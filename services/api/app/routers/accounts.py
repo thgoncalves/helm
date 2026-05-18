@@ -58,7 +58,7 @@ _YNAB_TYPE_TO_KIND: dict[str, str] = {
     "checking": "checking",
     "savings": "savings",
     "lineOfCredit": "line_of_credit",
-    "creditCard": "line_of_credit",
+    "creditCard": "credit_card",
 }
 
 

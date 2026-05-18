@@ -803,6 +803,7 @@ export type AccountSource = "ynab" | "manual" | "investment";
 export type AccountKind =
   | "checking"
   | "savings"
+  | "credit_card"
   | "line_of_credit"
   | "investing_fund"
   | "investing_stock"
@@ -849,7 +850,11 @@ export interface AccountTagsUpdate {
 // Manual accounts (services/api/app/routers/accounts_manual.py)
 // ---------------------------------------------------------------------------
 
-export type ManualAccountKind = "checking" | "savings" | "line_of_credit";
+export type ManualAccountKind =
+  | "checking"
+  | "savings"
+  | "credit_card"
+  | "line_of_credit";
 export type ManualAccountOwner = "personal" | "business";
 
 export interface ManualAccountRead {

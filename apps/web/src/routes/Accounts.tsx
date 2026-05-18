@@ -53,6 +53,7 @@ const KIND_OPTIONS: { value: AccountKind; label: string }[] = [
   { value: "unassigned", label: "Unassigned" },
   { value: "checking", label: "Checking" },
   { value: "savings", label: "Savings" },
+  { value: "credit_card", label: "Credit card" },
   { value: "line_of_credit", label: "Line of credit" },
   { value: "investing_fund", label: "Investing — fund" },
   { value: "investing_stock", label: "Investing — stock" },
@@ -67,6 +68,7 @@ const OWNER_OPTIONS: { value: AccountOwner; label: string }[] = [
 const MANUAL_KIND_OPTIONS: { value: ManualAccountKind; label: string }[] = [
   { value: "checking", label: "Checking" },
   { value: "savings", label: "Savings" },
+  { value: "credit_card", label: "Credit card" },
   { value: "line_of_credit", label: "Line of credit" },
 ];
 
