@@ -526,43 +526,32 @@ export interface YnabRefreshResponse {
   updated_at: string;
 }
 
-/** Single category overage row, used by the bill-over-budget widget. */
-export interface MoneyCategoryOverage {
-  category_id: string;
-  category_name: string;
-  group_name: string;
-  /** YNAB amounts are returned as JSON strings to preserve precision. Helm normalises
-   *  to display dollars (assigned / 1000) on the backend so this is already in
-   *  dollar units. */
-  assigned: number | string;
-  activity: number | string;
-  overage: number | string;
-  /** Activity / assigned − 1, expressed as percentage; null when assigned ≤ 0. */
-  percent_over: number | string | null;
+/** Health-first Money dashboard payload — mirrors MoneyHealthResponse
+ *  in services/api/app/models/money_health.py.
+ */
+export type HealthStatus = "above" | "at" | "below" | "unavailable";
+
+export interface HealthMetric {
+  value: number | string | null;
+  target: number | string;
+  status: HealthStatus;
+  reason: string | null;
 }
 
-/** Spend grouped by category-group for the dashboard's top-categories chart. */
-export interface MoneyCategoryGroupSpend {
-  group_name: string;
-  amount: number | string;
-}
-
-/** Trailing-3-month grouped bars: one row per group with the last 3 months. */
-export interface MoneyT3MGroupRow {
-  group_name: string;
-  m_minus_2: number | string;
-  m_minus_1: number | string;
-  m_minus_0: number | string;
-}
-
-/** Daily cumulative spend point used by the pacing chart. */
-export interface MoneyPacingPoint {
-  /** Day of month (1-31). */
-  day: number;
-  /** Cumulative spend from day 1 through this day. */
-  cumulative: number | string;
-  /** Expected cumulative budget by this day (linear). */
-  expected: number | string;
+export interface MoneyHealthResponse {
+  net_worth_cad: number | string;
+  assets_cad: number | string;
+  liabilities_cad: number | string;
+  personal_net_worth_cad: number | string;
+  business_net_worth_cad: number | string;
+  income_monthly_cad: number | string | null;
+  expenses_monthly_cad: number | string | null;
+  savings_ratio: HealthMetric;
+  debt_to_income: HealthMetric;
+  liquidity_months: HealthMetric;
+  last_ynab_sync_at: string | null;
+  computed_at: string;
+  warnings: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -765,31 +754,6 @@ export interface ContributionRoom {
   remaining: number | string;
 }
 
-/** Full Money dashboard payload — single GET serves the whole page. */
-export interface MoneyDashboardResponse {
-  /** Current month (YYYY-MM-01). */
-  month: string;
-  /** Budget currency (ISO code, e.g. "CAD"). */
-  currency: string;
-  /** ISO timestamp the data was last synced from YNAB. */
-  last_synced_at: string | null;
-  /** Spent this month (positive number; YNAB outflows). */
-  spent: number | string;
-  /** Income this month (positive number; YNAB inflows). */
-  income: number | string;
-  /** spent vs income; positive = surplus, negative = overspend. */
-  net: number | string;
-  /** Count of categories where activity > assigned this month. */
-  categories_over_budget_count: number;
-  /** Bill-over-budget rows, sorted by overage DESC. */
-  overages: MoneyCategoryOverage[];
-  /** Spend by category group, sorted DESC, top 8 only. */
-  top_groups: MoneyCategoryGroupSpend[];
-  /** Daily pacing points for the current month. */
-  pacing: MoneyPacingPoint[];
-  /** Trailing-3-month spend grouped by category group. */
-  trailing_3m: MoneyT3MGroupRow[];
-}
 
 // ---------------------------------------------------------------------------
 // Unified Accounts page (services/api/app/routers/accounts.py)

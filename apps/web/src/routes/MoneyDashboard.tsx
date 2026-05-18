@@ -1,80 +1,35 @@
 /**
- * MoneyDashboard — YNAB-driven macro view for personal cash flow.
+ * MoneyDashboard — health-first view of the user's overall position.
  *
- * Single GET /money/dashboard call returns everything below. The page
- * mirrors the Business Dashboard's layout (KPI grid + Recharts + theme
- * tokens) so the two modules feel like the same product. A "Last synced
- * … · Refresh" bar at the top lets the user pull a fresh snapshot from
- * YNAB on demand — the dashboard itself never talks to YNAB, only to
- * Helm's Postgres cache.
+ * Reads `GET /money/health` and renders:
+ *   - a hero strip with the anchor: total CAD net worth, plus the
+ *     Personal / Business split and the YNAB last-sync timestamp,
+ *   - four KPI cards: savings ratio, debt-to-income, liquidity in
+ *     months, and a net-worth tile that doubles as a delta surface
+ *     once we have snapshots (Phase 2).
  *
- * Sections:
- *  Key metrics:   Spent · Income · Net · Categories over budget (count)
- *  Pacing:        daily cumulative spend vs linear daily budget
- *  Categories:    top 8 category groups (horizontal bar)
- *  Trailing 3M:   per-group spend (grouped bars)
- *  Over budget:   the bill-over-budget widget (sorted by overage DESC)
- *
- * The "no YNAB connected" empty state points at Settings → YNAB so the
- * user can drop in a Personal Access Token and run the first sync.
+ * Phase 1 has no charts — those land with the snapshot infra. Targets
+ * are baked into the backend until Phase 3 surfaces a Settings section.
  */
-import { useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import {
-  Area,
-  AreaChart,
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Legend,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 
 import { apiFetch, ApiError } from "@/lib/api";
-import type {
-  MoneyCategoryGroupSpend,
-  MoneyCategoryOverage,
-  MoneyDashboardResponse,
-  MoneyT3MGroupRow,
-  YnabStatusResponse,
-} from "@/types/api";
+import type { MoneyHealthResponse } from "@/types/api";
 import { AppHeader } from "@/components/AppHeader";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { HealthKpiCard } from "@/components/HealthKpiCard";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-const CHART_COLORS = {
-  primary: "hsl(var(--primary))",
-  destructive: "hsl(var(--destructive))",
-  muted: "hsl(var(--muted-foreground))",
-  emerald: "hsl(158 64% 45%)",
-  amber: "hsl(38 92% 50%)",
-  red: "hsl(0 84% 60%)",
-  stack: [
-    "hsl(217 91% 60%)",
-    "hsl(158 64% 45%)",
-    "hsl(38 92% 50%)",
-  ],
-} as const;
-
-function num(v: number | string | null | undefined): number {
-  if (v === null || v === undefined || v === "") return 0;
+function num(v: number | string | null | undefined): number | null {
+  if (v === null || v === undefined || v === "") return null;
   const n = typeof v === "string" ? Number(v) : v;
-  return Number.isNaN(n) ? 0 : n;
+  return Number.isNaN(n) ? null : n;
 }
 
-function fmtMoney(v: number | string | null, currency: string): string {
+function fmtMoney(v: number | string | null, currency = "CAD"): string {
   const n = num(v);
+  if (n === null) return "—";
   try {
     return new Intl.NumberFormat("en-CA", {
       style: "currency",
@@ -100,449 +55,172 @@ function fmtRelative(iso: string | null): string {
   return `${days} d ago`;
 }
 
-// ---------------------------------------------------------------------------
-// Tooltip
-// ---------------------------------------------------------------------------
-
-function MoneyTooltip({
-  active,
-  payload,
-  label,
-  currency,
-}: {
-  active?: boolean;
-  payload?: Array<{ name: string; value: number; color: string }>;
-  label?: string | number;
-  currency: string;
-}) {
-  if (!active || !payload || payload.length === 0) return null;
-  return (
-    <div className="rounded-md border bg-popover px-3 py-2 text-sm text-popover-foreground shadow-md">
-      {label !== undefined && (
-        <p className="font-medium">
-          {typeof label === "number" ? `Day ${label}` : label}
-        </p>
-      )}
-      {payload.map((entry) => (
-        <p key={entry.name} className="flex items-center gap-2">
-          <span
-            className="h-2 w-2 rounded-full"
-            style={{ background: entry.color }}
-          />
-          <span className="text-muted-foreground">{entry.name}:</span>{" "}
-          <span className="font-medium">
-            {fmtMoney(entry.value, currency)}
-          </span>
-        </p>
-      ))}
-    </div>
-  );
+function extractError(err: unknown): string {
+  if (err instanceof ApiError) {
+    const body = err.body as { detail?: unknown } | null;
+    const d = body && typeof body === "object" ? body.detail : null;
+    if (typeof d === "string") return d;
+    if (d && typeof d === "object" && "message" in d) {
+      return String((d as { message: unknown }).message);
+    }
+    return err.message;
+  }
+  if (err instanceof Error) return err.message;
+  return String(err);
 }
 
-// ---------------------------------------------------------------------------
-// Page
-// ---------------------------------------------------------------------------
-
 export function MoneyDashboard() {
-  const queryClient = useQueryClient();
-
-  const statusQ = useQuery<YnabStatusResponse>({
-    queryKey: ["money-ynab-status"],
-    queryFn: () =>
-      apiFetch<YnabStatusResponse>("/money/integrations/ynab/status"),
+  const { data, isLoading, isError, error } = useQuery<MoneyHealthResponse>({
+    queryKey: ["money-health"],
+    queryFn: () => apiFetch<MoneyHealthResponse>("/money/health"),
   });
-
-  const dashboardQ = useQuery<MoneyDashboardResponse>({
-    queryKey: ["money-dashboard"],
-    queryFn: () => apiFetch<MoneyDashboardResponse>("/money/dashboard/"),
-    enabled: statusQ.data?.token_configured === true,
-  });
-
-  const [refreshError, setRefreshError] = useState<string | null>(null);
-  const refreshMutation = useMutation({
-    mutationFn: () =>
-      apiFetch<{ updated_at: string }>("/money/ynab/refresh", {
-        method: "POST",
-      }),
-    onSuccess: () => {
-      setRefreshError(null);
-      void queryClient.invalidateQueries({ queryKey: ["money-dashboard"] });
-      void queryClient.invalidateQueries({ queryKey: ["money-ynab-status"] });
-    },
-    onError: (err) => {
-      const msg =
-        err instanceof ApiError
-          ? typeof err.body === "object" && err.body && "detail" in err.body
-            ? String((err.body as { detail: unknown }).detail)
-            : `Server error ${err.status}`
-          : String(err);
-      setRefreshError(msg);
-    },
-  });
-
-  const data = dashboardQ.data;
-  const currency = data?.currency ?? "CAD";
-
-  const pacingRows = useMemo(
-    () =>
-      (data?.pacing ?? []).map((p) => ({
-        day: p.day,
-        cumulative: num(p.cumulative),
-        expected: num(p.expected),
-      })),
-    [data?.pacing],
-  );
-
-  const topGroupRows = useMemo(
-    () =>
-      (data?.top_groups ?? ([] as MoneyCategoryGroupSpend[])).map((g) => ({
-        group: g.group_name,
-        amount: num(g.amount),
-      })),
-    [data?.top_groups],
-  );
-
-  const t3mRows = useMemo(
-    () =>
-      (data?.trailing_3m ?? ([] as MoneyT3MGroupRow[])).map((r) => ({
-        group: r.group_name,
-        m_minus_2: num(r.m_minus_2),
-        m_minus_1: num(r.m_minus_1),
-        m_current: num(r.m_minus_0),
-      })),
-    [data?.trailing_3m],
-  );
 
   return (
     <div className="min-h-screen bg-background">
       <AppHeader />
       <main className="mx-auto max-w-6xl px-4 py-6">
-        <div className="mb-6 flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">
-          <div>
+        <header className="mb-6">
+          <div className="flex flex-wrap items-baseline justify-between gap-3">
             <h2 className="text-2xl font-bold">Money</h2>
-            <p className="text-sm text-muted-foreground">
-              {data
-                ? `${new Date(data.month).toLocaleString("en-CA", {
-                    month: "long",
-                    year: "numeric",
-                  })} · ${currency}`
-                : "YNAB-driven macro dashboard"}
-            </p>
-          </div>
-          <div className="flex items-center gap-3 text-xs text-muted-foreground">
-            <span>
-              Last synced{" "}
+            <span className="text-xs text-muted-foreground">
+              YNAB synced{" "}
               <span className="font-medium text-foreground">
-                {fmtRelative(
-                  data?.last_synced_at ?? statusQ.data?.last_synced_at ?? null,
-                )}
+                {fmtRelative(data?.last_ynab_sync_at ?? null)}
               </span>
             </span>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={
-                !statusQ.data?.token_configured || refreshMutation.isPending
-              }
-              onClick={() => refreshMutation.mutate()}
-            >
-              {refreshMutation.isPending ? "Refreshing…" : "Refresh"}
-            </Button>
           </div>
-        </div>
-
-        {refreshError && (
-          <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {refreshError}
-          </div>
-        )}
-
-        {/* No YNAB configured — empty state pointing at Settings. */}
-        {statusQ.isSuccess && !statusQ.data?.token_configured && (
-          <EmptyState />
-        )}
-
-        {statusQ.data?.token_configured && dashboardQ.isLoading && (
-          <p className="text-muted-foreground">Loading dashboard…</p>
-        )}
-        {dashboardQ.isError && (
-          <p className="text-destructive">
-            Failed to load dashboard:{" "}
-            {dashboardQ.error instanceof Error
-              ? dashboardQ.error.message
-              : "Unknown error"}
+          <p className="mt-1 text-sm text-muted-foreground">
+            A health-first view of your overall position. Targets are
+            sensible defaults; they'll be editable in a later phase.
           </p>
+        </header>
+
+        {isError && (
+          <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            Failed to load: {extractError(error)}
+          </div>
+        )}
+
+        {isLoading && (
+          <p className="text-sm text-muted-foreground">Loading…</p>
         )}
 
         {data && (
-          <div className="space-y-6">
-            {/* Key metrics */}
-            <section>
-              <h3 className="mb-3 text-sm font-semibold">Key metrics</h3>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <KPICard label="Spent this month" value={fmtMoney(data.spent, currency)} />
-                <KPICard
-                  label="Income this month"
-                  value={fmtMoney(data.income, currency)}
-                  valueClass="text-emerald-600 dark:text-emerald-400"
-                />
-                <KPICard
-                  label="Net"
-                  value={fmtMoney(data.net, currency)}
-                  valueClass={
-                    num(data.net) < 0
-                      ? "text-red-600 dark:text-red-400"
-                      : "text-foreground"
-                  }
-                />
-                <KPICard
-                  label="Categories over budget"
-                  value={data.categories_over_budget_count.toLocaleString()}
-                  valueClass={
-                    data.categories_over_budget_count > 0
-                      ? "text-red-600 dark:text-red-400"
-                      : "text-foreground"
-                  }
-                />
-              </div>
-            </section>
-
-            {/* Pacing + Bill-over-budget */}
-            <section className="grid grid-cols-1 gap-3 lg:grid-cols-[2fr_1fr]">
-              <Card>
-                <CardContent className="p-4">
-                  <h3 className="mb-3 text-sm font-semibold">
-                    Daily pacing (cumulative vs expected)
-                  </h3>
-                  <div className="h-72 w-full">
-                    <ResponsiveContainer>
-                      <AreaChart data={pacingRows}>
-                        <CartesianGrid
-                          strokeDasharray="3 3"
-                          stroke={CHART_COLORS.muted}
-                          opacity={0.2}
-                        />
-                        <XAxis dataKey="day" stroke={CHART_COLORS.muted} />
-                        <YAxis
-                          stroke={CHART_COLORS.muted}
-                          tickFormatter={(v: number) =>
-                            fmtMoney(v, currency)
-                          }
-                        />
-                        <Tooltip
-                          content={<MoneyTooltip currency={currency} />}
-                        />
-                        <Legend />
-                        <Area
-                          dataKey="cumulative"
-                          name="Actual"
-                          stroke={CHART_COLORS.primary}
-                          fill={CHART_COLORS.primary}
-                          fillOpacity={0.2}
-                        />
-                        <Line
-                          dataKey="expected"
-                          name="Expected"
-                          stroke={CHART_COLORS.emerald}
-                          strokeDasharray="4 4"
-                          dot={false}
-                        />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent className="p-4">
-                  <h3 className="mb-3 text-sm font-semibold">
-                    Over budget this month
-                  </h3>
-                  {data.overages.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      All categories on budget — nice.
+          <>
+            {/* Hero: anchor net worth + owner split */}
+            <Card className="mb-6">
+              <CardContent className="p-6">
+                <div className="flex flex-wrap items-end justify-between gap-4">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                      Net worth (CAD)
                     </p>
-                  ) : (
-                    <ul className="space-y-2">
-                      {data.overages.map((o: MoneyCategoryOverage) => (
-                        <li
-                          key={o.category_id}
-                          className="flex items-baseline justify-between gap-3 border-b border-border/40 pb-2 last:border-b-0 last:pb-0"
-                        >
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-medium">
-                              {o.category_name}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              {o.group_name}
-                            </p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-sm font-semibold text-red-600 dark:text-red-400">
-                              +{fmtMoney(o.overage, currency)}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              {fmtMoney(o.activity, currency)} of{" "}
-                              {fmtMoney(o.assigned, currency)}
-                            </p>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
+                    <p className="mt-1 text-4xl font-bold tabular-nums">
+                      {fmtMoney(data.net_worth_cad)}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {fmtMoney(data.assets_cad)} assets ·{" "}
+                      {fmtMoney(data.liabilities_cad)} liabilities
+                    </p>
+                  </div>
+                  <div className="flex gap-6 text-sm">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                        Personal
+                      </p>
+                      <p className="mt-1 text-lg font-semibold tabular-nums">
+                        {fmtMoney(data.personal_net_worth_cad)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                        Business
+                      </p>
+                      <p className="mt-1 text-lg font-semibold tabular-nums">
+                        {fmtMoney(data.business_net_worth_cad)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* KPI strip */}
+            <section className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <HealthKpiCard
+                label="Savings ratio"
+                value={num(data.savings_ratio.value)}
+                unit="%"
+                targetLabel={`${Number(data.savings_ratio.target).toFixed(0)}%`}
+                status={data.savings_ratio.status}
+                reason={data.savings_ratio.reason}
+              />
+              <HealthKpiCard
+                label="Debt-to-income"
+                value={num(data.debt_to_income.value)}
+                unit="%"
+                targetLabel={`<${Number(data.debt_to_income.target).toFixed(0)}%`}
+                status={data.debt_to_income.status}
+                reason={data.debt_to_income.reason}
+              />
+              <HealthKpiCard
+                label="Liquidity (months)"
+                value={num(data.liquidity_months.value)}
+                targetLabel={`≥${Number(data.liquidity_months.target).toFixed(0)}`}
+                status={data.liquidity_months.status}
+                reason={data.liquidity_months.reason}
+              />
+              <Card>
+                <CardContent className="p-4">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                    Monthly income · expenses
+                  </p>
+                  <p className="mt-1 text-base font-semibold tabular-nums">
+                    {fmtMoney(data.income_monthly_cad)}
+                    <span className="text-muted-foreground"> · </span>
+                    {fmtMoney(data.expenses_monthly_cad)}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Trailing 12 months · CAD
+                  </p>
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    Net worth trend chart lands in Phase 2 (needs
+                    snapshot history).
+                  </p>
                 </CardContent>
               </Card>
             </section>
 
-            {/* Top categories + Trailing 3M */}
-            <section className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-              <Card>
+            {/* Warnings strip */}
+            {data.warnings.length > 0 && (
+              <Card className="mb-6 border-amber-500/40">
                 <CardContent className="p-4">
-                  <h3 className="mb-3 text-sm font-semibold">
-                    Top category groups
-                  </h3>
-                  <div className="h-72 w-full">
-                    <ResponsiveContainer>
-                      <BarChart data={topGroupRows} layout="vertical">
-                        <CartesianGrid
-                          strokeDasharray="3 3"
-                          stroke={CHART_COLORS.muted}
-                          opacity={0.2}
-                        />
-                        <XAxis
-                          type="number"
-                          stroke={CHART_COLORS.muted}
-                          tickFormatter={(v: number) =>
-                            fmtMoney(v, currency)
-                          }
-                        />
-                        <YAxis
-                          type="category"
-                          dataKey="group"
-                          stroke={CHART_COLORS.muted}
-                          width={120}
-                        />
-                        <Tooltip
-                          content={<MoneyTooltip currency={currency} />}
-                        />
-                        <Bar
-                          dataKey="amount"
-                          name="Spent"
-                          fill={CHART_COLORS.primary}
-                          radius={[0, 4, 4, 0]}
-                        />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
+                  <p className="text-xs uppercase tracking-wide text-amber-600 dark:text-amber-500">
+                    Notes
+                  </p>
+                  <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
+                    {data.warnings.map((w, i) => (
+                      <li key={i}>• {w}</li>
+                    ))}
+                  </ul>
                 </CardContent>
               </Card>
+            )}
 
-              <Card>
-                <CardContent className="p-4">
-                  <h3 className="mb-3 text-sm font-semibold">
-                    Trailing 3 months (by group)
-                  </h3>
-                  <div className="h-72 w-full">
-                    <ResponsiveContainer>
-                      <BarChart data={t3mRows}>
-                        <CartesianGrid
-                          strokeDasharray="3 3"
-                          stroke={CHART_COLORS.muted}
-                          opacity={0.2}
-                        />
-                        <XAxis
-                          dataKey="group"
-                          stroke={CHART_COLORS.muted}
-                          interval={0}
-                          tick={{ fontSize: 11 }}
-                        />
-                        <YAxis
-                          stroke={CHART_COLORS.muted}
-                          tickFormatter={(v: number) =>
-                            fmtMoney(v, currency)
-                          }
-                        />
-                        <Tooltip
-                          content={<MoneyTooltip currency={currency} />}
-                        />
-                        <Legend />
-                        <Bar
-                          dataKey="m_minus_2"
-                          name="2 mo ago"
-                          fill={CHART_COLORS.stack[2]}
-                          radius={[2, 2, 0, 0]}
-                        />
-                        <Bar
-                          dataKey="m_minus_1"
-                          name="Last month"
-                          fill={CHART_COLORS.stack[1]}
-                          radius={[2, 2, 0, 0]}
-                        />
-                        <Bar
-                          dataKey="m_current"
-                          name="This month"
-                          fill={CHART_COLORS.stack[0]}
-                          radius={[2, 2, 0, 0]}
-                        />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </CardContent>
-              </Card>
-            </section>
-          </div>
+            {/* Footer: how to drill in */}
+            <p className="text-xs text-muted-foreground">
+              Want the per-account breakdown?{" "}
+              <Link
+                to="/accounts"
+                className="text-primary underline-offset-4 hover:underline"
+              >
+                Open Accounts
+              </Link>
+              .
+            </p>
+          </>
         )}
       </main>
     </div>
-  );
-}
-
-function KPICard({
-  label,
-  value,
-  valueClass,
-}: {
-  label: string;
-  value: string;
-  valueClass?: string;
-}) {
-  return (
-    <Card className="h-full">
-      <CardContent className="space-y-1 p-4">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          {label}
-        </p>
-        <p
-          className={cn(
-            "text-2xl font-bold",
-            valueClass ?? "text-foreground",
-          )}
-        >
-          {value}
-        </p>
-      </CardContent>
-    </Card>
-  );
-}
-
-function EmptyState() {
-  return (
-    <Card>
-      <CardContent className="space-y-3 p-6 text-center">
-        <h3 className="text-lg font-semibold">Connect YNAB to get started</h3>
-        <p className="text-sm text-muted-foreground">
-          Helm reads your budget on demand using a YNAB Personal Access Token.
-          Add one from Settings to populate this dashboard.
-        </p>
-        <div>
-          <Link
-            to="/settings#ynab"
-            className="inline-flex items-center rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-          >
-            Open Settings → YNAB
-          </Link>
-        </div>
-      </CardContent>
-    </Card>
   );
 }
