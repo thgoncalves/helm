@@ -24,7 +24,7 @@ user-editable via Settings.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -37,6 +37,8 @@ from app.investments.fx import FxRateUnavailable, get_rate
 from app.models.money_health import (
     HealthMetric,
     HealthStatus,
+    KindAllocation,
+    MonthlyFlow,
     MoneyHealthResponse,
 )
 
@@ -127,6 +129,10 @@ def get_health() -> MoneyHealthResponse:
     debt_to_income = _debt_to_income_metric(liabilities_cad, income_monthly)
     liquidity = _liquidity_metric(cash_cad, expenses_monthly)
 
+    # ---- Chart data -------------------------------------------------------
+    allocation = _allocation_slices(balances["by_kind"], assets_cad)
+    monthly_flows = _monthly_flows(12)
+
     return MoneyHealthResponse(
         net_worth_cad=net_worth_cad,
         assets_cad=assets_cad.quantize(_TWO_DP),
@@ -144,6 +150,8 @@ def get_health() -> MoneyHealthResponse:
         liquidity_months=liquidity,
         last_ynab_sync_at=last_sync,
         computed_at=now,
+        allocation=allocation,
+        monthly_flows=monthly_flows,
         warnings=warnings,
     )
 
@@ -402,6 +410,108 @@ def _liquidity_metric(
         target=_TARGET_LIQUIDITY_MONTHS,
         status=_status_higher_better(months, _TARGET_LIQUIDITY_MONTHS),
     )
+
+
+def _allocation_slices(
+    by_kind: dict[str, Decimal], total_assets: Decimal
+) -> list[KindAllocation]:
+    """Build asset-allocation slices for the donut chart.
+
+    Funds + stocks collapse into one ``investing`` slice to keep the
+    chart legible — the per-account drilldown on /accounts preserves
+    the split. Liabilities are excluded (they live in the debts panel,
+    not the assets donut).
+    """
+    investing_total = (
+        by_kind.get("investing_fund", Decimal("0"))
+        + by_kind.get("investing_stock", Decimal("0"))
+    )
+    raw: list[tuple[str, str, Decimal]] = [
+        ("checking", "Checking", by_kind.get("checking", Decimal("0"))),
+        ("savings", "Savings", by_kind.get("savings", Decimal("0"))),
+        ("investing", "Investing", investing_total),
+    ]
+    out: list[KindAllocation] = []
+    for kind, label, amount in raw:
+        if amount <= 0:
+            continue
+        share = (
+            (amount / total_assets * Decimal(100)).quantize(_TWO_DP)
+            if total_assets > 0
+            else Decimal("0.00")
+        )
+        out.append(
+            KindAllocation(
+                kind=kind,
+                label=label,
+                cad_amount=amount.quantize(_TWO_DP),
+                share_pct=share,
+            )
+        )
+    return out
+
+
+def _monthly_flows(months: int) -> list[MonthlyFlow]:
+    """Return per-month inflow/outflow/net for the trailing N months.
+
+    Months that have zero rows in ``ynab_transactions`` still appear in
+    the output as a (0, 0, 0) row so the chart doesn't get gappy.
+    Transfers are excluded — same rule as the 12-month aggregate.
+    """
+    today = datetime.now(timezone.utc).date()
+    # First of the month that's ``months − 1`` ago.
+    start_year = today.year
+    start_month = today.month - (months - 1)
+    while start_month <= 0:
+        start_month += 12
+        start_year -= 1
+    start = date(start_year, start_month, 1)
+
+    rows = db.fetch_all(
+        """
+        SELECT
+          date_trunc('month', posted_date)::date AS month,
+          COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) AS inflow,
+          COALESCE(SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END), 0) AS outflow
+        FROM ynab_transactions
+        WHERE transfer_account_id IS NULL
+          AND posted_date >= :since
+        GROUP BY 1
+        ORDER BY 1
+        """,
+        {"since": start},
+    )
+    by_month: dict[date, dict[str, int]] = {}
+    for r in rows:
+        m = r["month"]
+        if isinstance(m, datetime):
+            m = m.date()
+        by_month[m] = {
+            "inflow": int(r.get("inflow") or 0),
+            "outflow": int(r.get("outflow") or 0),
+        }
+
+    out: list[MonthlyFlow] = []
+    year, month = start.year, start.month
+    for _ in range(months):
+        month_first = date(year, month, 1)
+        agg = by_month.get(month_first, {"inflow": 0, "outflow": 0})
+        income = (Decimal(agg["inflow"]) / _MILLI).quantize(_TWO_DP)
+        # outflow comes back negative; flip to positive expense magnitude.
+        expenses = (-Decimal(agg["outflow"]) / _MILLI).quantize(_TWO_DP)
+        out.append(
+            MonthlyFlow(
+                month=month_first,
+                income_cad=income,
+                expenses_cad=expenses,
+                net_cad=(income - expenses).quantize(_TWO_DP),
+            )
+        )
+        month += 1
+        if month > 12:
+            month = 1
+            year += 1
+    return out
 
 
 def _status_higher_better(value: Decimal, target: Decimal) -> HealthStatus:

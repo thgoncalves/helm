@@ -13,13 +13,33 @@
  */
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
+import {
+  Bar,
+  BarChart,
+  Cell,
+  Legend,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 import { apiFetch, ApiError } from "@/lib/api";
 import type { MoneyHealthResponse } from "@/types/api";
 import { AppHeader } from "@/components/AppHeader";
 import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { HealthKpiCard } from "@/components/HealthKpiCard";
+
+const CHART_COLORS = {
+  checking: "hsl(217 91% 60%)", // brand blue
+  savings: "hsl(158 64% 45%)", // emerald
+  investing: "hsl(267 84% 65%)", // mauve
+  income: "hsl(158 64% 45%)",
+  expenses: "hsl(0 84% 60%)",
+  axis: "hsl(var(--muted-foreground))",
+};
 
 function num(v: number | string | null | undefined): number | null {
   if (v === null || v === undefined || v === "") return null;
@@ -69,6 +89,42 @@ function extractError(err: unknown): string {
   return String(err);
 }
 
+/** Dashboard sub-navigation. Tabs are placeholders for future views
+ *  (e.g. /money/dashboard/spending, /money/dashboard/trends) — only
+ *  Overview is wired up today. */
+function DashboardSubNav({
+  active,
+}: {
+  active: "overview";
+}) {
+  const tabs: { id: "overview"; label: string }[] = [
+    { id: "overview", label: "Overview" },
+  ];
+  return (
+    <nav
+      aria-label="Dashboard sections"
+      className="mt-3 -mb-px flex gap-4 border-b"
+    >
+      {tabs.map((t) => {
+        const isActive = t.id === active;
+        return (
+          <span
+            key={t.id}
+            className={
+              isActive
+                ? "border-b-2 border-primary px-1 pb-2 text-sm font-medium text-foreground"
+                : "px-1 pb-2 text-sm text-muted-foreground"
+            }
+            aria-current={isActive ? "page" : undefined}
+          >
+            {t.label}
+          </span>
+        );
+      })}
+    </nav>
+  );
+}
+
 export function MoneyDashboard() {
   const { data, isLoading, isError, error } = useQuery<MoneyHealthResponse>({
     queryKey: ["money-health"],
@@ -81,7 +137,7 @@ export function MoneyDashboard() {
       <main className="mx-auto max-w-6xl px-4 py-6">
         <header className="mb-6">
           <div className="flex flex-wrap items-baseline justify-between gap-3">
-            <h2 className="text-2xl font-bold">Money</h2>
+            <h2 className="text-2xl font-bold">Dashboard</h2>
             <span className="text-xs text-muted-foreground">
               YNAB synced{" "}
               <span className="font-medium text-foreground">
@@ -93,6 +149,7 @@ export function MoneyDashboard() {
             A health-first view of your overall position. Targets are
             sensible defaults; they'll be editable in a later phase.
           </p>
+          <DashboardSubNav active="overview" />
         </header>
 
         {isError && (
@@ -187,6 +244,157 @@ export function MoneyDashboard() {
                     Net worth trend chart lands in Phase 2 (needs
                     snapshot history).
                   </p>
+                </CardContent>
+              </Card>
+            </section>
+
+            {/* Charts: allocation donut + monthly flows bars */}
+            <section className="mb-6 grid grid-cols-1 gap-3 lg:grid-cols-2">
+              <Card>
+                <CardContent className="p-4">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                    Asset allocation
+                  </p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Where your money lives, by kind
+                  </p>
+                  {data.allocation.length === 0 ? (
+                    <p className="mt-8 text-center text-sm text-muted-foreground">
+                      No assets to allocate yet.
+                    </p>
+                  ) : (
+                    <div className="mt-3 h-56">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={data.allocation.map((a) => ({
+                              name: a.label,
+                              kind: a.kind,
+                              value: num(a.cad_amount) ?? 0,
+                              share: num(a.share_pct) ?? 0,
+                            }))}
+                            dataKey="value"
+                            nameKey="name"
+                            innerRadius={50}
+                            outerRadius={80}
+                            paddingAngle={2}
+                            stroke="hsl(var(--background))"
+                            strokeWidth={2}
+                          >
+                            {data.allocation.map((a) => (
+                              <Cell
+                                key={a.kind}
+                                fill={
+                                  CHART_COLORS[
+                                    a.kind as keyof typeof CHART_COLORS
+                                  ] ?? "hsl(var(--muted))"
+                                }
+                              />
+                            ))}
+                          </Pie>
+                          <Tooltip
+                            formatter={((value: unknown, _name: unknown, item: unknown) => {
+                              const n = typeof value === "number" ? value : Number(value);
+                              const share =
+                                (item as { payload?: { share?: number } } | undefined)
+                                  ?.payload?.share ?? 0;
+                              const name =
+                                (item as { payload?: { name?: string } } | undefined)
+                                  ?.payload?.name ?? "";
+                              return [`${fmtMoney(n)} (${share.toFixed(1)}%)`, name];
+                            }) as never}
+                            contentStyle={{
+                              background: "hsl(var(--card))",
+                              border: "1px solid hsl(var(--border))",
+                              borderRadius: "6px",
+                              fontSize: "12px",
+                            }}
+                          />
+                          <Legend
+                            verticalAlign="bottom"
+                            height={24}
+                            iconSize={8}
+                            wrapperStyle={{ fontSize: "12px" }}
+                          />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent className="p-4">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                    Monthly flows
+                  </p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Income vs expenses, last 12 months
+                  </p>
+                  {data.monthly_flows.every(
+                    (m) => num(m.income_cad) === 0 && num(m.expenses_cad) === 0,
+                  ) ? (
+                    <p className="mt-8 text-center text-sm text-muted-foreground">
+                      Connect YNAB to see monthly flows.
+                    </p>
+                  ) : (
+                    <div className="mt-3 h-56">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                          data={data.monthly_flows.map((f) => ({
+                            month: f.month.slice(5, 7), // "MM" from YYYY-MM-DD
+                            income: num(f.income_cad) ?? 0,
+                            expenses: num(f.expenses_cad) ?? 0,
+                          }))}
+                          margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
+                        >
+                          <XAxis
+                            dataKey="month"
+                            stroke={CHART_COLORS.axis}
+                            fontSize={11}
+                            tickLine={false}
+                          />
+                          <YAxis
+                            stroke={CHART_COLORS.axis}
+                            fontSize={11}
+                            tickLine={false}
+                            tickFormatter={(v: number) =>
+                              v >= 1000 ? `${Math.round(v / 1000)}k` : `${v}`
+                            }
+                          />
+                          <Tooltip
+                            cursor={{ fill: "hsl(var(--muted) / 0.3)" }}
+                            formatter={((value: unknown) =>
+                              fmtMoney(
+                                typeof value === "number" ? value : Number(value),
+                              )) as never}
+                            contentStyle={{
+                              background: "hsl(var(--card))",
+                              border: "1px solid hsl(var(--border))",
+                              borderRadius: "6px",
+                              fontSize: "12px",
+                            }}
+                          />
+                          <Legend
+                            verticalAlign="bottom"
+                            height={24}
+                            iconSize={8}
+                            wrapperStyle={{ fontSize: "12px" }}
+                          />
+                          <Bar
+                            dataKey="income"
+                            fill={CHART_COLORS.income}
+                            radius={[2, 2, 0, 0]}
+                          />
+                          <Bar
+                            dataKey="expenses"
+                            fill={CHART_COLORS.expenses}
+                            radius={[2, 2, 0, 0]}
+                          />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </section>

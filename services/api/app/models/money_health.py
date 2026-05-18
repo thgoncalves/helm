@@ -9,13 +9,37 @@ render score-card-style indicators with consistent colour.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 
 from pydantic import BaseModel
 
 HealthStatus = Literal["above", "at", "below", "unavailable"]
+
+
+class KindAllocation(BaseModel):
+    """One slice of the asset-allocation donut.
+
+    ``kind`` matches the Helm account taxonomy: ``checking``,
+    ``savings``, ``investing`` (funds + stocks rolled together for the
+    chart's purpose — the per-account view in /accounts keeps them
+    distinct).
+    """
+
+    kind: str
+    label: str
+    cad_amount: Decimal
+    share_pct: Decimal
+
+
+class MonthlyFlow(BaseModel):
+    """One bar in the monthly inflow/outflow chart."""
+
+    month: date  # first of month
+    income_cad: Decimal
+    expenses_cad: Decimal
+    net_cad: Decimal
 
 
 class HealthMetric(BaseModel):
@@ -57,6 +81,11 @@ class MoneyHealthResponse(BaseModel):
     # Freshness — surfaces "Last YNAB sync …" on the dashboard.
     last_ynab_sync_at: datetime | None
     computed_at: datetime
+
+    # Chart data — derived from the same inputs as the KPIs above so the
+    # frontend can render visuals without a second round-trip.
+    allocation: list[KindAllocation] = []
+    monthly_flows: list[MonthlyFlow] = []
 
     # Soft warnings the UI shows as banner / footnote. Stale FX, very
     # old manual balances, etc.

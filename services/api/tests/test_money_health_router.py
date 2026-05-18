@@ -75,6 +75,37 @@ def money_db(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
             return [
                 r for r in investment_accounts.values() if r["is_active"]
             ]
+        if (
+            "FROM ynab_transactions" in sql
+            and "GROUP BY" in sql
+            and "date_trunc" in sql
+        ):
+            # Monthly-flow aggregation. Bucket each non-transfer txn by
+            # the first day of its month; sum inflow/outflow per bucket.
+            since = params["since"]
+            buckets: dict[date, dict[str, int]] = {}
+            for txn in ynab_transactions:
+                if txn.get("transfer_account_id") is not None:
+                    continue
+                if txn["posted_date"] < since:
+                    continue
+                month_first = txn["posted_date"].replace(day=1)
+                slot = buckets.setdefault(
+                    month_first, {"inflow": 0, "outflow": 0}
+                )
+                amount = int(txn["amount"])
+                if amount > 0:
+                    slot["inflow"] += amount
+                else:
+                    slot["outflow"] += amount
+            return [
+                {
+                    "month": m,
+                    "inflow": v["inflow"],
+                    "outflow": v["outflow"],
+                }
+                for m, v in sorted(buckets.items())
+            ]
         raise NotImplementedError(f"money_db.fetch_all: {sql[:120]}")
 
     def fetch_one(
@@ -359,6 +390,102 @@ class TestDebtToIncome:
         # Below 30% target = healthy ("above" in the higher-is-better sense
         # of the status enum, which means on or beyond the goal).
         assert body["debt_to_income"]["status"] == "above"
+
+
+class TestAllocation:
+    def test_collapses_funds_and_stocks_into_one_investing_slice(
+        self, client: TestClient, money_db: dict[str, Any]
+    ) -> None:
+        """Donut shows Checking / Savings / Investing only — no kind split."""
+        # $4,000 checking + $1,000 savings + $5,000 investing (funds).
+        money_db["ynab_accounts"]["chk"] = {
+            "id": "chk",
+            "budget_id": _BUDGET_ID,
+            "name": "TD",
+            "type": "checking",
+            "on_budget": True,
+            "closed": False,
+            "deleted": False,
+            "balance": 4_000_000,
+            "cleared_balance": 4_000_000,
+            "uncleared_balance": 0,
+            "helm_kind": None,
+            "helm_owner": "personal",
+            "last_synced_at": datetime.now(timezone.utc),
+        }
+        money_db["ynab_accounts"]["sav"] = {
+            "id": "sav",
+            "budget_id": _BUDGET_ID,
+            "name": "TD Savings",
+            "type": "savings",
+            "on_budget": True,
+            "closed": False,
+            "deleted": False,
+            "balance": 1_000_000,
+            "cleared_balance": 1_000_000,
+            "uncleared_balance": 0,
+            "helm_kind": None,
+            "helm_owner": "personal",
+            "last_synced_at": datetime.now(timezone.utc),
+        }
+        inv_id = uuid4()
+        money_db["investment_accounts"][inv_id] = {
+            "id": inv_id,
+            "name": "iTrade",
+            "kind": "itrade",
+            "currency": "CAD",
+            "owner_label": None,
+            "contribution_limit": None,
+            "notes": None,
+            "is_active": True,
+            "owner": "personal",
+            "helm_kind": "investing_fund",
+            "bank": None,
+            "cash_balance": Decimal("5000.00"),
+            "cash_currency": "CAD",
+            "balance_as_of": None,
+            "created_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc),
+        }
+        money_db["investment_holdings"][inv_id] = []
+
+        resp = client.get("/money/health")
+        body = resp.json()
+        alloc = {a["kind"]: a for a in body["allocation"]}
+        assert set(alloc) == {"checking", "savings", "investing"}
+        assert Decimal(alloc["checking"]["cad_amount"]) == Decimal("4000.00")
+        assert Decimal(alloc["savings"]["cad_amount"]) == Decimal("1000.00")
+        assert Decimal(alloc["investing"]["cad_amount"]) == Decimal("5000.00")
+        # Shares sum to 100% (within rounding).
+        share_sum = sum(Decimal(a["share_pct"]) for a in body["allocation"])
+        assert share_sum == Decimal("100.00")
+
+
+class TestMonthlyFlows:
+    def test_returns_12_buckets_with_zero_fill(
+        self, client: TestClient, money_db: dict[str, Any]
+    ) -> None:
+        """12 months returned even when some have no transactions."""
+        # Single $10k inflow in the current month.
+        today = date.today()
+        money_db["ynab_transactions"].append(
+            {
+                "amount": 10_000_000,
+                "posted_date": today,
+                "transfer_account_id": None,
+            }
+        )
+
+        resp = client.get("/money/health")
+        flows = resp.json()["monthly_flows"]
+        assert len(flows) == 12
+        # Current-month bucket holds the inflow; the rest are zero.
+        last = flows[-1]
+        assert Decimal(last["income_cad"]) == Decimal("10000.00")
+        assert Decimal(last["expenses_cad"]) == Decimal("0.00")
+        for f in flows[:-1]:
+            assert Decimal(f["income_cad"]) == Decimal("0.00")
+            assert Decimal(f["expenses_cad"]) == Decimal("0.00")
 
 
 class TestLiquidity:

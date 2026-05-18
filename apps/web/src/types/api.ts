@@ -538,6 +538,21 @@ export interface HealthMetric {
   reason: string | null;
 }
 
+export interface KindAllocation {
+  kind: "checking" | "savings" | "investing";
+  label: string;
+  cad_amount: number | string;
+  share_pct: number | string;
+}
+
+export interface MonthlyFlow {
+  /** First day of the month, YYYY-MM-DD. */
+  month: string;
+  income_cad: number | string;
+  expenses_cad: number | string;
+  net_cad: number | string;
+}
+
 export interface MoneyHealthResponse {
   net_worth_cad: number | string;
   assets_cad: number | string;
@@ -551,6 +566,8 @@ export interface MoneyHealthResponse {
   liquidity_months: HealthMetric;
   last_ynab_sync_at: string | null;
   computed_at: string;
+  allocation: KindAllocation[];
+  monthly_flows: MonthlyFlow[];
   warnings: string[];
 }
 
