@@ -206,37 +206,40 @@ export function Accounts() {
   return (
     <div className="min-h-screen bg-background">
       <AppHeader />
-      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <header className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <main className="mx-auto max-w-6xl px-4 py-6">
+        <header className="mb-6 flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
           <div>
-            <h1 className="text-3xl font-semibold tracking-tight">
-              Accounts
-            </h1>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <h2 className="text-2xl font-bold">Accounts</h2>
+            <p className="text-sm text-muted-foreground">
               Every cash and investment account, across YNAB, manual
               entries, and your brokerage rows.
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs text-muted-foreground">
-              YNAB last synced: {fmtRelative(lastSyncedAt)}
+          <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+            <span>
+              YNAB last synced{" "}
+              <span className="font-medium text-foreground">
+                {fmtRelative(lastSyncedAt)}
+              </span>
             </span>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => syncMutation.mutate()}
-              disabled={syncMutation.isPending}
-            >
-              {syncMutation.isPending ? "Syncing…" : "Sync YNAB"}
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => setShowAddManual((s) => !s)}
-            >
-              {showAddManual ? "Cancel" : "Add manual account"}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => syncMutation.mutate()}
+                disabled={syncMutation.isPending}
+              >
+                {syncMutation.isPending ? "Syncing…" : "Sync YNAB"}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => setShowAddManual((s) => !s)}
+              >
+                {showAddManual ? "Cancel" : "Add manual account"}
+              </Button>
+            </div>
           </div>
         </header>
 
@@ -247,14 +250,34 @@ export function Accounts() {
         )}
 
         {/* Totals strip */}
-        <section className="mb-6 grid gap-3 sm:grid-cols-3">
-          <TotalCard label="Personal" amount={totalCadByOwner.personal} />
-          <TotalCard label="Business" amount={totalCadByOwner.business} />
-          <TotalCard
-            label="Unassigned"
-            amount={totalCadByOwner.unassigned}
-            muted
-          />
+        <section className="mb-6">
+          <h3 className="mb-3 text-sm font-semibold">Totals (CAD)</h3>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <TotalCard
+              label="Personal"
+              amount={totalCadByOwner.personal}
+              detail={`${groups.personal?.length ?? 0} account${
+                (groups.personal?.length ?? 0) === 1 ? "" : "s"
+              }`}
+              valueClass="text-emerald-600 dark:text-emerald-400"
+            />
+            <TotalCard
+              label="Business"
+              amount={totalCadByOwner.business}
+              detail={`${groups.business?.length ?? 0} account${
+                (groups.business?.length ?? 0) === 1 ? "" : "s"
+              }`}
+              valueClass="text-foreground"
+            />
+            <TotalCard
+              label="Unassigned"
+              amount={totalCadByOwner.unassigned}
+              detail={`${groups.unassigned?.length ?? 0} account${
+                (groups.unassigned?.length ?? 0) === 1 ? "" : "s"
+              }`}
+              muted
+            />
+          </div>
         </section>
 
         {showAddManual && (
@@ -286,11 +309,17 @@ export function Accounts() {
           (owner) => {
             const ownerRows = groups[owner];
             if (!ownerRows || ownerRows.length === 0) return null;
+            const ownerCount = ownerRows.length;
             return (
-              <section key={owner} className="mb-8">
-                <h2 className="mb-3 text-lg font-medium">
-                  {labelForOwner(owner)}
-                </h2>
+              <section key={owner} className="mb-6">
+                <div className="mb-3 flex items-baseline justify-between">
+                  <h3 className="text-sm font-semibold">
+                    {labelForOwner(owner)}
+                  </h3>
+                  <span className="text-xs text-muted-foreground">
+                    {ownerCount} account{ownerCount === 1 ? "" : "s"}
+                  </span>
+                </div>
                 <Card>
                   <CardContent className="p-0">
                     <ul className="divide-y">
@@ -334,21 +363,35 @@ export function Accounts() {
 function TotalCard({
   label,
   amount,
+  detail,
+  valueClass,
   muted,
 }: {
   label: string;
   amount: number;
+  detail?: string;
+  valueClass?: string;
   muted?: boolean;
 }) {
   return (
-    <Card className={muted ? "opacity-70" : ""}>
-      <CardContent className="pt-6">
-        <p className="text-xs uppercase tracking-wide text-muted-foreground">
+    <Card className={"h-full " + (muted ? "opacity-70" : "")}>
+      <CardContent className="space-y-1 p-4">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           {label}
         </p>
-        <p className="mt-1 text-2xl font-semibold">
+        <p
+          className={
+            "text-2xl font-bold " +
+            (muted
+              ? "text-muted-foreground"
+              : (valueClass ?? "text-foreground"))
+          }
+        >
           {fmtMoney(amount, "CAD")}
         </p>
+        {detail && (
+          <p className="text-xs text-muted-foreground">{detail}</p>
+        )}
       </CardContent>
     </Card>
   );
@@ -371,18 +414,21 @@ function AccountRowItem({
     row.balance_cad === null
       ? null
       : fmtMoney(row.balance_cad, "CAD");
+  const showHoldingsLink =
+    row.source === "investment" && row.kind === "investing_stock";
   return (
     <li className="px-4 py-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:gap-4">
+        {/* Identity */}
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <span className="truncate font-medium">{row.name}</span>
             <span className="rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
               {sourceBadge(row.source)}
             </span>
             {row.bank && (
               <span className="truncate text-xs text-muted-foreground">
-                · {row.bank}
+                {row.bank}
               </span>
             )}
           </div>
@@ -397,10 +443,22 @@ function AccountRowItem({
                   {row.extra["holdings_count"] as number} holding(s)
                 </>
               )}
+            {showHoldingsLink && (
+              <>
+                {" · "}
+                <Link
+                  to={`/investments/accounts`}
+                  className="text-primary underline-offset-4 hover:underline"
+                >
+                  View holdings
+                </Link>
+              </>
+            )}
           </p>
         </div>
 
-        <div className="flex flex-col items-end">
+        {/* Balance */}
+        <div className="flex flex-col items-start lg:w-32 lg:items-end">
           <span className="font-mono text-sm font-medium">
             {fmtMoney(row.balance, row.currency)}
           </span>
@@ -411,9 +469,11 @@ function AccountRowItem({
           )}
         </div>
 
-        <div className="flex items-center gap-2">
+        {/* Tag controls + edit */}
+        <div className="flex flex-wrap items-center gap-2">
           <select
-            className="h-8 rounded-md border bg-background px-2 text-xs"
+            aria-label="Kind"
+            className="h-9 rounded-md border bg-background px-2 text-xs"
             value={row.kind}
             onChange={(e) =>
               onChangeTag({ kind: e.target.value as AccountKind })
@@ -426,7 +486,8 @@ function AccountRowItem({
             ))}
           </select>
           <select
-            className="h-8 rounded-md border bg-background px-2 text-xs"
+            aria-label="Owner"
+            className="h-9 rounded-md border bg-background px-2 text-xs"
             value={row.owner}
             onChange={(e) =>
               onChangeTag({ owner: e.target.value as AccountOwner })
@@ -447,14 +508,6 @@ function AccountRowItem({
             >
               {isEditing ? "Close" : "Edit"}
             </Button>
-          )}
-          {row.source === "investment" && row.kind === "investing_stock" && (
-            <Link
-              to={`/investments/accounts`}
-              className="text-xs text-primary underline-offset-4 hover:underline"
-            >
-              View holdings →
-            </Link>
           )}
         </div>
       </div>
