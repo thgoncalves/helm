@@ -23,8 +23,25 @@ from uuid import UUID
 
 import boto3
 from botocore.exceptions import ClientError
+from fastapi import HTTPException
 
 from app.config import settings
+
+# Boto3 error codes that mean "your AWS credentials are bad" — we map
+# these to a 503 with a friendly message so the response goes through
+# the CORS middleware. Without this, FastAPI returns an undecorated 500
+# and the browser surfaces it as "Failed to fetch" because the CORS
+# headers are missing on the unhandled error.
+_AWS_AUTH_ERROR_CODES = frozenset(
+    {
+        "UnrecognizedClientException",
+        "ExpiredTokenException",
+        "InvalidSignatureException",
+        "InvalidClientTokenId",
+        "AccessDeniedException",
+        "SignatureDoesNotMatch",
+    }
+)
 
 # ---------------------------------------------------------------------------
 # Cached boto3 client
@@ -230,4 +247,16 @@ def _execute(
                 time.sleep(delay)
                 delay = min(delay * 2, _RESUME_MAX_DELAY_SEC)
                 continue
+            if code in _AWS_AUTH_ERROR_CODES:
+                raise HTTPException(
+                    status_code=503,
+                    detail={
+                        "code": "AWS_AUTH",
+                        "message": (
+                            "Local AWS credentials are expired or invalid; "
+                            "refresh them (e.g. `aws sso login`) and retry."
+                        ),
+                        "aws_code": code,
+                    },
+                ) from e
             raise
