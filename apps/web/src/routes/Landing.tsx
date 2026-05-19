@@ -29,9 +29,6 @@ export function Landing() {
         <h1 className="text-4xl font-bold leading-tight sm:text-5xl">
           Vessel One
         </h1>
-        <p className="mt-3 text-lg text-muted-foreground sm:text-xl">
-          A personal finance workspace.
-        </p>
 
         <div className="mt-10 flex justify-center">
           <a
