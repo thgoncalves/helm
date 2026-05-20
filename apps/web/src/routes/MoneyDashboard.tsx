@@ -34,6 +34,7 @@ import type { MoneyHealthResponse } from "@/types/api";
 import { AppHeader } from "@/components/AppHeader";
 import { Card, CardContent } from "@/components/ui/card";
 import { HealthKpiCard } from "@/components/HealthKpiCard";
+import { useRotatingPhrase } from "@/components/LoadingScreen";
 
 const CHART_COLORS = {
   checking: "hsl(217 91% 60%)", // brand blue
@@ -137,6 +138,7 @@ export function MoneyDashboard() {
     queryKey: ["money-health"],
     queryFn: () => apiFetch<MoneyHealthResponse>("/money/health"),
   });
+  const loadingPhrase = useRotatingPhrase();
 
   return (
     <div className="min-h-screen bg-background">
@@ -166,7 +168,23 @@ export function MoneyDashboard() {
         )}
 
         {isLoading && (
-          <p className="text-sm text-muted-foreground">Loading…</p>
+          <div
+            role="status"
+            aria-live="polite"
+            className="flex items-center gap-3 rounded-md border border-border bg-muted/30 px-4 py-3"
+          >
+            <div className="flex items-end gap-1" aria-hidden>
+              <span className="block h-2 w-2 animate-bounce rounded-full bg-primary [animation-delay:-0.3s]" />
+              <span className="block h-2 w-2 animate-bounce rounded-full bg-primary [animation-delay:-0.15s]" />
+              <span className="block h-2 w-2 animate-bounce rounded-full bg-primary" />
+            </div>
+            <p
+              key={loadingPhrase}
+              className="animate-in fade-in text-sm font-medium duration-500"
+            >
+              {loadingPhrase}
+            </p>
+          </div>
         )}
 
         {data && (

@@ -11,6 +11,7 @@
  */
 import { Navigate, Outlet } from "react-router-dom";
 import { useAuthenticator } from "@aws-amplify/ui-react";
+import { LoadingScreen } from "@/components/LoadingScreen";
 
 // Local-only escape hatch so Playwright (or anyone running the dev server)
 // can exercise the protected routes without a real Cognito session. The env
@@ -27,11 +28,7 @@ export function ProtectedRoute() {
   }
 
   if (authStatus === "configuring") {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <p className="text-muted-foreground">Loading…</p>
-      </div>
-    );
+    return <LoadingScreen />;
   }
 
   if (authStatus !== "authenticated") {
