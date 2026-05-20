@@ -138,7 +138,7 @@ export function MoneyDashboard() {
     queryKey: ["money-health"],
     queryFn: () => apiFetch<MoneyHealthResponse>("/money/health"),
   });
-  const loadingPhrase = useRotatingPhrase();
+  const { phrase: loadingPhrase, fading: loadingFading } = useRotatingPhrase();
 
   return (
     <div className="min-h-screen bg-background">
@@ -179,8 +179,11 @@ export function MoneyDashboard() {
               <span className="block h-2 w-2 animate-bounce rounded-full bg-primary" />
             </div>
             <p
-              key={loadingPhrase}
-              className="animate-in fade-in text-sm font-medium duration-500"
+              className={
+                "text-sm font-medium transition-opacity ease-in-out " +
+                (loadingFading ? "opacity-0" : "opacity-100")
+              }
+              style={{ transitionDuration: "900ms" }}
             >
               {loadingPhrase}
             </p>

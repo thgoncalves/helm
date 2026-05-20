@@ -61,25 +61,50 @@ function pickPhrase(exclude: string | null): string {
   return next;
 }
 
+const FADE_MS = 900;
+const MIN_DISPLAY_MS = 5000;
+const MAX_DISPLAY_MS = 10000;
+
+function randomDisplayMs(): number {
+  return Math.floor(
+    MIN_DISPLAY_MS + Math.random() * (MAX_DISPLAY_MS - MIN_DISPLAY_MS),
+  );
+}
+
 /**
- * useRotatingPhrase — cycles a random phrase from PHRASES every ~1.8s.
- * Shared by the full-screen LoadingScreen and any inline loading UI.
+ * useRotatingPhrase — cycles a random phrase from PHRASES.
+ *
+ * Each phrase is displayed for a random 5–10s, then fades out (900ms),
+ * swaps to a new phrase, and fades back in (900ms). Returns the current
+ * phrase plus a `fading` flag the caller can bind to opacity classes.
  */
-export function useRotatingPhrase(intervalMs = 1800): string {
+export function useRotatingPhrase(): { phrase: string; fading: boolean } {
   const [phrase, setPhrase] = useState<string>(() => pickPhrase(null));
+  const [fading, setFading] = useState(false);
 
   useEffect(() => {
-    const t = setInterval(() => {
-      setPhrase((prev) => pickPhrase(prev));
-    }, intervalMs);
-    return () => clearInterval(t);
-  }, [intervalMs]);
+    let timer: ReturnType<typeof setTimeout>;
 
-  return phrase;
+    function scheduleNext() {
+      timer = setTimeout(() => {
+        setFading(true);
+        timer = setTimeout(() => {
+          setPhrase((prev) => pickPhrase(prev));
+          setFading(false);
+          scheduleNext();
+        }, FADE_MS);
+      }, randomDisplayMs());
+    }
+
+    scheduleNext();
+    return () => clearTimeout(timer);
+  }, []);
+
+  return { phrase, fading };
 }
 
 export function LoadingScreen() {
-  const phrase = useRotatingPhrase();
+  const { phrase, fading } = useRotatingPhrase();
 
   return (
     <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-6 py-16">
@@ -99,8 +124,11 @@ export function LoadingScreen() {
         </div>
 
         <p
-          key={phrase}
-          className="animate-in fade-in slide-in-from-bottom-1 text-lg font-medium duration-500"
+          className={
+            "text-lg font-medium transition-opacity ease-in-out " +
+            (fading ? "opacity-0" : "opacity-100")
+          }
+          style={{ transitionDuration: "900ms" }}
         >
           {phrase}
         </p>
