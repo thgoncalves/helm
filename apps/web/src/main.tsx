@@ -33,7 +33,13 @@ const queryClient = new QueryClient({
     queries: {
       // Don't refetch on window focus in development — avoids noise.
       refetchOnWindowFocus: import.meta.env.PROD,
-      retry: 1,
+      // Aurora Data API can take 15-20s to auto-resume a paused cluster
+      // on the first hit. Safari occasionally aborts the long fetch with
+      // a "Load failed" before the Lambda responds. Retry up to twice
+      // with growing delays so the second attempt lands after the
+      // cluster is fully warm.
+      retry: 2,
+      retryDelay: (attempt) => (attempt === 0 ? 2_000 : 8_000),
       // Default staleTime is 0, which means every component mount refetches.
       // Since most of the data here changes a few times a day at most (and
       // Aurora cold-resume penalises every fresh request), 30 seconds is a
