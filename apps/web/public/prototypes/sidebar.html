@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Helm — Sidebar Nav Prototype</title>
+  <link
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css"
+  />
+  <style>
+    /* ===========================================================
+       Theme tokens
+       Light mode default. .dark on <html> flips to dark mode.
+       prefers-color-scheme: dark picks dark when no class override.
+       =========================================================== */
+    :root {
+      --color-background-primary: #ffffff;
+      --color-background-secondary: #f7f8fa;
+      --color-background-hover: #f1f3f5;
+      --color-background-active: #e8eefc;
+      --color-background-accent: #dbe5fb;
+
+      --color-text-primary: #1a1d24;
+      --color-text-secondary: #5b6370;
+      --color-text-muted: #8b94a3;
+      --color-text-accent: #2563eb;
+      --color-text-destructive: #dc2626;
+
+      --color-border-primary: #e5e7eb;
+      --color-border-secondary: #eef0f3;
+      --color-border-tertiary: #f1f3f5;
+      --color-border-destructive: #dc2626;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root:not(.light) {
+        --color-background-primary: #1a1d24;
+        --color-background-secondary: #111318;
+        --color-background-hover: #242833;
+        --color-background-active: #1e293b;
+        --color-background-accent: #1e3a8a;
+
+        --color-text-primary: #e5e7eb;
+        --color-text-secondary: #9ca3af;
+        --color-text-muted: #6b7280;
+        --color-text-accent: #60a5fa;
+        --color-text-destructive: #f87171;
+
+        --color-border-primary: #2d3340;
+        --color-border-secondary: #242833;
+        --color-border-tertiary: #1e2129;
+        --color-border-destructive: #f87171;
+      }
+    }
+
+    .dark {
+      --color-background-primary: #1a1d24;
+      --color-background-secondary: #111318;
+      --color-background-hover: #242833;
+      --color-background-active: #1e293b;
+      --color-background-accent: #1e3a8a;
+
+      --color-text-primary: #e5e7eb;
+      --color-text-secondary: #9ca3af;
+      --color-text-muted: #6b7280;
+      --color-text-accent: #60a5fa;
+      --color-text-destructive: #f87171;
+
+      --color-border-primary: #2d3340;
+      --color-border-secondary: #242833;
+      --color-border-tertiary: #1e2129;
+      --color-border-destructive: #f87171;
+    }
+
+    /* ===========================================================
+       Reset + body
+       =========================================================== */
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      font-family:
+        system-ui,
+        -apple-system,
+        "Segoe UI",
+        Roboto,
+        "Helvetica Neue",
+        Arial,
+        sans-serif;
+      background-color: var(--color-background-secondary);
+      color: var(--color-text-primary);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    body {
+      display: flex;
+      align-items: flex-start;
+      justify-content: flex-start;
+      padding: 32px;
+      gap: 24px;
+    }
+
+    /* Demo stage to the right of the sidebar — purely for prototype
+       framing; not part of the sidebar itself. */
+    .stage {
+      flex: 1;
+      min-height: calc(100vh - 64px);
+      padding: 24px 32px;
+      background-color: var(--color-background-primary);
+      border: 1px solid var(--color-border-primary);
+      border-radius: 12px;
+      color: var(--color-text-secondary);
+      font-size: 14px;
+    }
+    .stage h2 {
+      margin: 0 0 8px;
+      color: var(--color-text-primary);
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    /* ===========================================================
+       Sidebar
+       =========================================================== */
+    .sidebar {
+      width: 240px;
+      min-height: calc(100vh - 64px);
+      display: flex;
+      flex-direction: column;
+      background-color: var(--color-background-primary);
+      border: 1px solid var(--color-border-primary);
+      border-radius: 12px;
+      overflow: hidden;
+      font-size: 14px;
+      color: var(--color-text-primary);
+    }
+
+    /* Brand / logo block */
+    .sidebar__brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 16px;
+      border-bottom: 1px solid var(--color-border-tertiary);
+    }
+    .sidebar__brand-icon {
+      width: 36px;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background-color: var(--color-background-accent);
+      color: var(--color-text-accent);
+      border-radius: 8px;
+      font-size: 20px;
+      flex-shrink: 0;
+    }
+    .sidebar__brand-name {
+      font-weight: 600;
+      font-size: 16px;
+      color: var(--color-text-primary);
+      letter-spacing: -0.01em;
+    }
+
+    /* Scrollable nav area */
+    .sidebar__nav {
+      flex: 1;
+      overflow-y: auto;
+      padding: 4px 8px 8px;
+    }
+
+    /* Section */
+    .nav-section {
+      padding: 12px 0 8px;
+      border-bottom: 1px solid var(--color-border-tertiary);
+    }
+    .nav-section:last-child {
+      border-bottom: none;
+    }
+    .nav-section__label {
+      padding: 8px 12px 6px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--color-text-muted);
+    }
+
+    /* Nav item */
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 12px;
+      margin: 1px 0;
+      border-radius: 8px;
+      color: var(--color-text-primary);
+      text-decoration: none;
+      font-size: 14px;
+      line-height: 1.4;
+      cursor: pointer;
+      transition: background-color 0.12s ease, color 0.12s ease;
+    }
+    .nav-item:hover {
+      background-color: var(--color-background-hover);
+    }
+    .nav-item__icon {
+      font-size: 18px;
+      flex-shrink: 0;
+      color: var(--color-text-secondary);
+      transition: color 0.12s ease;
+    }
+    .nav-item:hover .nav-item__icon {
+      color: var(--color-text-primary);
+    }
+    .nav-item--active,
+    .nav-item--active:hover {
+      background-color: var(--color-background-active);
+      color: var(--color-text-accent);
+    }
+    .nav-item--active .nav-item__icon {
+      color: var(--color-text-accent);
+    }
+
+    /* Pinned footer */
+    .sidebar__footer {
+      padding: 12px 8px 14px;
+      border-top: 1px solid var(--color-border-tertiary);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .sign-out {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 9px 12px;
+      margin: 0 4px;
+      background-color: transparent;
+      border: 1px solid var(--color-border-primary);
+      border-radius: 8px;
+      color: var(--color-text-primary);
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: border-color 0.12s ease, color 0.12s ease,
+        background-color 0.12s ease;
+    }
+    .sign-out:hover {
+      border-color: var(--color-border-destructive);
+      color: var(--color-text-destructive);
+    }
+    .sign-out:hover .nav-item__icon {
+      color: var(--color-text-destructive);
+    }
+    .sign-out .nav-item__icon {
+      font-size: 18px;
+    }
+  </style>
+</head>
+<body>
+  <aside class="sidebar" aria-label="Main navigation">
+    <!-- Brand -->
+    <div class="sidebar__brand">
+      <span class="sidebar__brand-icon" aria-hidden="true">
+        <i class="ti ti-building"></i>
+      </span>
+      <span class="sidebar__brand-name">Your App</span>
+    </div>
+
+    <!-- Nav -->
+    <nav class="sidebar__nav">
+      <!-- Business -->
+      <div class="nav-section">
+        <div class="nav-section__label">Business</div>
+        <a href="#" class="nav-item nav-item--active">
+          <i class="ti ti-layout-grid nav-item__icon" aria-hidden="true"></i>
+          <span>Dashboard</span>
+        </a>
+        <a href="#" class="nav-item">
+          <i class="ti ti-clock nav-item__icon" aria-hidden="true"></i>
+          <span>Timesheet</span>
+        </a>
+        <a href="#" class="nav-item">
+          <i class="ti ti-file-text nav-item__icon" aria-hidden="true"></i>
+          <span>Invoices</span>
+        </a>
+        <a href="#" class="nav-item">
+          <i class="ti ti-credit-card nav-item__icon" aria-hidden="true"></i>
+          <span>Payments</span>
+        </a>
+        <a href="#" class="nav-item">
+          <i class="ti ti-receipt-2 nav-item__icon" aria-hidden="true"></i>
+          <span>Expenses</span>
+        </a>
+        <a href="#" class="nav-item">
+          <i class="ti ti-receipt-tax nav-item__icon" aria-hidden="true"></i>
+          <span>Taxes</span>
+        </a>
+        <a href="#" class="nav-item">
+          <i class="ti ti-arrows-left-right nav-item__icon" aria-hidden="true"></i>
+          <span>Transfers</span>
+        </a>
+        <a href="#" class="nav-item">
+          <i class="ti ti-users nav-item__icon" aria-hidden="true"></i>
+          <span>Clients</span>
+        </a>
+      </div>
+
+      <!-- Money -->
+      <div class="nav-section">
+        <div class="nav-section__label">Money</div>
+        <a href="#" class="nav-item">
+          <i class="ti ti-layout-grid nav-item__icon" aria-hidden="true"></i>
+          <span>Dashboard</span>
+        </a>
+        <a href="#" class="nav-item">
+          <i class="ti ti-wallet nav-item__icon" aria-hidden="true"></i>
+          <span>Accounts</span>
+        </a>
+      </div>
+
+      <!-- Investing -->
+      <div class="nav-section">
+        <div class="nav-section__label">Investing</div>
+        <a href="#" class="nav-item">
+          <i class="ti ti-chart-line nav-item__icon" aria-hidden="true"></i>
+          <span>Overview</span>
+        </a>
+        <a href="#" class="nav-item">
+          <i class="ti ti-trending-up nav-item__icon" aria-hidden="true"></i>
+          <span>Stocks</span>
+        </a>
+        <a href="#" class="nav-item">
+          <i class="ti ti-search nav-item__icon" aria-hidden="true"></i>
+          <span>Research</span>
+        </a>
+      </div>
+    </nav>
+
+    <!-- Pinned footer -->
+    <div class="sidebar__footer">
+      <a href="#" class="nav-item">
+        <i class="ti ti-settings nav-item__icon" aria-hidden="true"></i>
+        <span>Settings</span>
+      </a>
+      <button type="button" class="sign-out">
+        <i class="ti ti-logout nav-item__icon" aria-hidden="true"></i>
+        <span>Sign out</span>
+      </button>
+    </div>
+  </aside>
+
+  <main class="stage">
+    <h2>Sidebar prototype</h2>
+    <p>
+      Static HTML/CSS draft for the Helm sidebar redesign. Hover any nav
+      item to see the subtle gray background; the active state on
+      Business → Dashboard demonstrates the light-blue treatment. Sign
+      Out borders red on hover. Theme follows
+      <code>prefers-color-scheme</code> automatically — add
+      <code>class="dark"</code> to <code>&lt;html&gt;</code> to force
+      dark mode for testing.
+    </p>
+  </main>
+</body>
+</html>
