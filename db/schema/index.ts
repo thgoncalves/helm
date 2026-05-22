@@ -11,5 +11,6 @@ export * from './settings';
 export * from './expenses';
 export * from './ynab';
 export * from './investments';
+export * from './stocks';
 export * from './manual-accounts';
 export * from './net-worth-snapshots';

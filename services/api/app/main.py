@@ -19,6 +19,7 @@ from app.routers import (
 )
 from app.routers import investments_holdings as investments_holdings_router
 from app.routers import investments_portfolio as investments_portfolio_router
+from app.routers import investments_stocks as investments_stocks_router
 from app.routers import investments_targets as investments_targets_router
 from app.routers import invoices as invoices_router
 from app.routers import money_health as money_health_router
@@ -86,6 +87,10 @@ app.include_router(
 # and /contributions/room paths, so it mounts directly under /investments.
 app.include_router(
     investments_contributions_router.router, prefix="/investments"
+)
+# Stocks V1 — search, detail, transactions, refresh-quote.
+app.include_router(
+    investments_stocks_router.router, prefix="/investments/stocks"
 )
 
 # Accounts — cross-cutting management page. Manual-accounts CRUD lives
