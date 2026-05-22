@@ -162,6 +162,13 @@ function PaymentFormInner({
       void queryClient.invalidateQueries({ queryKey: ["payments"] });
       void queryClient.invalidateQueries({ queryKey: ["invoices"] });
       void queryClient.invalidateQueries({ queryKey: ["invoice-options"] });
+      // Recording a payment can flip the invoice status to 'paid',
+      // which moves it into the "Invoices with Unpaid GST" list. Refresh
+      // the Taxes surfaces so the row appears without a hard reload.
+      void queryClient.invalidateQueries({ queryKey: ["tax-summary"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["tax-unpaid-invoices"],
+      });
       navigate("/payments");
     },
   });
@@ -173,6 +180,12 @@ function PaymentFormInner({
       void queryClient.invalidateQueries({ queryKey: ["payments"] });
       void queryClient.invalidateQueries({ queryKey: ["invoices"] });
       void queryClient.invalidateQueries({ queryKey: ["invoice-options"] });
+      // Deleting a payment can downgrade the invoice from 'paid' to
+      // 'sent', which removes it from the Unpaid GST list.
+      void queryClient.invalidateQueries({ queryKey: ["tax-summary"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["tax-unpaid-invoices"],
+      });
       navigate("/payments");
     },
   });

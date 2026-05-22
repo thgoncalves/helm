@@ -346,13 +346,17 @@ def fake_data_api(monkeypatch: pytest.MonkeyPatch) -> None:
             and "WHERE i.tax_amount > 0" in sql
             and "NOT EXISTS" in sql
         ):
-            # Unpaid invoices feed.
+            # Unpaid invoices feed — must mirror the real SQL: only
+            # client-paid invoices (status='paid') that aren't already
+            # linked to a tax_payment.
             out = []
             linked_ids = {l["invoice_id"] for l in invoice_tax_links}
             for inv in invoices_store.values():
                 if not isinstance(inv["tax_amount"], Decimal):
                     continue
                 if inv["tax_amount"] <= 0:
+                    continue
+                if inv.get("status") != "paid":
                     continue
                 if inv["id"] in linked_ids:
                     continue
@@ -379,7 +383,9 @@ def fake_data_api(monkeypatch: pytest.MonkeyPatch) -> None:
             "FROM invoices i" in sql
             and "LEFT JOIN invoice_tax_links l" in sql
         ):
-            # Linkable invoices for the Link/Unlink dialog.
+            # Linkable invoices for the Link/Unlink dialog. Pre-existing
+            # links to THIS payment are always shown (checked); new
+            # candidates must be client-paid (status='paid').
             payment_id = params["payment_id"]
             out = []
             for inv in invoices_store.values():
@@ -397,6 +403,8 @@ def fake_data_api(monkeypatch: pytest.MonkeyPatch) -> None:
                 )
                 linked_payment_id = link["tax_payment_id"] if link else None
                 if linked_payment_id is not None and linked_payment_id != payment_id:
+                    continue
+                if linked_payment_id is None and inv.get("status") != "paid":
                     continue
                 cli = clients_store.get(inv["client_id"])
                 if cli is None:
@@ -551,7 +559,8 @@ def fake_data_api(monkeypatch: pytest.MonkeyPatch) -> None:
         if sql.startswith("SELECT * FROM tax_payments WHERE id"):
             return tax_payments_store.get(params["id"])
         if "FROM invoices i" in sql and "WHERE i.tax_amount > 0" in sql and "NOT EXISTS" in sql and "SUM" in sql:
-            # Summary KPIs: gst_unpaid + unpaid_income.
+            # Summary KPIs: gst_unpaid + unpaid_income — only count
+            # client-paid invoices, matching the real SQL.
             linked_ids = {l["invoice_id"] for l in invoice_tax_links}
             gst_unpaid = Decimal(0)
             unpaid_income = Decimal(0)
@@ -559,6 +568,8 @@ def fake_data_api(monkeypatch: pytest.MonkeyPatch) -> None:
                 if not isinstance(inv["tax_amount"], Decimal):
                     continue
                 if inv["tax_amount"] <= 0:
+                    continue
+                if inv.get("status") != "paid":
                     continue
                 if inv["id"] in linked_ids:
                     continue

@@ -15,13 +15,20 @@ def _make_invoice(
     is_taxable: bool = True,
     tax_rate: str | None = "0.0500",
     issue_date: str = "2026-05-01",
+    status: str = "paid",
 ) -> dict:
+    """Create an invoice via the API.
+
+    Defaults to ``status='paid'`` because the tax-payment surfaces
+    only consider GST as remittable once the client has paid the
+    invoice. Override with ``status='sent'`` to assert exclusion.
+    """
     body = {
         "invoice_number": invoice_number,
         "client_id": client_id,
         "issue_date": issue_date,
         "due_date": issue_date,
-        "status": "sent",
+        "status": status,
         "currency": "CAD",
         "notes": None,
         "payment_terms": "Net 30",
@@ -140,6 +147,38 @@ class TestListAndCreate:
 
 
 class TestUnpaidInvoices:
+    def test_unpaid_invoices_excludes_invoices_client_has_not_paid(
+        self, client: TestClient
+    ) -> None:
+        """GST is only remittable once the client has paid the invoice.
+
+        An invoice in 'sent' status carries GST on paper but the cash
+        hasn't landed yet — exclude it from the Unpaid GST list so the
+        user doesn't try to remit GST they haven't collected.
+        """
+        sent = _make_invoice(
+            client,
+            client_id=str(SEED_ID_CP),
+            invoice_number="INV-2026-T028",
+            status="sent",
+        )
+        paid = _make_invoice(
+            client,
+            client_id=str(SEED_ID_CP),
+            invoice_number="INV-2026-T029",
+            status="paid",
+        )
+
+        rows = client.get("/business/tax-payments/unpaid-invoices").json()
+        ids = [r["invoice_id"] for r in rows]
+        assert paid["id"] in ids
+        assert sent["id"] not in ids
+
+        summary = client.get("/business/tax-payments/summary").json()
+        # Only the paid invoice's GST counts as unpaid.
+        assert summary["gst_unpaid"] == "50.00"
+        assert summary["unpaid_income"] == "1050.00"
+
     def test_unpaid_invoices_excludes_already_linked(
         self, client: TestClient
     ) -> None:

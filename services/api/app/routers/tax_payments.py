@@ -2,9 +2,13 @@
 
 Models the GST-to-ATO payment workflow:
 
-* An invoice that carries GST (``invoices.tax_amount > 0``) is unpaid
-  from a tax-remittance point of view until it is linked to a
-  ``tax_payments`` row via ``invoice_tax_links``.
+* An invoice that carries GST (``invoices.tax_amount > 0``) becomes
+  remittable only once the client has fully paid the invoice
+  (``invoices.status = 'paid'``). Until then the GST hasn't actually
+  been collected, so we don't owe it to the CRA yet. Once paid, the
+  invoice is "unpaid GST" from a tax-remittance point of view until
+  it is linked to a ``tax_payments`` row via ``invoice_tax_links``.
+  Pre-existing links are preserved regardless of paid status.
 * A single ``tax_payments`` row typically covers several invoices'
   worth of GST (the user pays the ATO in chunks).
 * V1 invariant — enforced by ``UNIQUE (invoice_id)`` on
@@ -221,12 +225,16 @@ def _replace_links(payment_id: UUID, invoice_ids: list[UUID]) -> None:
     summary="KPI cards: GST Unpaid, Unpaid Income, Total GST Paid",
 )
 async def get_summary() -> TaxSummary:
+    # GST is only remittable once the client has actually paid the
+    # invoice — until then, the cash hasn't landed. Invoices already
+    # linked to a tax_payment stay linked regardless of paid status.
     unpaid = db.fetch_one(
         """
         SELECT COALESCE(SUM(i.tax_amount), 0) AS gst_unpaid,
                COALESCE(SUM(i.total), 0) AS unpaid_income
         FROM invoices i
         WHERE i.tax_amount > 0
+          AND i.status = 'paid'
           AND NOT EXISTS (
               SELECT 1 FROM invoice_tax_links l
               WHERE l.invoice_id = i.id
@@ -300,6 +308,9 @@ async def list_payments() -> list[TaxPaymentListRow]:
     summary="Invoices with GST > 0 that have no tax-payment link",
 )
 async def unpaid_invoices() -> list[UnpaidInvoice]:
+    # Same predicate as the summary query: GST is unpaid (remitted)
+    # only once the client has fully paid the invoice and it isn't
+    # already linked to a tax_payment.
     rows = db.fetch_all(
         """
         SELECT i.id AS invoice_id, i.invoice_number, i.client_id,
@@ -308,6 +319,7 @@ async def unpaid_invoices() -> list[UnpaidInvoice]:
         FROM invoices i
         JOIN clients c ON i.client_id = c.id
         WHERE i.tax_amount > 0
+          AND i.status = 'paid'
           AND NOT EXISTS (
               SELECT 1 FROM invoice_tax_links l
               WHERE l.invoice_id = i.id
@@ -349,8 +361,10 @@ async def get_payment(payment_id: UUID) -> TaxPaymentWithLinks:
 )
 async def linkable_invoices(payment_id: UUID) -> list[LinkableInvoice]:
     """All GST-bearing invoices that are either:
-    * currently linked to ``payment_id`` (shown checked), or
-    * not linked to any payment at all (shown unchecked).
+    * currently linked to ``payment_id`` (shown checked, regardless of
+      paid status — pre-existing links are preserved), or
+    * not linked to any payment yet AND fully paid by the client
+      (shown unchecked, available to attach).
     """
     _fetch_payment_or_404(payment_id)
     rows = db.fetch_all(
@@ -363,7 +377,10 @@ async def linkable_invoices(payment_id: UUID) -> list[LinkableInvoice]:
         JOIN clients c ON i.client_id = c.id
         LEFT JOIN invoice_tax_links l ON l.invoice_id = i.id
         WHERE i.tax_amount > 0
-          AND (l.tax_payment_id IS NULL OR l.tax_payment_id = :payment_id)
+          AND (
+            l.tax_payment_id = :payment_id
+            OR (l.tax_payment_id IS NULL AND i.status = 'paid')
+          )
         ORDER BY i.issue_date ASC, i.invoice_number ASC
         """,
         {"payment_id": payment_id},
