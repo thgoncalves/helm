@@ -65,13 +65,13 @@ interface NavItem {
 
 const BUSINESS_NAV: readonly NavItem[] = [
   { to: "/dashboard", label: "Dashboard", matchPrefixes: ["/dashboard"] },
-  { to: "/clients", label: "Clients", matchPrefixes: ["/clients"] },
   { to: "/timesheets", label: "Timesheets", matchPrefixes: ["/timesheets"] },
   { to: "/invoices", label: "Invoices", matchPrefixes: ["/invoices"] },
   { to: "/payments", label: "Payments", matchPrefixes: ["/payments"] },
   { to: "/expenses", label: "Expenses", matchPrefixes: ["/expenses"] },
   { to: "/taxes", label: "Taxes", matchPrefixes: ["/taxes"] },
   { to: "/transfers", label: "Transfers", matchPrefixes: ["/transfers"] },
+  { to: "/clients", label: "Clients", matchPrefixes: ["/clients"] },
   // Settings is a global concern (Money's YNAB section, Business's
   // company/tax fields, future Investments preferences) — it lives in
   // the header's right cluster as a gear icon instead of as a Business
