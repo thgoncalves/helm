@@ -35,6 +35,7 @@ import { AccountType } from "@/routes/AccountType";
 import { MoneyDashboard } from "@/routes/MoneyDashboard";
 import { Accounts } from "@/routes/Accounts";
 import { Investments } from "@/routes/Investments";
+import { Research } from "@/routes/Research";
 import { Stocks } from "@/routes/Stocks";
 import { StockDetail } from "@/routes/StockDetail";
 import { RecordPurchase } from "@/routes/RecordPurchase";
@@ -100,6 +101,7 @@ export function App() {
 
           {/* Investments module — portfolio tracker (V1). */}
           <Route path="/investments" element={<Investments />} />
+          <Route path="/investments/research" element={<Research />} />
           <Route path="/investments/stocks" element={<Stocks />} />
           <Route
             path="/investments/stocks/buy"

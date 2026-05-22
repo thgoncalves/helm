@@ -837,3 +837,28 @@ export interface StockPortfolioRow {
   current_value_cad: number | string | null;
   unrealized_cad: number | string | null;
 }
+
+// ---------------------------------------------------------------------------
+// Investments — Research V1
+// ---------------------------------------------------------------------------
+
+export type ResearchCountry = "US" | "CA";
+
+export interface ResearchRow {
+  ticker: string;
+  name: string;
+  sector: string;
+  industry: string | null;
+  country: ResearchCountry;
+
+  last_price: number | string | null;
+  currency: string | null;
+  previous_close: number | string | null;
+  fetched_at: string | null;
+  day_change_pct: number | string | null;
+
+  position_shares: number | string;
+  position_currency: string | null;
+  position_value_native: number | string | null;
+  position_value_cad: number | string | null;
+}
