@@ -58,7 +58,6 @@ import {
 import { computePace } from "@/lib/pacing";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { AppHeader } from "@/components/AppHeader";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -555,345 +554,342 @@ export function Timesheets() {
   // ---------------------------------------------------------------------
 
   return (
-    <div className="min-h-screen bg-background">
-      <AppHeader />
+    <main className="mx-auto max-w-6xl px-4 py-6">
+      {/* Page title + actions */}
+      <div className="mb-6 flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+        <h2 className="text-2xl font-bold">Timesheets</h2>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={handleExportPdf} disabled={!clientId}>
+            Export PDF
+          </Button>
+          <Button
+            onClick={() => {
+              void handleSubmitTimesheet();
+            }}
+            disabled={!clientId || submitMutation.isPending}
+          >
+            {submitMutation.isPending ? "Submitting…" : "Submit Timesheet"}
+          </Button>
+        </div>
+      </div>
 
-      <main className="mx-auto max-w-6xl px-4 py-6">
-        {/* Page title + actions */}
-        <div className="mb-6 flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
-          <h2 className="text-2xl font-bold">Timesheets</h2>
-          <div className="flex flex-wrap gap-2">
-            <Button onClick={handleExportPdf} disabled={!clientId}>
-              Export PDF
-            </Button>
-            <Button
-              onClick={() => {
-                void handleSubmitTimesheet();
-              }}
-              disabled={!clientId || submitMutation.isPending}
-            >
-              {submitMutation.isPending ? "Submitting…" : "Submit Timesheet"}
-            </Button>
-          </div>
+      {pdfError && (
+        <p className="mb-3 text-sm text-destructive">PDF export failed: {pdfError}</p>
+      )}
+      {submitError && (
+        <p className="mb-3 text-sm text-destructive">
+          Submit failed: {submitError}
+        </p>
+      )}
+
+      {/* Client + contract summary row */}
+      <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-3 rounded-md border bg-card px-4 py-3">
+        <div className="flex w-full items-center gap-2 sm:w-auto">
+          <label htmlFor="client" className="text-sm font-medium">
+            Client:
+          </label>
+          <select
+            id="client"
+            className={`${SELECT_CLASSES} w-full sm:w-auto sm:min-w-[260px]`}
+            value={clientId ?? ""}
+            onChange={(e) => setClientId(e.target.value || null)}
+          >
+            {!clientId && <option value="">Select a client…</option>}
+            {(clients ?? []).map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+                {c.hourly_rate ? ` (${formatCAD(num(c.hourly_rate))}/hr)` : ""}
+              </option>
+            ))}
+          </select>
         </div>
 
-        {pdfError && (
-          <p className="mb-3 text-sm text-destructive">PDF export failed: {pdfError}</p>
-        )}
-        {submitError && (
-          <p className="mb-3 text-sm text-destructive">
-            Submit failed: {submitError}
-          </p>
-        )}
+        {selectedClient &&
+          (() => {
+            // Actual / Remaining come from the same in-window logged
+            // totals the pacing math uses, keeping every number in the
+            // panel consistent with every other number. Falls back to
+            // the summary endpoint when we don't have contract dates.
+            const actualHours = pacingCounts
+              ? pacingCounts.loggedHours
+              : num(summary?.contract_hours_logged);
+            const actualAmount = actualHours * rate;
+            const remainingHours =
+              totalContractHours > 0
+                ? totalContractHours - actualHours
+                : num(summary?.contract_remaining_hours);
+            const remainingAmount = Math.max(
+              0,
+              num(selectedClient.contract_value) - actualAmount,
+            );
+            const showFinancials =
+              summary?.contract_remaining_amount !== null &&
+              summary?.contract_remaining_amount !== undefined;
 
-        {/* Client + contract summary row */}
-        <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-3 rounded-md border bg-card px-4 py-3">
-          <div className="flex w-full items-center gap-2 sm:w-auto">
-            <label htmlFor="client" className="text-sm font-medium">
-              Client:
-            </label>
-            <select
-              id="client"
-              className={`${SELECT_CLASSES} w-full sm:w-auto sm:min-w-[260px]`}
-              value={clientId ?? ""}
-              onChange={(e) => setClientId(e.target.value || null)}
-            >
-              {!clientId && <option value="">Select a client…</option>}
-              {(clients ?? []).map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                  {c.hourly_rate ? ` (${formatCAD(num(c.hourly_rate))}/hr)` : ""}
-                </option>
-              ))}
-            </select>
-          </div>
+            const livePace = pacingResult ?? null;
+            const isBehind = livePace ? livePace.displayedPace > 10 : false;
+            const paceColour = isBehind
+              ? "text-amber-600 dark:text-amber-400"
+              : "text-emerald-600 dark:text-emerald-400";
 
-          {selectedClient &&
-            (() => {
-              // Actual / Remaining come from the same in-window logged
-              // totals the pacing math uses, keeping every number in the
-              // panel consistent with every other number. Falls back to
-              // the summary endpoint when we don't have contract dates.
-              const actualHours = pacingCounts
-                ? pacingCounts.loggedHours
-                : num(summary?.contract_hours_logged);
-              const actualAmount = actualHours * rate;
-              const remainingHours =
-                totalContractHours > 0
-                  ? totalContractHours - actualHours
-                  : num(summary?.contract_remaining_hours);
-              const remainingAmount = Math.max(
-                0,
-                num(selectedClient.contract_value) - actualAmount,
-              );
-              const showFinancials =
-                summary?.contract_remaining_amount !== null &&
-                summary?.contract_remaining_amount !== undefined;
-
-              const livePace = pacingResult ?? null;
-              const isBehind = livePace ? livePace.displayedPace > 10 : false;
-              const paceColour = isBehind
-                ? "text-amber-600 dark:text-amber-400"
-                : "text-emerald-600 dark:text-emerald-400";
-
-              return (
-                <div className="basis-full text-sm">
-                  {/* Hero metric row: Expected · Actual · Remaining */}
-                  <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5">
-                    {livePace && (
-                      <span className="inline-flex items-center gap-1.5">
-                        <span className="text-muted-foreground">
-                          Expected:
-                        </span>
-                        <span className={`font-bold ${paceColour}`}>
-                          {livePace.displayedPace.toFixed(2)} h/day
-                        </span>
-                        {isBehind && (
-                          <span className="rounded-sm bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
-                            behind pace
-                          </span>
-                        )}
-                      </span>
-                    )}
-                    {showFinancials && (
-                      <>
-                        <span>
-                          <span className="text-muted-foreground">
-                            Actual:
-                          </span>{" "}
-                          <span className="font-semibold">
-                            {formatCAD(actualAmount)}
-                          </span>{" "}
-                          <span className="text-muted-foreground">
-                            / {actualHours.toFixed(2)} hrs
-                          </span>
-                        </span>
-                        <span>
-                          <span className="text-muted-foreground">
-                            Remaining:
-                          </span>{" "}
-                          <span className="font-semibold text-emerald-600 dark:text-emerald-400">
-                            {formatCAD(remainingAmount)}
-                          </span>{" "}
-                          <span className="text-muted-foreground">
-                            / {remainingHours.toFixed(2)} hrs
-                          </span>
-                        </span>
-                      </>
-                    )}
-                  </div>
-
-                  {/* Breakdown row: Worked · Forecasted · deductions */}
+            return (
+              <div className="basis-full text-sm">
+                {/* Hero metric row: Expected · Actual · Remaining */}
+                <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5">
                   {livePace && (
-                    <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                      <span className="inline-flex items-center gap-1.5">
-                        <span className="rounded-sm bg-muted px-1.5 py-0.5 font-medium text-foreground">
-                          Worked
-                        </span>
-                        {livePace.loggedDays} day
-                        {livePace.loggedDays !== 1 ? "s" : ""} (
-                        {livePace.loggedHours}h)
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="text-muted-foreground">
+                        Expected:
                       </span>
-                      <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-                        <span className="inline-flex items-center gap-1.5">
-                          <span className="rounded-sm bg-muted px-1.5 py-0.5 font-medium text-foreground">
-                            Forecasted
-                          </span>
-                          {livePace.netBillableDays} day
-                          {livePace.netBillableDays !== 1 ? "s" : ""}
+                      <span className={`font-bold ${paceColour}`}>
+                        {livePace.displayedPace.toFixed(2)} h/day
+                      </span>
+                      {isBehind && (
+                        <span className="rounded-sm bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
+                          behind pace
                         </span>
-                        <span className="opacity-60">
-                          ({livePace.baseBillableDays} base
-                          {livePace.loggedDays > 0
-                            ? ` − ${livePace.loggedDays} logged`
-                            : ""}
-                          {livePace.vacationDays > 0
-                            ? ` − ${livePace.vacationDays} vacation`
-                            : ""}
-                          {livePace.customHolidays > 0
-                            ? ` − ${livePace.customHolidays} custom holiday${livePace.customHolidays !== 1 ? "s" : ""}`
-                            : ""}
-                          )
+                      )}
+                    </span>
+                  )}
+                  {showFinancials && (
+                    <>
+                      <span>
+                        <span className="text-muted-foreground">
+                          Actual:
+                        </span>{" "}
+                        <span className="font-semibold">
+                          {formatCAD(actualAmount)}
+                        </span>{" "}
+                        <span className="text-muted-foreground">
+                          / {actualHours.toFixed(2)} hrs
                         </span>
                       </span>
-                    </div>
+                      <span>
+                        <span className="text-muted-foreground">
+                          Remaining:
+                        </span>{" "}
+                        <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                          {formatCAD(remainingAmount)}
+                        </span>{" "}
+                        <span className="text-muted-foreground">
+                          / {remainingHours.toFixed(2)} hrs
+                        </span>
+                      </span>
+                    </>
                   )}
                 </div>
-              );
-            })()}
-        </div>
 
-        {/* Month nav */}
-        <div className="mb-3 flex items-center justify-between">
-          <Button variant="outline" onClick={() => shiftMonth(-1)}>
-            ◀ Previous
-          </Button>
-          <h3 className="text-lg font-semibold">{monthLabel}</h3>
-          <Button variant="outline" onClick={() => shiftMonth(1)}>
-            Next ▶
-          </Button>
-        </div>
+                {/* Breakdown row: Worked · Forecasted · deductions */}
+                {livePace && (
+                  <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="rounded-sm bg-muted px-1.5 py-0.5 font-medium text-foreground">
+                        Worked
+                      </span>
+                      {livePace.loggedDays} day
+                      {livePace.loggedDays !== 1 ? "s" : ""} (
+                      {livePace.loggedHours}h)
+                    </span>
+                    <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className="rounded-sm bg-muted px-1.5 py-0.5 font-medium text-foreground">
+                          Forecasted
+                        </span>
+                        {livePace.netBillableDays} day
+                        {livePace.netBillableDays !== 1 ? "s" : ""}
+                      </span>
+                      <span className="opacity-60">
+                        ({livePace.baseBillableDays} base
+                        {livePace.loggedDays > 0
+                          ? ` − ${livePace.loggedDays} logged`
+                          : ""}
+                        {livePace.vacationDays > 0
+                          ? ` − ${livePace.vacationDays} vacation`
+                          : ""}
+                        {livePace.customHolidays > 0
+                          ? ` − ${livePace.customHolidays} custom holiday${livePace.customHolidays !== 1 ? "s" : ""}`
+                          : ""}
+                        )
+                      </span>
+                    </span>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+      </div>
 
-        {/* Calendar grid */}
-        <Card>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[680px] border-collapse text-sm">
-                <thead>
-                  <tr>
-                    <th className="border-b border-r px-3 py-2 text-left font-semibold">
-                      Subtotal
-                    </th>
-                    {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(
-                      (label) => (
-                        <th
-                          key={label}
-                          className="border-b px-3 py-2 text-left font-semibold"
-                        >
-                          {label}
-                        </th>
-                      ),
-                    )}
-                  </tr>
-                </thead>
-                <tbody>
-                  {weeks.map((week, wi) => {
-                    const weekHours = sumHours(
-                      week.cells.map((c) => c.iso),
-                      hoursByDate,
-                    );
-                    const weekAmount = weekHours * rate;
-                    return (
-                      <tr key={week.cells[0]?.iso ?? `week-${wi}`}>
-                        <td className="border-r bg-muted/50 px-3 py-3 align-top">
-                          <div className="font-bold text-foreground">
-                            {weekHours} hrs
-                          </div>
-                          <div className="mt-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                            {formatCAD(weekAmount)}
-                          </div>
-                        </td>
-                        {week.cells.map((cell) => {
-                          const value = hoursByDate[cell.iso] ?? 0;
-                          const isToday = cell.iso === today;
-                          const holiday = holidayLookup[cell.iso] ?? null;
-                          const vacation = findVacation(cell.iso, vacations);
-                          // Priority: out-of-month > holiday > vacation > weekend.
-                          const cellBg = !cell.inMonth
-                            ? "bg-muted/40 text-muted-foreground"
-                            : holiday
-                              ? "bg-rose-100/70 dark:bg-rose-950/40"
-                              : vacation
-                                ? "bg-amber-100/70 dark:bg-amber-950/40"
-                                : cell.isWeekend
-                                  ? "bg-sky-100/60 dark:bg-sky-950/30"
-                                  : "";
-                          const title =
-                            holiday?.name ??
-                            vacation?.label ??
-                            (cell.isWeekend ? "Weekend" : undefined);
-                          return (
-                            <td
-                              key={cell.iso}
-                              className={`border-b border-l align-top ${cellBg}`}
-                              title={title}
-                            >
-                              <div className="flex flex-col gap-1 px-2 py-2">
-                                <div
-                                  className={
-                                    "flex items-baseline justify-between gap-1 text-xs " +
-                                    (isToday
-                                      ? "font-bold text-primary"
-                                      : "text-muted-foreground")
-                                  }
-                                >
-                                  {holiday && cell.inMonth && (
-                                    <span
-                                      className="truncate text-[10px] font-semibold text-rose-700 dark:text-rose-300"
-                                      aria-label={`Holiday: ${holiday.name}`}
-                                    >
-                                      {holiday.name}
-                                    </span>
-                                  )}
-                                  {!holiday && vacation && cell.inMonth && (
-                                    <span
-                                      className="truncate text-[10px] font-semibold text-amber-700 dark:text-amber-300"
-                                      aria-label={`Vacation: ${vacation.label}`}
-                                    >
-                                      {vacation.label}
-                                    </span>
-                                  )}
-                                  <span className="ml-auto">
-                                    {cell.dayOfMonth === 1 || !cell.inMonth
-                                      ? cell.date.toLocaleDateString("en-CA", {
-                                          month: "short",
-                                          day: "numeric",
-                                        })
-                                      : cell.dayOfMonth}
+      {/* Month nav */}
+      <div className="mb-3 flex items-center justify-between">
+        <Button variant="outline" onClick={() => shiftMonth(-1)}>
+          ◀ Previous
+        </Button>
+        <h3 className="text-lg font-semibold">{monthLabel}</h3>
+        <Button variant="outline" onClick={() => shiftMonth(1)}>
+          Next ▶
+        </Button>
+      </div>
+
+      {/* Calendar grid */}
+      <Card>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[680px] border-collapse text-sm">
+              <thead>
+                <tr>
+                  <th className="border-b border-r px-3 py-2 text-left font-semibold">
+                    Subtotal
+                  </th>
+                  {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(
+                    (label) => (
+                      <th
+                        key={label}
+                        className="border-b px-3 py-2 text-left font-semibold"
+                      >
+                        {label}
+                      </th>
+                    ),
+                  )}
+                </tr>
+              </thead>
+              <tbody>
+                {weeks.map((week, wi) => {
+                  const weekHours = sumHours(
+                    week.cells.map((c) => c.iso),
+                    hoursByDate,
+                  );
+                  const weekAmount = weekHours * rate;
+                  return (
+                    <tr key={week.cells[0]?.iso ?? `week-${wi}`}>
+                      <td className="border-r bg-muted/50 px-3 py-3 align-top">
+                        <div className="font-bold text-foreground">
+                          {weekHours} hrs
+                        </div>
+                        <div className="mt-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                          {formatCAD(weekAmount)}
+                        </div>
+                      </td>
+                      {week.cells.map((cell) => {
+                        const value = hoursByDate[cell.iso] ?? 0;
+                        const isToday = cell.iso === today;
+                        const holiday = holidayLookup[cell.iso] ?? null;
+                        const vacation = findVacation(cell.iso, vacations);
+                        // Priority: out-of-month > holiday > vacation > weekend.
+                        const cellBg = !cell.inMonth
+                          ? "bg-muted/40 text-muted-foreground"
+                          : holiday
+                            ? "bg-rose-100/70 dark:bg-rose-950/40"
+                            : vacation
+                              ? "bg-amber-100/70 dark:bg-amber-950/40"
+                              : cell.isWeekend
+                                ? "bg-sky-100/60 dark:bg-sky-950/30"
+                                : "";
+                        const title =
+                          holiday?.name ??
+                          vacation?.label ??
+                          (cell.isWeekend ? "Weekend" : undefined);
+                        return (
+                          <td
+                            key={cell.iso}
+                            className={`border-b border-l align-top ${cellBg}`}
+                            title={title}
+                          >
+                            <div className="flex flex-col gap-1 px-2 py-2">
+                              <div
+                                className={
+                                  "flex items-baseline justify-between gap-1 text-xs " +
+                                  (isToday
+                                    ? "font-bold text-primary"
+                                    : "text-muted-foreground")
+                                }
+                              >
+                                {holiday && cell.inMonth && (
+                                  <span
+                                    className="truncate text-[10px] font-semibold text-rose-700 dark:text-rose-300"
+                                    aria-label={`Holiday: ${holiday.name}`}
+                                  >
+                                    {holiday.name}
                                   </span>
-                                </div>
-                                <input
-                                  type="text"
-                                  inputMode="decimal"
-                                  value={value === 0 ? "0" : String(value)}
-                                  onChange={(e) =>
-                                    handleCellChange(cell.iso, e.target.value)
-                                  }
-                                  onBlur={handleCellBlur}
-                                  disabled={!cell.inMonth || !clientId}
-                                  className={
-                                    "h-10 w-full rounded-md border border-input bg-background px-2 py-1 text-right text-sm text-foreground sm:h-9 " +
-                                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring " +
-                                    (isToday ? "ring-2 ring-ring " : "") +
-                                    (cell.inMonth
-                                      ? ""
-                                      : "cursor-not-allowed bg-muted/30 text-muted-foreground ")
-                                  }
-                                />
+                                )}
+                                {!holiday && vacation && cell.inMonth && (
+                                  <span
+                                    className="truncate text-[10px] font-semibold text-amber-700 dark:text-amber-300"
+                                    aria-label={`Vacation: ${vacation.label}`}
+                                  >
+                                    {vacation.label}
+                                  </span>
+                                )}
+                                <span className="ml-auto">
+                                  {cell.dayOfMonth === 1 || !cell.inMonth
+                                    ? cell.date.toLocaleDateString("en-CA", {
+                                        month: "short",
+                                        day: "numeric",
+                                      })
+                                    : cell.dayOfMonth}
+                                </span>
                               </div>
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={value === 0 ? "0" : String(value)}
+                                onChange={(e) =>
+                                  handleCellChange(cell.iso, e.target.value)
+                                }
+                                onBlur={handleCellBlur}
+                                disabled={!cell.inMonth || !clientId}
+                                className={
+                                  "h-10 w-full rounded-md border border-input bg-background px-2 py-1 text-right text-sm text-foreground sm:h-9 " +
+                                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring " +
+                                  (isToday ? "ring-2 ring-ring " : "") +
+                                  (cell.inMonth
+                                    ? ""
+                                    : "cursor-not-allowed bg-muted/30 text-muted-foreground ")
+                                }
+                              />
+                            </div>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
 
-        {/* Month total */}
-        <Card className="mt-4">
-          <CardContent className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h4 className="text-sm font-bold uppercase tracking-wide text-muted-foreground">
-                Month Total
-              </h4>
-              <p className="mt-1 text-base">
-                <span className="font-semibold">
-                  Total Hours: {monthTotalHours}
-                </span>{" "}
-                |{" "}
-                <span className="font-semibold text-emerald-600 dark:text-emerald-400">
-                  Total Amount: {formatCAD(monthTotalAmount)}
-                </span>
-              </p>
-            </div>
-            <p className="text-sm text-muted-foreground">{periodLabel}</p>
-          </CardContent>
-        </Card>
+      {/* Month total */}
+      <Card className="mt-4">
+        <CardContent className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h4 className="text-sm font-bold uppercase tracking-wide text-muted-foreground">
+              Month Total
+            </h4>
+            <p className="mt-1 text-base">
+              <span className="font-semibold">
+                Total Hours: {monthTotalHours}
+              </span>{" "}
+              |{" "}
+              <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                Total Amount: {formatCAD(monthTotalAmount)}
+              </span>
+            </p>
+          </div>
+          <p className="text-sm text-muted-foreground">{periodLabel}</p>
+        </CardContent>
+      </Card>
 
-        {saveMutation.isError && (
-          <p className="mt-3 text-sm text-destructive">
-            Save failed:{" "}
-            {saveMutation.error instanceof ApiError
-              ? `Server error ${saveMutation.error.status}`
-              : String(saveMutation.error)}
-          </p>
-        )}
-      </main>
-    </div>
+      {saveMutation.isError && (
+        <p className="mt-3 text-sm text-destructive">
+          Save failed:{" "}
+          {saveMutation.error instanceof ApiError
+            ? `Server error ${saveMutation.error.status}`
+            : String(saveMutation.error)}
+        </p>
+      )}
+    </main>
+
   );
 }
 

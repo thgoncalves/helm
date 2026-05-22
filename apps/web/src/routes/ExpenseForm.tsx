@@ -27,7 +27,6 @@ import type {
   ExpenseRead,
   ExpenseUpdate,
 } from "@/types/api";
-import { AppHeader } from "@/components/AppHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -203,243 +202,238 @@ export function ExpenseForm() {
   }
   if (expenseQuery.isError) {
     return (
-      <div className="min-h-screen bg-background">
-        <AppHeader />
-        <main className="mx-auto max-w-5xl px-4 py-6">
-          <p className="text-destructive">
-            Failed to load expense:{" "}
-            {expenseQuery.error instanceof Error
-              ? expenseQuery.error.message
-              : "Unknown error"}
-          </p>
-        </main>
-      </div>
+      <main className="mx-auto max-w-5xl px-4 py-6">
+        <p className="text-destructive">
+          Failed to load expense:{" "}
+          {expenseQuery.error instanceof Error
+            ? expenseQuery.error.message
+            : "Unknown error"}
+        </p>
+      </main>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <AppHeader />
-      <main className="mx-auto max-w-5xl px-4 py-6">
-        <h2 className="mb-6 text-2xl font-bold">Edit Expense</h2>
+    <main className="mx-auto max-w-5xl px-4 py-6">
+      <h2 className="mb-6 text-2xl font-bold">Edit Expense</h2>
 
-        {statusBanner && (
-          <div
-            className={
-              "mb-4 rounded-md border px-4 py-2 text-sm " +
-              (statusBanner.tone === "info"
-                ? "border-sky-300 bg-sky-50 text-sky-900 dark:border-sky-700 dark:bg-sky-950/40 dark:text-sky-100"
-                : "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100")
-            }
-          >
-            {statusBanner.text}
-          </div>
+      {statusBanner && (
+        <div
+          className={
+            "mb-4 rounded-md border px-4 py-2 text-sm " +
+            (statusBanner.tone === "info"
+              ? "border-sky-300 bg-sky-50 text-sky-900 dark:border-sky-700 dark:bg-sky-950/40 dark:text-sky-100"
+              : "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100")
+          }
+        >
+          {statusBanner.text}
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit}>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+          {/* Image preview */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Receipt</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {imageUrlQuery.data ? (
+                <a
+                  href={imageUrlQuery.data.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block"
+                >
+                  <img
+                    src={imageUrlQuery.data.url}
+                    alt="Uploaded receipt"
+                    className="max-h-[60vh] w-full rounded-md border bg-muted object-contain"
+                  />
+                </a>
+              ) : imageUrlQuery.isLoading ? (
+                <p className="text-muted-foreground">Loading image…</p>
+              ) : (
+                <p className="text-muted-foreground">
+                  Image preview unavailable.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Editable fields */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Details</CardTitle>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-[140px_1fr] sm:items-center">
+              <Label htmlFor="expense_date">Date</Label>
+              <Input
+                id="expense_date"
+                type="date"
+                value={state.expense_date}
+                disabled={isProcessing}
+                onChange={(e) =>
+                  setState({ ...state, expense_date: e.target.value })
+                }
+              />
+
+              <Label htmlFor="supplier">Supplier</Label>
+              <Input
+                id="supplier"
+                value={state.supplier}
+                disabled={isProcessing}
+                onChange={(e) =>
+                  setState({ ...state, supplier: e.target.value })
+                }
+              />
+
+              <Label htmlFor="category">Category</Label>
+              <select
+                id="category"
+                className={SELECT_CLASSES}
+                value={state.category}
+                disabled={isProcessing}
+                onChange={(e) =>
+                  setState({ ...state, category: e.target.value })
+                }
+              >
+                <option value="">— Pick a category —</option>
+                {CATEGORIES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+
+              <Label htmlFor="subtotal">Subtotal</Label>
+              <div className="relative">
+                <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-muted-foreground">
+                  $
+                </span>
+                <Input
+                  id="subtotal"
+                  type="number"
+                  step="0.01"
+                  className="pl-6"
+                  value={state.subtotal}
+                  disabled={isProcessing}
+                  onChange={(e) =>
+                    setState({ ...state, subtotal: e.target.value })
+                  }
+                />
+              </div>
+
+              <Label htmlFor="tax_amount">Tax</Label>
+              <div className="relative">
+                <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-muted-foreground">
+                  $
+                </span>
+                <Input
+                  id="tax_amount"
+                  type="number"
+                  step="0.01"
+                  className="pl-6"
+                  value={state.tax_amount}
+                  disabled={isProcessing}
+                  onChange={(e) =>
+                    setState({ ...state, tax_amount: e.target.value })
+                  }
+                />
+              </div>
+
+              <Label htmlFor="total">Total</Label>
+              <div className="relative">
+                <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-muted-foreground">
+                  $
+                </span>
+                <Input
+                  id="total"
+                  type="number"
+                  step="0.01"
+                  className="pl-6"
+                  value={state.total}
+                  disabled={isProcessing}
+                  onChange={(e) =>
+                    setState({ ...state, total: e.target.value })
+                  }
+                />
+              </div>
+
+              <Label htmlFor="currency">Currency</Label>
+              <Input
+                id="currency"
+                maxLength={3}
+                value={state.currency}
+                disabled={isProcessing}
+                onChange={(e) =>
+                  setState({
+                    ...state,
+                    currency: e.target.value.toUpperCase(),
+                  })
+                }
+              />
+
+              <Label htmlFor="notes" className="self-start pt-2">
+                Notes
+              </Label>
+              <textarea
+                id="notes"
+                rows={3}
+                className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+                value={state.notes}
+                disabled={isProcessing}
+                onChange={(e) =>
+                  setState({ ...state, notes: e.target.value })
+                }
+              />
+            </CardContent>
+          </Card>
+        </div>
+
+        {saveMutation.isError && (
+          <p className="mt-3 text-sm text-destructive">
+            Save failed:{" "}
+            {saveMutation.error instanceof ApiError
+              ? typeof saveMutation.error.body === "object" &&
+                saveMutation.error.body &&
+                "detail" in saveMutation.error.body
+                ? String(
+                    (saveMutation.error.body as { detail: unknown }).detail,
+                  )
+                : `Server error ${saveMutation.error.status}`
+              : String(saveMutation.error)}
+          </p>
         )}
 
-        <form onSubmit={handleSubmit}>
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-            {/* Image preview */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Receipt</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {imageUrlQuery.data ? (
-                  <a
-                    href={imageUrlQuery.data.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="block"
-                  >
-                    <img
-                      src={imageUrlQuery.data.url}
-                      alt="Uploaded receipt"
-                      className="max-h-[60vh] w-full rounded-md border bg-muted object-contain"
-                    />
-                  </a>
-                ) : imageUrlQuery.isLoading ? (
-                  <p className="text-muted-foreground">Loading image…</p>
-                ) : (
-                  <p className="text-muted-foreground">
-                    Image preview unavailable.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Editable fields */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Details</CardTitle>
-              </CardHeader>
-              <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-[140px_1fr] sm:items-center">
-                <Label htmlFor="expense_date">Date</Label>
-                <Input
-                  id="expense_date"
-                  type="date"
-                  value={state.expense_date}
-                  disabled={isProcessing}
-                  onChange={(e) =>
-                    setState({ ...state, expense_date: e.target.value })
-                  }
-                />
-
-                <Label htmlFor="supplier">Supplier</Label>
-                <Input
-                  id="supplier"
-                  value={state.supplier}
-                  disabled={isProcessing}
-                  onChange={(e) =>
-                    setState({ ...state, supplier: e.target.value })
-                  }
-                />
-
-                <Label htmlFor="category">Category</Label>
-                <select
-                  id="category"
-                  className={SELECT_CLASSES}
-                  value={state.category}
-                  disabled={isProcessing}
-                  onChange={(e) =>
-                    setState({ ...state, category: e.target.value })
-                  }
-                >
-                  <option value="">— Pick a category —</option>
-                  {CATEGORIES.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
-
-                <Label htmlFor="subtotal">Subtotal</Label>
-                <div className="relative">
-                  <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-muted-foreground">
-                    $
-                  </span>
-                  <Input
-                    id="subtotal"
-                    type="number"
-                    step="0.01"
-                    className="pl-6"
-                    value={state.subtotal}
-                    disabled={isProcessing}
-                    onChange={(e) =>
-                      setState({ ...state, subtotal: e.target.value })
-                    }
-                  />
-                </div>
-
-                <Label htmlFor="tax_amount">Tax</Label>
-                <div className="relative">
-                  <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-muted-foreground">
-                    $
-                  </span>
-                  <Input
-                    id="tax_amount"
-                    type="number"
-                    step="0.01"
-                    className="pl-6"
-                    value={state.tax_amount}
-                    disabled={isProcessing}
-                    onChange={(e) =>
-                      setState({ ...state, tax_amount: e.target.value })
-                    }
-                  />
-                </div>
-
-                <Label htmlFor="total">Total</Label>
-                <div className="relative">
-                  <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-muted-foreground">
-                    $
-                  </span>
-                  <Input
-                    id="total"
-                    type="number"
-                    step="0.01"
-                    className="pl-6"
-                    value={state.total}
-                    disabled={isProcessing}
-                    onChange={(e) =>
-                      setState({ ...state, total: e.target.value })
-                    }
-                  />
-                </div>
-
-                <Label htmlFor="currency">Currency</Label>
-                <Input
-                  id="currency"
-                  maxLength={3}
-                  value={state.currency}
-                  disabled={isProcessing}
-                  onChange={(e) =>
-                    setState({
-                      ...state,
-                      currency: e.target.value.toUpperCase(),
-                    })
-                  }
-                />
-
-                <Label htmlFor="notes" className="self-start pt-2">
-                  Notes
-                </Label>
-                <textarea
-                  id="notes"
-                  rows={3}
-                  className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
-                  value={state.notes}
-                  disabled={isProcessing}
-                  onChange={(e) =>
-                    setState({ ...state, notes: e.target.value })
-                  }
-                />
-              </CardContent>
-            </Card>
-          </div>
-
-          {saveMutation.isError && (
-            <p className="mt-3 text-sm text-destructive">
-              Save failed:{" "}
-              {saveMutation.error instanceof ApiError
-                ? typeof saveMutation.error.body === "object" &&
-                  saveMutation.error.body &&
-                  "detail" in saveMutation.error.body
-                  ? String(
-                      (saveMutation.error.body as { detail: unknown }).detail,
-                    )
-                  : `Server error ${saveMutation.error.status}`
-                : String(saveMutation.error)}
-            </p>
-          )}
-
-          {/* Footer actions */}
-          <div className="mt-4 flex items-center justify-between gap-2">
+        {/* Footer actions */}
+        <div className="mt-4 flex items-center justify-between gap-2">
+          <Button
+            type="button"
+            variant="destructive"
+            onClick={handleDelete}
+            disabled={deleteMutation.isPending}
+          >
+            {deleteMutation.isPending ? "Deleting…" : "Delete"}
+          </Button>
+          <div className="flex gap-2">
             <Button
               type="button"
-              variant="destructive"
-              onClick={handleDelete}
-              disabled={deleteMutation.isPending}
+              variant="outline"
+              onClick={() => navigate("/expenses")}
             >
-              {deleteMutation.isPending ? "Deleting…" : "Delete"}
+              Cancel
             </Button>
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => navigate("/expenses")}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                disabled={saveMutation.isPending || isProcessing}
-              >
-                {saveMutation.isPending ? "Saving…" : "Save"}
-              </Button>
-            </div>
+            <Button
+              type="submit"
+              disabled={saveMutation.isPending || isProcessing}
+            >
+              {saveMutation.isPending ? "Saving…" : "Save"}
+            </Button>
           </div>
-        </form>
-      </main>
-    </div>
+        </div>
+      </form>
+    </main>
+
   );
 }

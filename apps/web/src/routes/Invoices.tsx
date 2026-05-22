@@ -44,7 +44,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { AppHeader } from "@/components/AppHeader";
 import { LoadingBox } from "@/components/LoadingScreen";
 
 const SELECT_CLASSES =
@@ -208,240 +207,237 @@ export function Invoices() {
   const totals = data?.totals_by_status;
 
   return (
-    <div className="min-h-screen bg-background">
-      <AppHeader />
+    <main className="mx-auto max-w-6xl px-4 py-6">
+      {/* Title + New */}
+      <div className="mb-6 flex items-center justify-between">
+        <h2 className="text-2xl font-bold">Invoices</h2>
+        <Button onClick={() => navigate("/invoices/new")}>
+          New Invoice
+        </Button>
+      </div>
 
-      <main className="mx-auto max-w-6xl px-4 py-6">
-        {/* Title + New */}
-        <div className="mb-6 flex items-center justify-between">
-          <h2 className="text-2xl font-bold">Invoices</h2>
-          <Button onClick={() => navigate("/invoices/new")}>
-            New Invoice
-          </Button>
-        </div>
+      {/* Filters */}
+      <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border bg-card px-4 py-3 text-sm">
+        <select
+          aria-label="Fiscal year preset"
+          value={preset}
+          className={`${SELECT_CLASSES} w-44`}
+          onChange={(e) => applyPreset(e.target.value as FyPreset)}
+        >
+          <option value="this">This Financial Year</option>
+          <option value="last">Last Financial Year</option>
+          <option value="all">All</option>
+          <option value="custom">Custom</option>
+        </select>
 
-        {/* Filters */}
-        <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border bg-card px-4 py-3 text-sm">
-          <select
-            aria-label="Fiscal year preset"
-            value={preset}
-            className={`${SELECT_CLASSES} w-44`}
-            onChange={(e) => applyPreset(e.target.value as FyPreset)}
-          >
-            <option value="this">This Financial Year</option>
-            <option value="last">Last Financial Year</option>
-            <option value="all">All</option>
-            <option value="custom">Custom</option>
-          </select>
+        <label className="ml-2">From:</label>
+        <Input
+          type="date"
+          value={from}
+          onChange={(e) => {
+            setFrom(e.target.value);
+            setPreset("custom");
+          }}
+          className="h-9 w-40"
+        />
+        <label>To:</label>
+        <Input
+          type="date"
+          value={to}
+          onChange={(e) => {
+            setTo(e.target.value);
+            setPreset("custom");
+          }}
+          className="h-9 w-40"
+        />
+        <Button variant="outline" size="sm" onClick={applyCustom}>
+          Apply
+        </Button>
 
-          <label className="ml-2">From:</label>
-          <Input
-            type="date"
-            value={from}
-            onChange={(e) => {
-              setFrom(e.target.value);
-              setPreset("custom");
-            }}
-            className="h-9 w-40"
-          />
-          <label>To:</label>
-          <Input
-            type="date"
-            value={to}
-            onChange={(e) => {
-              setTo(e.target.value);
-              setPreset("custom");
-            }}
-            className="h-9 w-40"
-          />
-          <Button variant="outline" size="sm" onClick={applyCustom}>
-            Apply
-          </Button>
+        <label className="ml-3">Status:</label>
+        <select
+          aria-label="Status filter"
+          value={status}
+          className={`${SELECT_CLASSES} w-32`}
+          onChange={(e) => setStatus(e.target.value)}
+        >
+          <option value="all">All</option>
+          <option value="draft">Draft</option>
+          <option value="sent">Sent</option>
+          <option value="overdue">Overdue</option>
+          <option value="paid">Paid</option>
+        </select>
 
-          <label className="ml-3">Status:</label>
-          <select
-            aria-label="Status filter"
-            value={status}
-            className={`${SELECT_CLASSES} w-32`}
-            onChange={(e) => setStatus(e.target.value)}
-          >
-            <option value="all">All</option>
-            <option value="draft">Draft</option>
-            <option value="sent">Sent</option>
-            <option value="overdue">Overdue</option>
-            <option value="paid">Paid</option>
-          </select>
+        <label className="ml-2">Client:</label>
+        <select
+          aria-label="Client filter"
+          value={clientId}
+          className={`${SELECT_CLASSES} w-48`}
+          onChange={(e) => setClientId(e.target.value)}
+        >
+          <option value="all">All</option>
+          {(clients ?? []).map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+              {c.is_active ? "" : " (archived)"}
+            </option>
+          ))}
+        </select>
+      </div>
 
-          <label className="ml-2">Client:</label>
-          <select
-            aria-label="Client filter"
-            value={clientId}
-            className={`${SELECT_CLASSES} w-48`}
-            onChange={(e) => setClientId(e.target.value)}
-          >
-            <option value="all">All</option>
-            {(clients ?? []).map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-                {c.is_active ? "" : " (archived)"}
-              </option>
-            ))}
-          </select>
-        </div>
+      {/* Totals by Status */}
+      <Card className="mb-4">
+        <CardContent className="p-4">
+          <h3 className="mb-3 text-sm font-semibold">Totals by Status</h3>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            <TotalCard
+              label="Draft"
+              value={totals?.draft ?? 0}
+              color="text-sky-700"
+            />
+            <TotalCard
+              label="Sent"
+              value={totals?.sent ?? 0}
+              color="text-amber-600"
+            />
+            <TotalCard
+              label="Overdue"
+              value={totals?.overdue ?? 0}
+              color="text-red-600"
+            />
+            <TotalCard
+              label="Paid"
+              value={totals?.paid ?? 0}
+              color="text-emerald-700"
+            />
+            <TotalCard
+              label="Total"
+              value={totals?.total ?? 0}
+              color="text-foreground"
+            />
+          </div>
+        </CardContent>
+      </Card>
 
-        {/* Totals by Status */}
-        <Card className="mb-4">
-          <CardContent className="p-4">
-            <h3 className="mb-3 text-sm font-semibold">Totals by Status</h3>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-              <TotalCard
-                label="Draft"
-                value={totals?.draft ?? 0}
-                color="text-sky-700"
-              />
-              <TotalCard
-                label="Sent"
-                value={totals?.sent ?? 0}
-                color="text-amber-600"
-              />
-              <TotalCard
-                label="Overdue"
-                value={totals?.overdue ?? 0}
-                color="text-red-600"
-              />
-              <TotalCard
-                label="Paid"
-                value={totals?.paid ?? 0}
-                color="text-emerald-700"
-              />
-              <TotalCard
-                label="Total"
-                value={totals?.total ?? 0}
-                color="text-foreground"
-              />
-            </div>
-          </CardContent>
-        </Card>
+      {/* Search */}
+      <div className="mb-3 flex gap-2">
+        <Input
+          placeholder="Search invoice #, client, or notes…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="flex-1"
+          aria-label="Search invoices"
+        />
+        <Button
+          variant="outline"
+          onClick={() => setSearch("")}
+          disabled={!search}
+        >
+          Clear
+        </Button>
+      </div>
 
-        {/* Search */}
-        <div className="mb-3 flex gap-2">
-          <Input
-            placeholder="Search invoice #, client, or notes…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="flex-1"
-            aria-label="Search invoices"
-          />
-          <Button
-            variant="outline"
-            onClick={() => setSearch("")}
-            disabled={!search}
-          >
-            Clear
-          </Button>
-        </div>
-
-        {/* Table */}
-        <Card>
-          <CardContent className="p-0">
-            {isLoading && (
-              <LoadingBox className="m-4" />
-            )}
-            {isError && (
-              <p className="p-6 text-destructive">
-                Failed to load invoices:{" "}
-                {error instanceof Error ? error.message : "Unknown error"}
-              </p>
-            )}
-            {!isLoading && !isError && filtered.length === 0 && (
-              <p className="p-6 text-muted-foreground">No invoices found.</p>
-            )}
-            {filtered.length > 0 && (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[720px] text-sm">
-                  <thead>
-                    <tr className="border-b bg-muted/40 text-left">
-                      <th className="px-4 py-2 font-semibold">Invoice #</th>
-                      <th className="px-4 py-2 font-semibold">Date</th>
-                      <th className="px-4 py-2 font-semibold">Due Date</th>
-                      <th className="px-4 py-2 font-semibold">Status</th>
-                      <th className="px-4 py-2 text-right font-semibold">
-                        Total
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {grouped.map((g) => (
-                      <Fragment key={g.clientId}>
-                        <tr className="border-b border-t bg-muted/60">
-                          <th
-                            colSpan={4}
-                            className="px-4 py-2 text-left text-sm font-semibold"
+      {/* Table */}
+      <Card>
+        <CardContent className="p-0">
+          {isLoading && (
+            <LoadingBox className="m-4" />
+          )}
+          {isError && (
+            <p className="p-6 text-destructive">
+              Failed to load invoices:{" "}
+              {error instanceof Error ? error.message : "Unknown error"}
+            </p>
+          )}
+          {!isLoading && !isError && filtered.length === 0 && (
+            <p className="p-6 text-muted-foreground">No invoices found.</p>
+          )}
+          {filtered.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[720px] text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/40 text-left">
+                    <th className="px-4 py-2 font-semibold">Invoice #</th>
+                    <th className="px-4 py-2 font-semibold">Date</th>
+                    <th className="px-4 py-2 font-semibold">Due Date</th>
+                    <th className="px-4 py-2 font-semibold">Status</th>
+                    <th className="px-4 py-2 text-right font-semibold">
+                      Total
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {grouped.map((g) => (
+                    <Fragment key={g.clientId}>
+                      <tr className="border-b border-t bg-muted/60">
+                        <th
+                          colSpan={4}
+                          className="px-4 py-2 text-left text-sm font-semibold"
+                        >
+                          {g.clientName}
+                          <span className="ml-2 text-xs font-normal text-muted-foreground">
+                            ({g.invoices.length}{" "}
+                            {g.invoices.length === 1
+                              ? "invoice"
+                              : "invoices"}
+                            )
+                          </span>
+                        </th>
+                        <th className="whitespace-nowrap px-4 py-2 text-right text-sm font-semibold">
+                          {formatCAD(g.subtotal)}
+                        </th>
+                      </tr>
+                      {g.invoices.map((inv) => {
+                        const ds = displayStatus(
+                          inv.status,
+                          inv.due_date,
+                          today,
+                        );
+                        return (
+                          <tr
+                            key={inv.id}
+                            className="cursor-pointer border-b last:border-0 hover:bg-accent/40"
+                            onClick={() => navigate(`/invoices/${inv.id}`)}
                           >
-                            {g.clientName}
-                            <span className="ml-2 text-xs font-normal text-muted-foreground">
-                              ({g.invoices.length}{" "}
-                              {g.invoices.length === 1
-                                ? "invoice"
-                                : "invoices"}
-                              )
-                            </span>
-                          </th>
-                          <th className="whitespace-nowrap px-4 py-2 text-right text-sm font-semibold">
-                            {formatCAD(g.subtotal)}
-                          </th>
-                        </tr>
-                        {g.invoices.map((inv) => {
-                          const ds = displayStatus(
-                            inv.status,
-                            inv.due_date,
-                            today,
-                          );
-                          return (
-                            <tr
-                              key={inv.id}
-                              className="cursor-pointer border-b last:border-0 hover:bg-accent/40"
-                              onClick={() => navigate(`/invoices/${inv.id}`)}
-                            >
-                              <td className="whitespace-nowrap px-4 py-2 pl-8 font-medium">
-                                {inv.invoice_number}
-                              </td>
-                              <td className="whitespace-nowrap px-4 py-2 text-muted-foreground">
-                                {formatDate(inv.issue_date)}
-                              </td>
-                              <td className="whitespace-nowrap px-4 py-2 text-muted-foreground">
-                                {formatDate(inv.due_date)}
-                              </td>
-                              <td className="px-4 py-2">
-                                <StatusBadge status={ds} />
-                              </td>
-                              <td className="whitespace-nowrap px-4 py-2 text-right font-semibold">
-                                {formatCAD(num(inv.total))}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </Fragment>
-                    ))}
-                    <tr className="border-t-2 bg-muted">
-                      <td
-                        colSpan={4}
-                        className="px-4 py-3 text-right text-sm font-bold uppercase tracking-wide"
-                      >
-                        Grand total
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-right text-base font-bold">
-                        {formatCAD(grandTotal)}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </main>
-    </div>
+                            <td className="whitespace-nowrap px-4 py-2 pl-8 font-medium">
+                              {inv.invoice_number}
+                            </td>
+                            <td className="whitespace-nowrap px-4 py-2 text-muted-foreground">
+                              {formatDate(inv.issue_date)}
+                            </td>
+                            <td className="whitespace-nowrap px-4 py-2 text-muted-foreground">
+                              {formatDate(inv.due_date)}
+                            </td>
+                            <td className="px-4 py-2">
+                              <StatusBadge status={ds} />
+                            </td>
+                            <td className="whitespace-nowrap px-4 py-2 text-right font-semibold">
+                              {formatCAD(num(inv.total))}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </Fragment>
+                  ))}
+                  <tr className="border-t-2 bg-muted">
+                    <td
+                      colSpan={4}
+                      className="px-4 py-3 text-right text-sm font-bold uppercase tracking-wide"
+                    >
+                      Grand total
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-right text-base font-bold">
+                      {formatCAD(grandTotal)}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </main>
+
   );
 }
 

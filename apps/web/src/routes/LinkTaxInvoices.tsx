@@ -18,7 +18,6 @@ import type { LinkableInvoice, TaxPaymentRead } from "@/types/api";
 import { formatCAD, num } from "@/lib/invoice";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { AppHeader } from "@/components/AppHeader";
 import { LoadingBox } from "@/components/LoadingScreen";
 
 function formatDate(iso: string): string {
@@ -130,142 +129,139 @@ export function LinkTaxInvoices() {
     : "";
 
   return (
-    <div className="min-h-screen bg-background">
-      <AppHeader />
-
-      <main className="mx-auto max-w-4xl px-4 py-6">
-        <h2 className="mb-2 text-2xl font-bold">
-          Link Invoices to Payment
-          {paymentDate ? ` – ${paymentDate}` : ""}
-        </h2>
-        {paymentQuery.data && (
-          <p className="mb-4 text-sm">
-            Payment: <span className="font-semibold">{amount}</span> on{" "}
-            <span className="font-semibold">{paymentDate}</span>
-          </p>
-        )}
-
-        <div className="mb-3 flex gap-2">
-          <Button variant="outline" onClick={selectAll}>
-            Select All
-          </Button>
-          <Button variant="outline" onClick={deselectAll}>
-            Deselect All
-          </Button>
-        </div>
-
-        <Card>
-          <CardContent className="p-0">
-            {linkableQuery.isLoading && (
-              <LoadingBox className="m-4" />
-            )}
-            {linkableQuery.isError && (
-              <p className="p-6 text-destructive">
-                Failed to load invoices.
-              </p>
-            )}
-            {!linkableQuery.isLoading && rows.length === 0 && (
-              <p className="p-6 text-muted-foreground">
-                No linkable invoices. Every GST-bearing invoice is already
-                tied to a different payment.
-              </p>
-            )}
-            {rows.length > 0 && (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[720px] text-sm">
-                  <thead>
-                    <tr className="border-b bg-muted/40 text-left">
-                      <th className="w-10 px-2 py-2"></th>
-                      <th className="w-10 px-2 py-2"></th>
-                      <th className="px-2 py-2 font-semibold">Invoice #</th>
-                      <th className="px-2 py-2 font-semibold">Client</th>
-                      <th className="px-2 py-2 font-semibold">Date</th>
-                      <th className="px-2 py-2 text-right font-semibold">
-                        Total
-                      </th>
-                      <th className="px-2 py-2 text-right font-semibold">
-                        GST
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((row, idx) => (
-                      <tr
-                        key={row.invoice_id}
-                        className="border-b last:border-0 hover:bg-accent/40"
-                      >
-                        <td className="px-2 py-2 text-center text-muted-foreground">
-                          {idx + 1}
-                        </td>
-                        <td className="px-2 py-2 text-center">
-                          <input
-                            type="checkbox"
-                            aria-label={`Toggle ${row.invoice_number}`}
-                            checked={selected.has(row.invoice_id)}
-                            onChange={() => toggle(row.invoice_id)}
-                            className="h-4 w-4"
-                          />
-                        </td>
-                        <td className="whitespace-nowrap px-2 py-2 font-medium">
-                          {row.invoice_number}
-                        </td>
-                        <td className="whitespace-nowrap px-2 py-2">
-                          {row.client_name}
-                        </td>
-                        <td className="whitespace-nowrap px-2 py-2 text-muted-foreground">
-                          {formatDate(row.issue_date)}
-                        </td>
-                        <td className="whitespace-nowrap px-2 py-2 text-right">
-                          {formatCAD(num(row.total))}
-                        </td>
-                        <td className="whitespace-nowrap px-2 py-2 text-right font-semibold">
-                          {formatCAD(num(row.tax_amount))}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <p className="mt-3 text-sm font-medium">
-          Selected: {summary.count} invoice
-          {summary.count === 1 ? "" : "s"} | Income:{" "}
-          {formatCAD(summary.income)} | GST: {formatCAD(summary.gst)}
+    <main className="mx-auto max-w-4xl px-4 py-6">
+      <h2 className="mb-2 text-2xl font-bold">
+        Link Invoices to Payment
+        {paymentDate ? ` – ${paymentDate}` : ""}
+      </h2>
+      {paymentQuery.data && (
+        <p className="mb-4 text-sm">
+          Payment: <span className="font-semibold">{amount}</span> on{" "}
+          <span className="font-semibold">{paymentDate}</span>
         </p>
+      )}
 
-        {saveMutation.isError && (
-          <p className="mt-3 text-sm text-destructive">
-            Save failed:{" "}
-            {saveMutation.error instanceof ApiError
-              ? typeof saveMutation.error.body === "object" &&
-                saveMutation.error.body &&
-                "detail" in saveMutation.error.body
-                ? String(
-                    (saveMutation.error.body as { detail: unknown }).detail,
-                  )
-                : `Server error ${saveMutation.error.status}`
-              : String(saveMutation.error)}
-          </p>
-        )}
+      <div className="mb-3 flex gap-2">
+        <Button variant="outline" onClick={selectAll}>
+          Select All
+        </Button>
+        <Button variant="outline" onClick={deselectAll}>
+          Deselect All
+        </Button>
+      </div>
 
-        <div className="mt-3 flex justify-end gap-2">
-          <Button
-            variant="outline"
-            onClick={() => navigate(`/taxes/${id}`)}
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={() => saveMutation.mutate()}
-            disabled={saveMutation.isPending}
-          >
-            {saveMutation.isPending ? "Saving…" : "Save"}
-          </Button>
-        </div>
-      </main>
-    </div>
+      <Card>
+        <CardContent className="p-0">
+          {linkableQuery.isLoading && (
+            <LoadingBox className="m-4" />
+          )}
+          {linkableQuery.isError && (
+            <p className="p-6 text-destructive">
+              Failed to load invoices.
+            </p>
+          )}
+          {!linkableQuery.isLoading && rows.length === 0 && (
+            <p className="p-6 text-muted-foreground">
+              No linkable invoices. Every GST-bearing invoice is already
+              tied to a different payment.
+            </p>
+          )}
+          {rows.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[720px] text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/40 text-left">
+                    <th className="w-10 px-2 py-2"></th>
+                    <th className="w-10 px-2 py-2"></th>
+                    <th className="px-2 py-2 font-semibold">Invoice #</th>
+                    <th className="px-2 py-2 font-semibold">Client</th>
+                    <th className="px-2 py-2 font-semibold">Date</th>
+                    <th className="px-2 py-2 text-right font-semibold">
+                      Total
+                    </th>
+                    <th className="px-2 py-2 text-right font-semibold">
+                      GST
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row, idx) => (
+                    <tr
+                      key={row.invoice_id}
+                      className="border-b last:border-0 hover:bg-accent/40"
+                    >
+                      <td className="px-2 py-2 text-center text-muted-foreground">
+                        {idx + 1}
+                      </td>
+                      <td className="px-2 py-2 text-center">
+                        <input
+                          type="checkbox"
+                          aria-label={`Toggle ${row.invoice_number}`}
+                          checked={selected.has(row.invoice_id)}
+                          onChange={() => toggle(row.invoice_id)}
+                          className="h-4 w-4"
+                        />
+                      </td>
+                      <td className="whitespace-nowrap px-2 py-2 font-medium">
+                        {row.invoice_number}
+                      </td>
+                      <td className="whitespace-nowrap px-2 py-2">
+                        {row.client_name}
+                      </td>
+                      <td className="whitespace-nowrap px-2 py-2 text-muted-foreground">
+                        {formatDate(row.issue_date)}
+                      </td>
+                      <td className="whitespace-nowrap px-2 py-2 text-right">
+                        {formatCAD(num(row.total))}
+                      </td>
+                      <td className="whitespace-nowrap px-2 py-2 text-right font-semibold">
+                        {formatCAD(num(row.tax_amount))}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <p className="mt-3 text-sm font-medium">
+        Selected: {summary.count} invoice
+        {summary.count === 1 ? "" : "s"} | Income:{" "}
+        {formatCAD(summary.income)} | GST: {formatCAD(summary.gst)}
+      </p>
+
+      {saveMutation.isError && (
+        <p className="mt-3 text-sm text-destructive">
+          Save failed:{" "}
+          {saveMutation.error instanceof ApiError
+            ? typeof saveMutation.error.body === "object" &&
+              saveMutation.error.body &&
+              "detail" in saveMutation.error.body
+              ? String(
+                  (saveMutation.error.body as { detail: unknown }).detail,
+                )
+              : `Server error ${saveMutation.error.status}`
+            : String(saveMutation.error)}
+        </p>
+      )}
+
+      <div className="mt-3 flex justify-end gap-2">
+        <Button
+          variant="outline"
+          onClick={() => navigate(`/taxes/${id}`)}
+        >
+          Cancel
+        </Button>
+        <Button
+          onClick={() => saveMutation.mutate()}
+          disabled={saveMutation.isPending}
+        >
+          {saveMutation.isPending ? "Saving…" : "Save"}
+        </Button>
+      </div>
+    </main>
+
   );
 }

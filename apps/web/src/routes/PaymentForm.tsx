@@ -39,7 +39,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { AppHeader } from "@/components/AppHeader";
 import { LoadingScreen } from "@/components/LoadingScreen";
 
 const SELECT_CLASSES =
@@ -207,211 +206,208 @@ function PaymentFormInner({
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <AppHeader />
+    <main className="mx-auto max-w-3xl px-4 py-6">
+      <h2 className="mb-6 text-2xl font-bold">
+        {mode === "create" ? "Record Payment" : "Edit Payment"}
+      </h2>
 
-      <main className="mx-auto max-w-3xl px-4 py-6">
-        <h2 className="mb-6 text-2xl font-bold">
-          {mode === "create" ? "Record Payment" : "Edit Payment"}
-        </h2>
+      <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+        <Card>
+          <CardContent className="grid grid-cols-1 gap-4 pt-6 sm:grid-cols-[180px_1fr] sm:items-center">
+            <Label htmlFor="invoice_id">
+              Invoice <span className="text-destructive">*</span>
+            </Label>
+            <select
+              id="invoice_id"
+              required
+              className={SELECT_CLASSES}
+              value={state.invoice_id}
+              onChange={(e) =>
+                setState({ ...state, invoice_id: e.target.value })
+              }
+            >
+              <option value="">Select an invoice…</option>
+              {(invoices ?? []).map((opt) => (
+                <option key={opt.invoice_id} value={opt.invoice_id}>
+                  {opt.invoice_number} - {opt.client_name} (
+                  {formatCAD(num(opt.balance_due))})
+                </option>
+              ))}
+            </select>
 
-        <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-          <Card>
-            <CardContent className="grid grid-cols-1 gap-4 pt-6 sm:grid-cols-[180px_1fr] sm:items-center">
-              <Label htmlFor="invoice_id">
-                Invoice <span className="text-destructive">*</span>
-              </Label>
-              <select
-                id="invoice_id"
-                required
-                className={SELECT_CLASSES}
-                value={state.invoice_id}
-                onChange={(e) =>
-                  setState({ ...state, invoice_id: e.target.value })
-                }
-              >
-                <option value="">Select an invoice…</option>
-                {(invoices ?? []).map((opt) => (
-                  <option key={opt.invoice_id} value={opt.invoice_id}>
-                    {opt.invoice_number} - {opt.client_name} (
-                    {formatCAD(num(opt.balance_due))})
-                  </option>
-                ))}
-              </select>
-
-              <Label>Balance Due</Label>
-              <div className="text-base">
-                {selectedInvoice ? formatCAD(balanceDue) : "—"}
-              </div>
-
-              <Label htmlFor="payment_date">
-                Payment Date <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="payment_date"
-                type="date"
-                required
-                value={state.payment_date}
-                onChange={(e) =>
-                  setState({ ...state, payment_date: e.target.value })
-                }
-              />
-
-              <Label htmlFor="amount">
-                Gross Amount <span className="text-destructive">*</span>
-              </Label>
-              <div className="relative">
-                <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-muted-foreground">
-                  $
-                </span>
-                <Input
-                  id="amount"
-                  type="number"
-                  step="0.01"
-                  required
-                  className="pl-6"
-                  value={state.amount}
-                  onChange={(e) =>
-                    setState({ ...state, amount: e.target.value })
-                  }
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Deductions (optional)</CardTitle>
-            </CardHeader>
-            <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-[180px_1fr] sm:items-center">
-              <Label htmlFor="deduction_amount">Deduction Amount</Label>
-              <div className="relative">
-                <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-muted-foreground">
-                  $
-                </span>
-                <Input
-                  id="deduction_amount"
-                  type="number"
-                  step="0.01"
-                  className="pl-6"
-                  value={state.deduction_amount}
-                  onChange={(e) =>
-                    setState({ ...state, deduction_amount: e.target.value })
-                  }
-                />
-              </div>
-
-              <Label htmlFor="deduction_description">Description</Label>
-              <Input
-                id="deduction_description"
-                placeholder="e.g., CTADMINFEE, Processing Fee"
-                value={state.deduction_description}
-                onChange={(e) =>
-                  setState({
-                    ...state,
-                    deduction_description: e.target.value,
-                  })
-                }
-              />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="grid grid-cols-1 gap-4 pt-6 sm:grid-cols-[180px_1fr] sm:items-center">
-              <Label>Net Amount Received</Label>
-              <div className="text-base font-semibold text-emerald-700">
-                {formatCAD(netNum)}
-              </div>
-
-              <Label htmlFor="payment_method">
-                Payment Method <span className="text-destructive">*</span>
-              </Label>
-              <select
-                id="payment_method"
-                required
-                className={SELECT_CLASSES}
-                value={state.payment_method}
-                onChange={(e) =>
-                  setState({ ...state, payment_method: e.target.value })
-                }
-              >
-                {PAYMENT_METHODS.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
-
-              <Label htmlFor="reference">Reference</Label>
-              <Input
-                id="reference"
-                placeholder="e.g., EFT000000271809"
-                value={state.reference}
-                onChange={(e) =>
-                  setState({ ...state, reference: e.target.value })
-                }
-              />
-
-              <Label htmlFor="notes">Notes</Label>
-              <textarea
-                id="notes"
-                rows={3}
-                className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                value={state.notes}
-                onChange={(e) =>
-                  setState({ ...state, notes: e.target.value })
-                }
-              />
-            </CardContent>
-          </Card>
-
-          {saveMutation.isError && (
-            <p className="text-sm text-destructive">
-              Save failed:{" "}
-              {saveMutation.error instanceof ApiError
-                ? typeof saveMutation.error.body === "object" &&
-                  saveMutation.error.body &&
-                  "detail" in saveMutation.error.body
-                  ? String(
-                      (saveMutation.error.body as { detail: unknown }).detail,
-                    )
-                  : `Server error ${saveMutation.error.status}`
-                : String(saveMutation.error)}
-            </p>
-          )}
-
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              {mode === "edit" && (
-                <Button
-                  type="button"
-                  variant="destructive"
-                  onClick={handleDelete}
-                  disabled={deleteMutation.isPending}
-                >
-                  {deleteMutation.isPending ? "Deleting…" : "Delete"}
-                </Button>
-              )}
+            <Label>Balance Due</Label>
+            <div className="text-base">
+              {selectedInvoice ? formatCAD(balanceDue) : "—"}
             </div>
-            <div className="flex gap-2">
+
+            <Label htmlFor="payment_date">
+              Payment Date <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="payment_date"
+              type="date"
+              required
+              value={state.payment_date}
+              onChange={(e) =>
+                setState({ ...state, payment_date: e.target.value })
+              }
+            />
+
+            <Label htmlFor="amount">
+              Gross Amount <span className="text-destructive">*</span>
+            </Label>
+            <div className="relative">
+              <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-muted-foreground">
+                $
+              </span>
+              <Input
+                id="amount"
+                type="number"
+                step="0.01"
+                required
+                className="pl-6"
+                value={state.amount}
+                onChange={(e) =>
+                  setState({ ...state, amount: e.target.value })
+                }
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Deductions (optional)</CardTitle>
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-[180px_1fr] sm:items-center">
+            <Label htmlFor="deduction_amount">Deduction Amount</Label>
+            <div className="relative">
+              <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-muted-foreground">
+                $
+              </span>
+              <Input
+                id="deduction_amount"
+                type="number"
+                step="0.01"
+                className="pl-6"
+                value={state.deduction_amount}
+                onChange={(e) =>
+                  setState({ ...state, deduction_amount: e.target.value })
+                }
+              />
+            </div>
+
+            <Label htmlFor="deduction_description">Description</Label>
+            <Input
+              id="deduction_description"
+              placeholder="e.g., CTADMINFEE, Processing Fee"
+              value={state.deduction_description}
+              onChange={(e) =>
+                setState({
+                  ...state,
+                  deduction_description: e.target.value,
+                })
+              }
+            />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="grid grid-cols-1 gap-4 pt-6 sm:grid-cols-[180px_1fr] sm:items-center">
+            <Label>Net Amount Received</Label>
+            <div className="text-base font-semibold text-emerald-700">
+              {formatCAD(netNum)}
+            </div>
+
+            <Label htmlFor="payment_method">
+              Payment Method <span className="text-destructive">*</span>
+            </Label>
+            <select
+              id="payment_method"
+              required
+              className={SELECT_CLASSES}
+              value={state.payment_method}
+              onChange={(e) =>
+                setState({ ...state, payment_method: e.target.value })
+              }
+            >
+              {PAYMENT_METHODS.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+
+            <Label htmlFor="reference">Reference</Label>
+            <Input
+              id="reference"
+              placeholder="e.g., EFT000000271809"
+              value={state.reference}
+              onChange={(e) =>
+                setState({ ...state, reference: e.target.value })
+              }
+            />
+
+            <Label htmlFor="notes">Notes</Label>
+            <textarea
+              id="notes"
+              rows={3}
+              className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              value={state.notes}
+              onChange={(e) =>
+                setState({ ...state, notes: e.target.value })
+              }
+            />
+          </CardContent>
+        </Card>
+
+        {saveMutation.isError && (
+          <p className="text-sm text-destructive">
+            Save failed:{" "}
+            {saveMutation.error instanceof ApiError
+              ? typeof saveMutation.error.body === "object" &&
+                saveMutation.error.body &&
+                "detail" in saveMutation.error.body
+                ? String(
+                    (saveMutation.error.body as { detail: unknown }).detail,
+                  )
+                : `Server error ${saveMutation.error.status}`
+              : String(saveMutation.error)}
+          </p>
+        )}
+
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            {mode === "edit" && (
               <Button
                 type="button"
-                variant="outline"
-                onClick={() => navigate("/payments")}
+                variant="destructive"
+                onClick={handleDelete}
+                disabled={deleteMutation.isPending}
               >
-                Cancel
+                {deleteMutation.isPending ? "Deleting…" : "Delete"}
               </Button>
-              <Button
-                type="submit"
-                disabled={saveMutation.isPending || !state.invoice_id}
-              >
-                {saveMutation.isPending ? "Saving…" : "Save"}
-              </Button>
-            </div>
+            )}
           </div>
-        </form>
-      </main>
-    </div>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => navigate("/payments")}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={saveMutation.isPending || !state.invoice_id}
+            >
+              {saveMutation.isPending ? "Saving…" : "Save"}
+            </Button>
+          </div>
+        </div>
+      </form>
+    </main>
+
   );
 }
 

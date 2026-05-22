@@ -25,7 +25,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { AppHeader } from "@/components/AppHeader";
 import { LoadingBox } from "@/components/LoadingScreen";
 
 const SELECT_CLASSES =
@@ -181,198 +180,195 @@ export function Payments() {
   );
 
   return (
-    <div className="min-h-screen bg-background">
-      <AppHeader />
+    <main className="mx-auto max-w-6xl px-4 py-6">
+      <div className="mb-6 flex items-center justify-between">
+        <h2 className="text-2xl font-bold">Payments</h2>
+        <Button onClick={() => navigate("/payments/new")}>
+          Record Payment
+        </Button>
+      </div>
 
-      <main className="mx-auto max-w-6xl px-4 py-6">
-        <div className="mb-6 flex items-center justify-between">
-          <h2 className="text-2xl font-bold">Payments</h2>
-          <Button onClick={() => navigate("/payments/new")}>
-            Record Payment
-          </Button>
-        </div>
+      {/* Filters */}
+      <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border bg-card px-4 py-3 text-sm">
+        <select
+          aria-label="Fiscal year preset"
+          value={preset}
+          className={`${SELECT_CLASSES} w-44`}
+          onChange={(e) => applyPreset(e.target.value as FyPreset)}
+        >
+          <option value="this">This Financial Year</option>
+          <option value="last">Last Financial Year</option>
+          <option value="all">All</option>
+          <option value="custom">Custom</option>
+        </select>
+        <label className="ml-2">From:</label>
+        <Input
+          type="date"
+          value={from}
+          onChange={(e) => {
+            setFrom(e.target.value);
+            setPreset("custom");
+          }}
+          className="h-9 w-40"
+        />
+        <label>To:</label>
+        <Input
+          type="date"
+          value={to}
+          onChange={(e) => {
+            setTo(e.target.value);
+            setPreset("custom");
+          }}
+          className="h-9 w-40"
+        />
+        <Button variant="outline" size="sm" onClick={applyCustom}>
+          Apply
+        </Button>
+      </div>
 
-        {/* Filters */}
-        <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border bg-card px-4 py-3 text-sm">
-          <select
-            aria-label="Fiscal year preset"
-            value={preset}
-            className={`${SELECT_CLASSES} w-44`}
-            onChange={(e) => applyPreset(e.target.value as FyPreset)}
-          >
-            <option value="this">This Financial Year</option>
-            <option value="last">Last Financial Year</option>
-            <option value="all">All</option>
-            <option value="custom">Custom</option>
-          </select>
-          <label className="ml-2">From:</label>
-          <Input
-            type="date"
-            value={from}
-            onChange={(e) => {
-              setFrom(e.target.value);
-              setPreset("custom");
-            }}
-            className="h-9 w-40"
-          />
-          <label>To:</label>
-          <Input
-            type="date"
-            value={to}
-            onChange={(e) => {
-              setTo(e.target.value);
-              setPreset("custom");
-            }}
-            className="h-9 w-40"
-          />
-          <Button variant="outline" size="sm" onClick={applyCustom}>
-            Apply
-          </Button>
-        </div>
+      {/* Search */}
+      <div className="mb-3 flex gap-2">
+        <Input
+          placeholder="Search invoice #, client, reference, or notes…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="flex-1"
+          aria-label="Search payments"
+        />
+        <Button
+          variant="outline"
+          onClick={() => setSearch("")}
+          disabled={!search}
+        >
+          Clear
+        </Button>
+      </div>
 
-        {/* Search */}
-        <div className="mb-3 flex gap-2">
-          <Input
-            placeholder="Search invoice #, client, reference, or notes…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="flex-1"
-            aria-label="Search payments"
-          />
-          <Button
-            variant="outline"
-            onClick={() => setSearch("")}
-            disabled={!search}
-          >
-            Clear
-          </Button>
-        </div>
-
-        {/* Table */}
-        <Card>
-          <CardContent className="p-0">
-            {isLoading && (
-              <LoadingBox className="m-4" />
-            )}
-            {isError && (
-              <p className="p-6 text-destructive">
-                Failed to load payments:{" "}
-                {error instanceof Error ? error.message : "Unknown error"}
-              </p>
-            )}
-            {!isLoading && !isError && filtered.length === 0 && (
-              <p className="p-6 text-muted-foreground">No payments found.</p>
-            )}
-            {filtered.length > 0 && (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[720px] text-sm">
-                  <thead>
-                    <tr className="border-b bg-muted/40 text-left">
-                      <th className="px-4 py-2 font-semibold">Date</th>
-                      <th className="px-4 py-2 font-semibold">Invoice #</th>
-                      <th className="px-4 py-2 text-right font-semibold">
-                        Gross
-                      </th>
-                      <th className="px-4 py-2 text-right font-semibold">
-                        Deduction
-                      </th>
-                      <th className="px-4 py-2 text-right font-semibold">
-                        Net
-                      </th>
-                      <th className="px-4 py-2 font-semibold">Method</th>
-                      <th className="px-4 py-2 font-semibold">Reference</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {grouped.map((g) => (
-                      <Fragment key={g.clientId}>
-                        <tr className="border-b border-t bg-muted/60">
-                          <th
-                            colSpan={2}
-                            className="px-4 py-2 text-left text-sm font-semibold"
+      {/* Table */}
+      <Card>
+        <CardContent className="p-0">
+          {isLoading && (
+            <LoadingBox className="m-4" />
+          )}
+          {isError && (
+            <p className="p-6 text-destructive">
+              Failed to load payments:{" "}
+              {error instanceof Error ? error.message : "Unknown error"}
+            </p>
+          )}
+          {!isLoading && !isError && filtered.length === 0 && (
+            <p className="p-6 text-muted-foreground">No payments found.</p>
+          )}
+          {filtered.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[720px] text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/40 text-left">
+                    <th className="px-4 py-2 font-semibold">Date</th>
+                    <th className="px-4 py-2 font-semibold">Invoice #</th>
+                    <th className="px-4 py-2 text-right font-semibold">
+                      Gross
+                    </th>
+                    <th className="px-4 py-2 text-right font-semibold">
+                      Deduction
+                    </th>
+                    <th className="px-4 py-2 text-right font-semibold">
+                      Net
+                    </th>
+                    <th className="px-4 py-2 font-semibold">Method</th>
+                    <th className="px-4 py-2 font-semibold">Reference</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {grouped.map((g) => (
+                    <Fragment key={g.clientId}>
+                      <tr className="border-b border-t bg-muted/60">
+                        <th
+                          colSpan={2}
+                          className="px-4 py-2 text-left text-sm font-semibold"
+                        >
+                          {g.clientName}
+                          <span className="ml-2 text-xs font-normal text-muted-foreground">
+                            ({g.payments.length}{" "}
+                            {g.payments.length === 1
+                              ? "payment"
+                              : "payments"}
+                            )
+                          </span>
+                        </th>
+                        <th className="whitespace-nowrap px-4 py-2 text-right text-sm font-semibold">
+                          {formatCAD(g.gross)}
+                        </th>
+                        <th className="whitespace-nowrap px-4 py-2 text-right text-sm font-semibold">
+                          {g.deduction > 0 ? formatCAD(g.deduction) : "—"}
+                        </th>
+                        <th className="whitespace-nowrap px-4 py-2 text-right text-sm font-semibold">
+                          {formatCAD(g.net)}
+                        </th>
+                        <th colSpan={2} />
+                      </tr>
+                      {g.payments.map((p) => {
+                        const deduction = num(p.deduction_amount);
+                        return (
+                          <tr
+                            key={p.id}
+                            className="cursor-pointer border-b last:border-0 hover:bg-accent/40"
+                            onClick={() => navigate(`/payments/${p.id}`)}
                           >
-                            {g.clientName}
-                            <span className="ml-2 text-xs font-normal text-muted-foreground">
-                              ({g.payments.length}{" "}
-                              {g.payments.length === 1
-                                ? "payment"
-                                : "payments"}
-                              )
-                            </span>
-                          </th>
-                          <th className="whitespace-nowrap px-4 py-2 text-right text-sm font-semibold">
-                            {formatCAD(g.gross)}
-                          </th>
-                          <th className="whitespace-nowrap px-4 py-2 text-right text-sm font-semibold">
-                            {g.deduction > 0 ? formatCAD(g.deduction) : "—"}
-                          </th>
-                          <th className="whitespace-nowrap px-4 py-2 text-right text-sm font-semibold">
-                            {formatCAD(g.net)}
-                          </th>
-                          <th colSpan={2} />
-                        </tr>
-                        {g.payments.map((p) => {
-                          const deduction = num(p.deduction_amount);
-                          return (
-                            <tr
-                              key={p.id}
-                              className="cursor-pointer border-b last:border-0 hover:bg-accent/40"
-                              onClick={() => navigate(`/payments/${p.id}`)}
-                            >
-                              <td className="whitespace-nowrap px-4 py-2 pl-8">
-                                {formatDate(p.payment_date)}
-                              </td>
-                              <td className="whitespace-nowrap px-4 py-2 font-medium">
-                                {p.invoice_number}
-                              </td>
-                              <td className="whitespace-nowrap px-4 py-2 text-right">
-                                {formatCAD(num(p.amount))}
-                              </td>
-                              <td className="whitespace-nowrap px-4 py-2 text-right">
-                                {deduction > 0 ? formatCAD(deduction) : "—"}
-                              </td>
-                              <td className="whitespace-nowrap px-4 py-2 text-right font-semibold">
-                                {formatCAD(num(p.net))}
-                              </td>
-                              <td className="whitespace-nowrap px-4 py-2">
-                                {p.payment_method ?? "—"}
-                              </td>
-                              <td className="whitespace-nowrap px-4 py-2 text-muted-foreground">
-                                {p.reference ?? "—"}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </Fragment>
-                    ))}
-                    <tr className="border-t-2 bg-muted">
-                      <td
-                        colSpan={2}
-                        className="px-4 py-3 text-right text-sm font-bold uppercase tracking-wide"
-                      >
-                        Grand total
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-bold">
-                        {formatCAD(grandTotals.gross)}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-bold">
-                        {grandTotals.deduction > 0
-                          ? formatCAD(grandTotals.deduction)
-                          : "—"}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-right text-base font-bold">
-                        {formatCAD(grandTotals.net)}
-                      </td>
-                      <td colSpan={2} />
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                            <td className="whitespace-nowrap px-4 py-2 pl-8">
+                              {formatDate(p.payment_date)}
+                            </td>
+                            <td className="whitespace-nowrap px-4 py-2 font-medium">
+                              {p.invoice_number}
+                            </td>
+                            <td className="whitespace-nowrap px-4 py-2 text-right">
+                              {formatCAD(num(p.amount))}
+                            </td>
+                            <td className="whitespace-nowrap px-4 py-2 text-right">
+                              {deduction > 0 ? formatCAD(deduction) : "—"}
+                            </td>
+                            <td className="whitespace-nowrap px-4 py-2 text-right font-semibold">
+                              {formatCAD(num(p.net))}
+                            </td>
+                            <td className="whitespace-nowrap px-4 py-2">
+                              {p.payment_method ?? "—"}
+                            </td>
+                            <td className="whitespace-nowrap px-4 py-2 text-muted-foreground">
+                              {p.reference ?? "—"}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </Fragment>
+                  ))}
+                  <tr className="border-t-2 bg-muted">
+                    <td
+                      colSpan={2}
+                      className="px-4 py-3 text-right text-sm font-bold uppercase tracking-wide"
+                    >
+                      Grand total
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-bold">
+                      {formatCAD(grandTotals.gross)}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-bold">
+                      {grandTotals.deduction > 0
+                        ? formatCAD(grandTotals.deduction)
+                        : "—"}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-right text-base font-bold">
+                      {formatCAD(grandTotals.net)}
+                    </td>
+                    <td colSpan={2} />
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
-      </main>
-    </div>
+    </main>
+
   );
 }

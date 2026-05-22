@@ -24,7 +24,6 @@ import {
   num,
   toIsoDate,
 } from "@/lib/invoice";
-import { AppHeader } from "@/components/AppHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -224,183 +223,181 @@ export function Expenses() {
   }, [expensesQuery.data, search]);
 
   return (
-    <div className="min-h-screen bg-background">
-      <AppHeader />
-      <main className="mx-auto max-w-6xl px-4 py-6">
-        {/* Title + Upload */}
-        <div className="mb-6 flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
-          <h2 className="text-2xl font-bold">Expenses</h2>
-          <Button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploadMutation.isPending}
-          >
-            {uploadMutation.isPending ? "Uploading…" : "New Expense"}
-          </Button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*,application/pdf"
-            // `capture` is the iPhone trigger to open the rear camera
-            // immediately. On desktop it's ignored and the OS file
-            // picker opens instead.
-            capture="environment"
-            onChange={handleFileChange}
-            className="hidden"
-            aria-label="Upload receipt"
-          />
-        </div>
+    <main className="mx-auto max-w-6xl px-4 py-6">
+      {/* Title + Upload */}
+      <div className="mb-6 flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+        <h2 className="text-2xl font-bold">Expenses</h2>
+        <Button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploadMutation.isPending}
+        >
+          {uploadMutation.isPending ? "Uploading…" : "New Expense"}
+        </Button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*,application/pdf"
+          // `capture` is the iPhone trigger to open the rear camera
+          // immediately. On desktop it's ignored and the OS file
+          // picker opens instead.
+          capture="environment"
+          onChange={handleFileChange}
+          className="hidden"
+          aria-label="Upload receipt"
+        />
+      </div>
 
-        {uploadError && (
-          <p className="mb-3 text-sm text-destructive">
-            Upload failed: {uploadError}
-          </p>
-        )}
+      {uploadError && (
+        <p className="mb-3 text-sm text-destructive">
+          Upload failed: {uploadError}
+        </p>
+      )}
 
-        {/* Filters */}
-        <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border bg-card px-4 py-3 text-sm">
-          <select
-            aria-label="Fiscal year preset"
-            value={preset}
-            className={`${SELECT_CLASSES} w-44`}
-            onChange={(e) => applyPreset(e.target.value as FyPreset)}
-          >
-            <option value="this">This Financial Year</option>
-            <option value="last">Last Financial Year</option>
-            <option value="all">All</option>
-            <option value="custom">Custom</option>
-          </select>
-          <label className="ml-2">From:</label>
-          <Input
-            type="date"
-            value={from}
-            onChange={(e) => {
-              setFrom(e.target.value);
-              setPreset("custom");
-            }}
-            className="h-9 w-40"
-          />
-          <label>To:</label>
-          <Input
-            type="date"
-            value={to}
-            onChange={(e) => {
-              setTo(e.target.value);
-              setPreset("custom");
-            }}
-            className="h-9 w-40"
-          />
-          <Button variant="outline" size="sm" onClick={applyCustom}>
-            Apply
-          </Button>
+      {/* Filters */}
+      <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border bg-card px-4 py-3 text-sm">
+        <select
+          aria-label="Fiscal year preset"
+          value={preset}
+          className={`${SELECT_CLASSES} w-44`}
+          onChange={(e) => applyPreset(e.target.value as FyPreset)}
+        >
+          <option value="this">This Financial Year</option>
+          <option value="last">Last Financial Year</option>
+          <option value="all">All</option>
+          <option value="custom">Custom</option>
+        </select>
+        <label className="ml-2">From:</label>
+        <Input
+          type="date"
+          value={from}
+          onChange={(e) => {
+            setFrom(e.target.value);
+            setPreset("custom");
+          }}
+          className="h-9 w-40"
+        />
+        <label>To:</label>
+        <Input
+          type="date"
+          value={to}
+          onChange={(e) => {
+            setTo(e.target.value);
+            setPreset("custom");
+          }}
+          className="h-9 w-40"
+        />
+        <Button variant="outline" size="sm" onClick={applyCustom}>
+          Apply
+        </Button>
 
-          <label className="ml-3">Status:</label>
-          <select
-            aria-label="Status filter"
-            value={statusFilter}
-            className={`${SELECT_CLASSES} w-36`}
-            onChange={(e) => setStatusFilter(e.target.value)}
-          >
-            <option value="all">All</option>
-            <option value="pending">Pending</option>
-            <option value="processing">Processing</option>
-            <option value="ready">Ready</option>
-            <option value="failed">Failed</option>
-          </select>
-        </div>
+        <label className="ml-3">Status:</label>
+        <select
+          aria-label="Status filter"
+          value={statusFilter}
+          className={`${SELECT_CLASSES} w-36`}
+          onChange={(e) => setStatusFilter(e.target.value)}
+        >
+          <option value="all">All</option>
+          <option value="pending">Pending</option>
+          <option value="processing">Processing</option>
+          <option value="ready">Ready</option>
+          <option value="failed">Failed</option>
+        </select>
+      </div>
 
-        {/* Search */}
-        <div className="mb-3 flex gap-2">
-          <Input
-            placeholder="Search supplier, category, or notes…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="flex-1"
-            aria-label="Search expenses"
-          />
-          <Button
-            variant="outline"
-            onClick={() => setSearch("")}
-            disabled={!search}
-          >
-            Clear
-          </Button>
-        </div>
+      {/* Search */}
+      <div className="mb-3 flex gap-2">
+        <Input
+          placeholder="Search supplier, category, or notes…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="flex-1"
+          aria-label="Search expenses"
+        />
+        <Button
+          variant="outline"
+          onClick={() => setSearch("")}
+          disabled={!search}
+        >
+          Clear
+        </Button>
+      </div>
 
-        {/* Table */}
-        <Card>
-          <CardContent className="p-0">
-            {expensesQuery.isLoading && (
-              <LoadingBox className="m-4" />
-            )}
-            {expensesQuery.isError && (
-              <p className="p-6 text-destructive">
-                Failed to load expenses:{" "}
-                {expensesQuery.error instanceof Error
-                  ? expensesQuery.error.message
-                  : "Unknown error"}
+      {/* Table */}
+      <Card>
+        <CardContent className="p-0">
+          {expensesQuery.isLoading && (
+            <LoadingBox className="m-4" />
+          )}
+          {expensesQuery.isError && (
+            <p className="p-6 text-destructive">
+              Failed to load expenses:{" "}
+              {expensesQuery.error instanceof Error
+                ? expensesQuery.error.message
+                : "Unknown error"}
+            </p>
+          )}
+          {!expensesQuery.isLoading &&
+            !expensesQuery.isError &&
+            filtered.length === 0 && (
+              <p className="p-6 text-muted-foreground">
+                No expenses yet. Tap "New Expense" to upload your first
+                receipt.
               </p>
             )}
-            {!expensesQuery.isLoading &&
-              !expensesQuery.isError &&
-              filtered.length === 0 && (
-                <p className="p-6 text-muted-foreground">
-                  No expenses yet. Tap "New Expense" to upload your first
-                  receipt.
-                </p>
-              )}
-            {filtered.length > 0 && (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[720px] text-sm">
-                  <thead>
-                    <tr className="border-b bg-muted/40 text-left">
-                      <th className="px-4 py-2 font-semibold">Status</th>
-                      <th className="px-4 py-2 font-semibold">Date</th>
-                      <th className="px-4 py-2 font-semibold">Supplier</th>
-                      <th className="px-4 py-2 font-semibold">Category</th>
-                      <th className="px-4 py-2 text-right font-semibold">
-                        Total
-                      </th>
-                      <th className="px-4 py-2 text-right font-semibold">
-                        Tax
-                      </th>
+          {filtered.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[720px] text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/40 text-left">
+                    <th className="px-4 py-2 font-semibold">Status</th>
+                    <th className="px-4 py-2 font-semibold">Date</th>
+                    <th className="px-4 py-2 font-semibold">Supplier</th>
+                    <th className="px-4 py-2 font-semibold">Category</th>
+                    <th className="px-4 py-2 text-right font-semibold">
+                      Total
+                    </th>
+                    <th className="px-4 py-2 text-right font-semibold">
+                      Tax
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((e) => (
+                    <tr
+                      key={e.id}
+                      className="cursor-pointer border-b last:border-0 hover:bg-accent/40"
+                      onClick={() => navigate(`/expenses/${e.id}`)}
+                    >
+                      <td className="px-4 py-2">
+                        <StatusBadge status={e.status} />
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-2 text-muted-foreground">
+                        {formatDate(e.expense_date)}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-2 font-medium">
+                        {e.supplier ?? <span className="text-muted-foreground">—</span>}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-2">
+                        {e.category ?? <span className="text-muted-foreground">—</span>}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-2 text-right font-semibold">
+                        {e.total != null ? formatCAD(num(e.total)) : "—"}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-2 text-right text-muted-foreground">
+                        {e.tax_amount != null
+                          ? formatCAD(num(e.tax_amount))
+                          : "—"}
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {filtered.map((e) => (
-                      <tr
-                        key={e.id}
-                        className="cursor-pointer border-b last:border-0 hover:bg-accent/40"
-                        onClick={() => navigate(`/expenses/${e.id}`)}
-                      >
-                        <td className="px-4 py-2">
-                          <StatusBadge status={e.status} />
-                        </td>
-                        <td className="whitespace-nowrap px-4 py-2 text-muted-foreground">
-                          {formatDate(e.expense_date)}
-                        </td>
-                        <td className="whitespace-nowrap px-4 py-2 font-medium">
-                          {e.supplier ?? <span className="text-muted-foreground">—</span>}
-                        </td>
-                        <td className="whitespace-nowrap px-4 py-2">
-                          {e.category ?? <span className="text-muted-foreground">—</span>}
-                        </td>
-                        <td className="whitespace-nowrap px-4 py-2 text-right font-semibold">
-                          {e.total != null ? formatCAD(num(e.total)) : "—"}
-                        </td>
-                        <td className="whitespace-nowrap px-4 py-2 text-right text-muted-foreground">
-                          {e.tax_amount != null
-                            ? formatCAD(num(e.tax_amount))
-                            : "—"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </main>
-    </div>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </main>
+
   );
 }

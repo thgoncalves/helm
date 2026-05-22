@@ -12,8 +12,9 @@
  *
  * The post-sign-in chooser at `/account-type` lets the user pick a module
  * and remembers the last choice in localStorage for sticky deep-linking.
- * The AppHeader provides an in-place 3-segment switcher so the user can
- * flip modules at any time.
+ * Every protected route is wrapped in <AppShell>, which renders the
+ * consolidated sidebar with every section visible at once — no more
+ * module switching, just scroll the nav.
  *
  * Public:
  *   /            → SignIn (with brand mark)
@@ -57,6 +58,7 @@ import { Dashboard } from "@/routes/Dashboard";
 import { Expenses } from "@/routes/Expenses";
 import { ExpenseForm } from "@/routes/ExpenseForm";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { AppShell } from "@/components/AppShell";
 import { ThemeSync } from "@/components/ThemeSync";
 
 /**
@@ -89,67 +91,74 @@ export function App() {
 
         {/* Protected */}
         <Route element={<ProtectedRoute />}>
+          {/* AccountType is the post-sign-in module chooser; it stands
+              on its own (no shell chrome) since the shell IS the
+              consolidated navigation. */}
           <Route path="/account-type" element={<AccountType />} />
 
-          {/* Money module */}
-          <Route
-            path="/money"
-            element={<Navigate to="/money/dashboard" replace />}
-          />
-          <Route path="/money/dashboard" element={<MoneyDashboard />} />
-          <Route path="/accounts" element={<Accounts />} />
+          {/* Everything else lives inside the AppShell layout — fixed
+              sidebar on the left, independently scrolling main pane. */}
+          <Route element={<AppShell />}>
+            {/* Money module */}
+            <Route
+              path="/money"
+              element={<Navigate to="/money/dashboard" replace />}
+            />
+            <Route path="/money/dashboard" element={<MoneyDashboard />} />
+            <Route path="/accounts" element={<Accounts />} />
 
-          {/* Investments module — portfolio tracker (V1). */}
-          <Route path="/investments" element={<Investments />} />
-          <Route path="/investments/research" element={<Research />} />
-          <Route path="/investments/stocks" element={<Stocks />} />
-          <Route
-            path="/investments/stocks/buy"
-            element={<RecordPurchase />}
-          />
-          <Route
-            path="/investments/stocks/:ticker"
-            element={<StockDetail />}
-          />
+            {/* Investments module — portfolio tracker (V1). */}
+            <Route path="/investments" element={<Investments />} />
+            <Route path="/investments/research" element={<Research />} />
+            <Route path="/investments/stocks" element={<Stocks />} />
+            <Route
+              path="/investments/stocks/buy"
+              element={<RecordPurchase />}
+            />
+            <Route
+              path="/investments/stocks/:ticker"
+              element={<StockDetail />}
+            />
 
-          {/* Legacy /personal/* — silent redirect into Money so any saved
-              bookmarks or browser autocompletes keep working. */}
-          <Route
-            path="/personal"
-            element={<Navigate to="/money/dashboard" replace />}
-          />
-          <Route
-            path="/personal/*"
-            element={<Navigate to="/money/dashboard" replace />}
-          />
+            {/* Legacy /personal/* — silent redirect into Money so any saved
+                bookmarks or browser autocompletes keep working. */}
+            <Route
+              path="/personal"
+              element={<Navigate to="/money/dashboard" replace />}
+            />
+            <Route
+              path="/personal/*"
+              element={<Navigate to="/money/dashboard" replace />}
+            />
 
-          {/* Business module — flat URLs are the implicit default. */}
-          <Route
-            path="/business"
-            element={<Navigate to="/dashboard" replace />}
-          />
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/clients" element={<Clients />} />
-          <Route path="/clients/new" element={<NewClient />} />
-          <Route path="/clients/:id" element={<ClientDetail />} />
-          <Route path="/clients/:id/edit" element={<EditClient />} />
-          <Route path="/timesheets" element={<Timesheets />} />
-          <Route path="/invoices" element={<Invoices />} />
-          <Route path="/invoices/new" element={<NewInvoice />} />
-          <Route path="/invoices/:id" element={<EditInvoice />} />
-          <Route path="/payments" element={<Payments />} />
-          <Route path="/payments/new" element={<NewPayment />} />
-          <Route path="/payments/:id" element={<EditPayment />} />
-          <Route path="/expenses" element={<Expenses />} />
-          <Route path="/expenses/:id" element={<ExpenseForm />} />
-          <Route path="/taxes" element={<Taxes />} />
-          <Route path="/taxes/new" element={<NewTaxPayment />} />
-          <Route path="/taxes/:id" element={<EditTaxPayment />} />
-          <Route path="/taxes/:id/link" element={<LinkTaxInvoices />} />
-          <Route path="/transfers" element={<Transfers />} />
-          <Route path="/transfers/new" element={<NewTransfer />} />
-          <Route path="/transfers/:id" element={<EditTransfer />} />
-          <Route path="/settings" element={<Settings />} />
+            {/* Business module — flat URLs are the implicit default. */}
+            <Route
+              path="/business"
+              element={<Navigate to="/dashboard" replace />}
+            />
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/clients" element={<Clients />} />
+            <Route path="/clients/new" element={<NewClient />} />
+            <Route path="/clients/:id" element={<ClientDetail />} />
+            <Route path="/clients/:id/edit" element={<EditClient />} />
+            <Route path="/timesheets" element={<Timesheets />} />
+            <Route path="/invoices" element={<Invoices />} />
+            <Route path="/invoices/new" element={<NewInvoice />} />
+            <Route path="/invoices/:id" element={<EditInvoice />} />
+            <Route path="/payments" element={<Payments />} />
+            <Route path="/payments/new" element={<NewPayment />} />
+            <Route path="/payments/:id" element={<EditPayment />} />
+            <Route path="/expenses" element={<Expenses />} />
+            <Route path="/expenses/:id" element={<ExpenseForm />} />
+            <Route path="/taxes" element={<Taxes />} />
+            <Route path="/taxes/new" element={<NewTaxPayment />} />
+            <Route path="/taxes/:id" element={<EditTaxPayment />} />
+            <Route path="/taxes/:id/link" element={<LinkTaxInvoices />} />
+            <Route path="/transfers" element={<Transfers />} />
+            <Route path="/transfers/new" element={<NewTransfer />} />
+            <Route path="/transfers/:id" element={<EditTransfer />} />
+            <Route path="/settings" element={<Settings />} />
+          </Route>
         </Route>
 
         {/* 404 */}

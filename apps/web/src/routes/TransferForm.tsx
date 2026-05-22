@@ -33,7 +33,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { AppHeader } from "@/components/AppHeader";
 import { LoadingScreen } from "@/components/LoadingScreen";
 
 const SELECT_CLASSES =
@@ -201,226 +200,223 @@ function TransferFormInner({ mode, transferId, initialState }: InnerProps) {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <AppHeader />
+    <main className="mx-auto max-w-3xl px-4 py-6">
+      <h2 className="mb-6 text-2xl font-bold">
+        {mode === "create" ? "New Transfer" : "Edit Transfer"}
+      </h2>
 
-      <main className="mx-auto max-w-3xl px-4 py-6">
-        <h2 className="mb-6 text-2xl font-bold">
-          {mode === "create" ? "New Transfer" : "Edit Transfer"}
-        </h2>
+      <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+        <Card>
+          <CardContent className="grid grid-cols-1 gap-4 pt-6 sm:grid-cols-[180px_1fr] sm:items-center">
+            <Label htmlFor="transfer_date">
+              Date <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="transfer_date"
+              type="date"
+              required
+              value={state.transfer_date}
+              onChange={(e) =>
+                setState({ ...state, transfer_date: e.target.value })
+              }
+            />
 
-        <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-          <Card>
-            <CardContent className="grid grid-cols-1 gap-4 pt-6 sm:grid-cols-[180px_1fr] sm:items-center">
-              <Label htmlFor="transfer_date">
-                Date <span className="text-destructive">*</span>
-              </Label>
+            <Label htmlFor="amount">
+              Amount <span className="text-destructive">*</span>
+            </Label>
+            <div className="relative">
+              <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-muted-foreground">
+                $
+              </span>
               <Input
-                id="transfer_date"
-                type="date"
+                id="amount"
+                type="number"
+                step="0.01"
                 required
-                value={state.transfer_date}
+                className="pl-6"
+                value={state.amount}
                 onChange={(e) =>
-                  setState({ ...state, transfer_date: e.target.value })
+                  setState({ ...state, amount: e.target.value })
                 }
               />
-
-              <Label htmlFor="amount">
-                Amount <span className="text-destructive">*</span>
-              </Label>
-              <div className="relative">
-                <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-muted-foreground">
-                  $
-                </span>
-                <Input
-                  id="amount"
-                  type="number"
-                  step="0.01"
-                  required
-                  className="pl-6"
-                  value={state.amount}
-                  onChange={(e) =>
-                    setState({ ...state, amount: e.target.value })
-                  }
-                />
-              </div>
-
-              <Label htmlFor="category">
-                Category <span className="text-destructive">*</span>
-              </Label>
-              <select
-                id="category"
-                required
-                className={SELECT_CLASSES}
-                value={state.category}
-                onChange={(e) =>
-                  setState({ ...state, category: e.target.value })
-                }
-              >
-                {CATEGORIES.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-
-              <Label htmlFor="method">
-                Method <span className="text-destructive">*</span>
-              </Label>
-              <select
-                id="method"
-                required
-                className={SELECT_CLASSES}
-                value={state.method}
-                onChange={(e) =>
-                  setState({ ...state, method: e.target.value })
-                }
-              >
-                {METHODS.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
-
-              <Label htmlFor="purpose">Purpose</Label>
-              <Input
-                id="purpose"
-                value={state.purpose}
-                onChange={(e) =>
-                  setState({ ...state, purpose: e.target.value })
-                }
-              />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <input
-                  id="auto_estimate"
-                  type="checkbox"
-                  className="h-4 w-4 cursor-pointer rounded border-input"
-                  checked={state.auto_estimate}
-                  onChange={(e) =>
-                    setState({
-                      ...state,
-                      auto_estimate: e.target.checked,
-                    })
-                  }
-                />
-                <Label
-                  htmlFor="auto_estimate"
-                  className="cursor-pointer text-sm font-medium"
-                >
-                  Auto-estimate taxes
-                </Label>
-              </div>
-              <CardTitle className="text-base">Tax Estimates</CardTitle>
-            </CardHeader>
-            <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-[180px_1fr] sm:items-center">
-              <Label htmlFor="est_company">Company Tax</Label>
-              <div className="relative">
-                <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-muted-foreground">
-                  $
-                </span>
-                <Input
-                  id="est_company"
-                  type="number"
-                  step="0.01"
-                  className="pl-6"
-                  disabled={state.auto_estimate}
-                  value={state.est_company}
-                  onChange={(e) =>
-                    setState({ ...state, est_company: e.target.value })
-                  }
-                />
-              </div>
-
-              <Label htmlFor="est_personal">Personal Tax</Label>
-              <div className="relative">
-                <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-muted-foreground">
-                  $
-                </span>
-                <Input
-                  id="est_personal"
-                  type="number"
-                  step="0.01"
-                  className="pl-6"
-                  disabled={state.auto_estimate}
-                  value={state.est_personal}
-                  onChange={(e) =>
-                    setState({ ...state, est_personal: e.target.value })
-                  }
-                />
-              </div>
-
-              <Label>Total Estimated Tax</Label>
-              <p className="font-semibold">{formatCAD(totalEstimated)}</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="grid grid-cols-1 gap-4 pt-6 sm:grid-cols-[180px_1fr] sm:items-start">
-              <Label htmlFor="notes" className="pt-2">
-                Notes
-              </Label>
-              <textarea
-                id="notes"
-                rows={3}
-                className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                value={state.notes}
-                onChange={(e) =>
-                  setState({ ...state, notes: e.target.value })
-                }
-              />
-            </CardContent>
-          </Card>
-
-          {saveMutation.isError && (
-            <p className="text-sm text-destructive">
-              Save failed:{" "}
-              {saveMutation.error instanceof ApiError
-                ? typeof saveMutation.error.body === "object" &&
-                  saveMutation.error.body &&
-                  "detail" in saveMutation.error.body
-                  ? String(
-                      (saveMutation.error.body as { detail: unknown }).detail,
-                    )
-                  : `Server error ${saveMutation.error.status}`
-                : String(saveMutation.error)}
-            </p>
-          )}
-
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              {mode === "edit" && (
-                <Button
-                  type="button"
-                  variant="destructive"
-                  onClick={handleDelete}
-                  disabled={deleteMutation.isPending}
-                >
-                  {deleteMutation.isPending ? "Deleting…" : "Delete"}
-                </Button>
-              )}
             </div>
-            <div className="flex gap-2">
+
+            <Label htmlFor="category">
+              Category <span className="text-destructive">*</span>
+            </Label>
+            <select
+              id="category"
+              required
+              className={SELECT_CLASSES}
+              value={state.category}
+              onChange={(e) =>
+                setState({ ...state, category: e.target.value })
+              }
+            >
+              {CATEGORIES.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+
+            <Label htmlFor="method">
+              Method <span className="text-destructive">*</span>
+            </Label>
+            <select
+              id="method"
+              required
+              className={SELECT_CLASSES}
+              value={state.method}
+              onChange={(e) =>
+                setState({ ...state, method: e.target.value })
+              }
+            >
+              {METHODS.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+
+            <Label htmlFor="purpose">Purpose</Label>
+            <Input
+              id="purpose"
+              value={state.purpose}
+              onChange={(e) =>
+                setState({ ...state, purpose: e.target.value })
+              }
+            />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <input
+                id="auto_estimate"
+                type="checkbox"
+                className="h-4 w-4 cursor-pointer rounded border-input"
+                checked={state.auto_estimate}
+                onChange={(e) =>
+                  setState({
+                    ...state,
+                    auto_estimate: e.target.checked,
+                  })
+                }
+              />
+              <Label
+                htmlFor="auto_estimate"
+                className="cursor-pointer text-sm font-medium"
+              >
+                Auto-estimate taxes
+              </Label>
+            </div>
+            <CardTitle className="text-base">Tax Estimates</CardTitle>
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-[180px_1fr] sm:items-center">
+            <Label htmlFor="est_company">Company Tax</Label>
+            <div className="relative">
+              <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-muted-foreground">
+                $
+              </span>
+              <Input
+                id="est_company"
+                type="number"
+                step="0.01"
+                className="pl-6"
+                disabled={state.auto_estimate}
+                value={state.est_company}
+                onChange={(e) =>
+                  setState({ ...state, est_company: e.target.value })
+                }
+              />
+            </div>
+
+            <Label htmlFor="est_personal">Personal Tax</Label>
+            <div className="relative">
+              <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-muted-foreground">
+                $
+              </span>
+              <Input
+                id="est_personal"
+                type="number"
+                step="0.01"
+                className="pl-6"
+                disabled={state.auto_estimate}
+                value={state.est_personal}
+                onChange={(e) =>
+                  setState({ ...state, est_personal: e.target.value })
+                }
+              />
+            </div>
+
+            <Label>Total Estimated Tax</Label>
+            <p className="font-semibold">{formatCAD(totalEstimated)}</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="grid grid-cols-1 gap-4 pt-6 sm:grid-cols-[180px_1fr] sm:items-start">
+            <Label htmlFor="notes" className="pt-2">
+              Notes
+            </Label>
+            <textarea
+              id="notes"
+              rows={3}
+              className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              value={state.notes}
+              onChange={(e) =>
+                setState({ ...state, notes: e.target.value })
+              }
+            />
+          </CardContent>
+        </Card>
+
+        {saveMutation.isError && (
+          <p className="text-sm text-destructive">
+            Save failed:{" "}
+            {saveMutation.error instanceof ApiError
+              ? typeof saveMutation.error.body === "object" &&
+                saveMutation.error.body &&
+                "detail" in saveMutation.error.body
+                ? String(
+                    (saveMutation.error.body as { detail: unknown }).detail,
+                  )
+                : `Server error ${saveMutation.error.status}`
+              : String(saveMutation.error)}
+          </p>
+        )}
+
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            {mode === "edit" && (
               <Button
                 type="button"
-                variant="outline"
-                onClick={() => navigate("/transfers")}
+                variant="destructive"
+                onClick={handleDelete}
+                disabled={deleteMutation.isPending}
               >
-                Cancel
+                {deleteMutation.isPending ? "Deleting…" : "Delete"}
               </Button>
-              <Button type="submit" disabled={saveMutation.isPending}>
-                {saveMutation.isPending ? "Saving…" : "Save"}
-              </Button>
-            </div>
+            )}
           </div>
-        </form>
-      </main>
-    </div>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => navigate("/transfers")}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={saveMutation.isPending}>
+              {saveMutation.isPending ? "Saving…" : "Save"}
+            </Button>
+          </div>
+        </div>
+      </form>
+    </main>
+
   );
 }
 

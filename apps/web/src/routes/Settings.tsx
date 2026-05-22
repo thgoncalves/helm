@@ -1,13 +1,14 @@
 /**
- * Settings page — three-zone layout with sidebar nav, scroll-spy, per-section
- * save buttons, and a ThemeCard grid picker.
+ * Settings page — two-pane layout with sub-sidebar nav, scroll-spy, and
+ * per-section save buttons.
  *
- * Layout: AppHeader on top, then a flex row that fills remaining height.
- * Left: <aside w-60> with search + section nav. Right: overflow-y-auto main
- * scroller. Each section has its own dirty flag and Save button.
+ * Lives inside the AppShell (the chrome supplies the global sidebar
+ * + brand). Settings adds a second narrow sub-sidebar on the left
+ * (section nav + search) and the form scroller on the right. Each
+ * section has its own dirty flag and Save button.
  *
- * Persistence: PUT /business/settings/ with only the diff for the section
- * being saved.
+ * Persistence: PUT /business/settings/ with only the diff for the
+ * section being saved.
  */
 import {
   useCallback,
@@ -38,7 +39,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { AppHeader } from "@/components/AppHeader";
 import type { YnabStatusResponse } from "@/types/api";
 import { LoadingBox } from "@/components/LoadingScreen";
 
@@ -901,11 +901,8 @@ export function Settings() {
   // ---------------------------------------------------------------------------
 
   return (
-    <div className="min-h-screen flex flex-col bg-background">
-      <AppHeader />
-
-      <div className="flex flex-1 min-h-0">
-        {/* ── Sidebar ── */}
+    <div className="flex h-full min-h-0">
+      {/* ── Sidebar ── */}
         <aside className="w-60 shrink-0 border-r border-border flex flex-col min-h-0 hidden sm:flex">
           {/* Search */}
           <div className="p-3 border-b border-border">
@@ -1560,6 +1557,5 @@ export function Settings() {
           </div>
         </div>
       </div>
-    </div>
   );
 }

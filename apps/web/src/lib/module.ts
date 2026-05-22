@@ -2,9 +2,9 @@
  * Top-level module identity for Helm.
  *
  * Helm is split into three peer modules; the user can flip between them
- * via the AppHeader's switcher pill. This module owns:
+ * via the AppShell's switcher pill. This module owns:
  *
- *  - the `ModuleId` type and the `MODULES` ordered tuple (so AppHeader,
+ *  - the `ModuleId` type and the `MODULES` ordered tuple (so AppShell,
  *    ModuleChooser, and tests share one source of truth)
  *  - localStorage persistence for "last module used", which the
  *    post-sign-in chooser uses to fast-forward returning users.

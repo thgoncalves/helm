@@ -25,7 +25,6 @@ import type {
   StockTransactionCreate,
   StockTransactionRead,
 } from "@/types/api";
-import { AppHeader } from "@/components/AppHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -216,227 +215,224 @@ export function RecordPurchase() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <AppHeader />
+    <main className="mx-auto max-w-2xl px-4 py-6">
+      <h2 className="mb-1 text-2xl font-bold">Record purchase</h2>
+      <p className="mb-6 text-sm text-muted-foreground">
+        Add a buy lot. Cost basis (ACB) is recomputed automatically.
+      </p>
 
-      <main className="mx-auto max-w-2xl px-4 py-6">
-        <h2 className="mb-1 text-2xl font-bold">Record purchase</h2>
-        <p className="mb-6 text-sm text-muted-foreground">
-          Add a buy lot. Cost basis (ACB) is recomputed automatically.
-        </p>
-
-        {accountsQ.isLoading ? (
-          <LoadingBox />
-        ) : accounts.length === 0 ? (
+      {accountsQ.isLoading ? (
+        <LoadingBox />
+      ) : accounts.length === 0 ? (
+        <Card>
+          <CardContent className="p-6 text-sm">
+            <p className="mb-2 font-medium">
+              No "Stocks" accounts tagged yet.
+            </p>
+            <p className="text-muted-foreground">
+              On the Accounts page, tag one of your accounts with kind
+              "Investing — Stocks". YNAB-synced brokerage cash
+              accounts, manual cash accounts, and Helm-native
+              investment accounts all qualify.
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <form onSubmit={handleSubmit} className="space-y-4" noValidate>
           <Card>
-            <CardContent className="p-6 text-sm">
-              <p className="mb-2 font-medium">
-                No "Stocks" accounts tagged yet.
-              </p>
-              <p className="text-muted-foreground">
-                On the Accounts page, tag one of your accounts with kind
-                "Investing — Stocks". YNAB-synced brokerage cash
-                accounts, manual cash accounts, and Helm-native
-                investment accounts all qualify.
-              </p>
+            <CardContent className="grid grid-cols-1 gap-4 pt-6 sm:grid-cols-[180px_1fr] sm:items-center">
+              <Label htmlFor="ticker">
+                Ticker <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="ticker"
+                value={ticker}
+                onChange={(e) => setTicker(e.target.value.toUpperCase())}
+                placeholder="e.g. AAPL, RY.TO"
+                required
+              />
+
+              <Label htmlFor="account">
+                Account <span className="text-destructive">*</span>
+              </Label>
+              <select
+                id="account"
+                className={SELECT_CLASSES}
+                value={selectedKey}
+                onChange={(e) => setSelectedKey(e.target.value)}
+                required
+              >
+                {accounts.map((a) => (
+                  <option key={accountKey(a)} value={accountKey(a)}>
+                    {a.name} · {sourceLabel(a.source)} ·{" "}
+                    {fmtMoney(a.cash_balance, a.currency)}
+                  </option>
+                ))}
+              </select>
+
+              <Label htmlFor="date">
+                Date <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="date"
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                required
+              />
+
+              <Label htmlFor="quantity">
+                Quantity <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="quantity"
+                type="number"
+                step="0.0001"
+                min="0"
+                value={quantity}
+                onChange={(e) => setQuantity(e.target.value)}
+                required
+              />
+
+              <Label htmlFor="unit_price">
+                Unit price ({currency}){" "}
+                <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="unit_price"
+                type="number"
+                step="0.0001"
+                min="0"
+                value={unitPrice}
+                onChange={(e) => setUnitPrice(e.target.value)}
+                required
+              />
+
+              <Label htmlFor="fees">Fees ({currency})</Label>
+              <Input
+                id="fees"
+                type="number"
+                step="0.01"
+                min="0"
+                value={fees}
+                onChange={(e) => setFees(e.target.value)}
+              />
+
+              <Label htmlFor="notes">Notes</Label>
+              <Input
+                id="notes"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Optional"
+              />
             </CardContent>
           </Card>
-        ) : (
-          <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-            <Card>
-              <CardContent className="grid grid-cols-1 gap-4 pt-6 sm:grid-cols-[180px_1fr] sm:items-center">
-                <Label htmlFor="ticker">
-                  Ticker <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="ticker"
-                  value={ticker}
-                  onChange={(e) => setTicker(e.target.value.toUpperCase())}
-                  placeholder="e.g. AAPL, RY.TO"
-                  required
-                />
 
-                <Label htmlFor="account">
-                  Account <span className="text-destructive">*</span>
-                </Label>
-                <select
-                  id="account"
-                  className={SELECT_CLASSES}
-                  value={selectedKey}
-                  onChange={(e) => setSelectedKey(e.target.value)}
-                  required
-                >
-                  {accounts.map((a) => (
-                    <option key={accountKey(a)} value={accountKey(a)}>
-                      {a.name} · {sourceLabel(a.source)} ·{" "}
-                      {fmtMoney(a.cash_balance, a.currency)}
-                    </option>
-                  ))}
-                </select>
-
-                <Label htmlFor="date">
-                  Date <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="date"
-                  type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  required
-                />
-
-                <Label htmlFor="quantity">
-                  Quantity <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="quantity"
-                  type="number"
-                  step="0.0001"
-                  min="0"
-                  value={quantity}
-                  onChange={(e) => setQuantity(e.target.value)}
-                  required
-                />
-
-                <Label htmlFor="unit_price">
-                  Unit price ({currency}){" "}
-                  <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="unit_price"
-                  type="number"
-                  step="0.0001"
-                  min="0"
-                  value={unitPrice}
-                  onChange={(e) => setUnitPrice(e.target.value)}
-                  required
-                />
-
-                <Label htmlFor="fees">Fees ({currency})</Label>
-                <Input
-                  id="fees"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={fees}
-                  onChange={(e) => setFees(e.target.value)}
-                />
-
-                <Label htmlFor="notes">Notes</Label>
-                <Input
-                  id="notes"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Optional"
-                />
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent className="pt-6">
-                {selected?.supports_cash_debit ? (
-                  <>
-                    <label className="flex cursor-pointer items-start gap-3">
-                      <input
-                        type="checkbox"
-                        className="mt-1 h-4 w-4"
-                        checked={autoDebit}
-                        onChange={(e) => setAutoDebit(e.target.checked)}
-                      />
-                      <span className="text-sm">
-                        <span className="font-medium">
-                          Debit the account's cash balance
-                        </span>
-                        <br />
-                        <span className="text-muted-foreground">
-                          Subtracts total cost (quantity × price + fees) from
-                          your cash on hand. Turn off if you moved the cash
-                          externally.
-                        </span>
+          <Card>
+            <CardContent className="pt-6">
+              {selected?.supports_cash_debit ? (
+                <>
+                  <label className="flex cursor-pointer items-start gap-3">
+                    <input
+                      type="checkbox"
+                      className="mt-1 h-4 w-4"
+                      checked={autoDebit}
+                      onChange={(e) => setAutoDebit(e.target.checked)}
+                    />
+                    <span className="text-sm">
+                      <span className="font-medium">
+                        Debit the account's cash balance
                       </span>
-                    </label>
-                  </>
-                ) : (
-                  <div className="rounded-md border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-sm">
-                    <p className="font-medium">
-                      This is a YNAB-synced account.
-                    </p>
-                    <p className="mt-1 text-muted-foreground">
-                      Helm won't debit the cash balance here — record the
-                      buy in YNAB too (transfer cash → stock holding) and
-                      the next YNAB sync will pick up the new balance.
-                    </p>
-                  </div>
-                )}
-
-                <div className="mt-4 rounded-md border bg-muted/30 px-3 py-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Total cost</span>
-                    <span className="font-semibold tabular-nums">
-                      {fmtMoney(cost, currency)}
+                      <br />
+                      <span className="text-muted-foreground">
+                        Subtracts total cost (quantity × price + fees) from
+                        your cash on hand. Turn off if you moved the cash
+                        externally.
+                      </span>
                     </span>
-                  </div>
-                  {selected && (
-                    <>
-                      <div className="mt-1 flex justify-between">
-                        <span className="text-muted-foreground">
-                          Cash before
-                        </span>
-                        <span className="tabular-nums">
-                          {fmtMoney(selected.cash_balance, selected.currency)}
-                        </span>
-                      </div>
-                      <div className="mt-1 flex justify-between">
-                        <span className="text-muted-foreground">
-                          Cash after
-                        </span>
-                        <span
-                          className={
-                            "font-semibold tabular-nums " +
-                            (projectedCash !== null && projectedCash < 0
-                              ? "text-amber-700"
-                              : "")
-                          }
-                        >
-                          {fmtMoney(projectedCash, selected.currency)}
-                        </span>
-                      </div>
-                      {projectedCash !== null &&
-                        projectedCash < 0 &&
-                        selected.supports_cash_debit && (
-                          <p className="mt-2 text-xs text-amber-700">
-                            Heads up — this buy would put cash below zero.
-                            Allowed, but you may want to top up first or
-                            uncheck the toggle if the cash moved separately.
-                          </p>
-                        )}
-                    </>
-                  )}
+                  </label>
+                </>
+              ) : (
+                <div className="rounded-md border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-sm">
+                  <p className="font-medium">
+                    This is a YNAB-synced account.
+                  </p>
+                  <p className="mt-1 text-muted-foreground">
+                    Helm won't debit the cash balance here — record the
+                    buy in YNAB too (transfer cash → stock holding) and
+                    the next YNAB sync will pick up the new balance.
+                  </p>
                 </div>
-              </CardContent>
-            </Card>
+              )}
 
-            {error && (
-              <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                {error}
-              </p>
-            )}
+              <div className="mt-4 rounded-md border bg-muted/30 px-3 py-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Total cost</span>
+                  <span className="font-semibold tabular-nums">
+                    {fmtMoney(cost, currency)}
+                  </span>
+                </div>
+                {selected && (
+                  <>
+                    <div className="mt-1 flex justify-between">
+                      <span className="text-muted-foreground">
+                        Cash before
+                      </span>
+                      <span className="tabular-nums">
+                        {fmtMoney(selected.cash_balance, selected.currency)}
+                      </span>
+                    </div>
+                    <div className="mt-1 flex justify-between">
+                      <span className="text-muted-foreground">
+                        Cash after
+                      </span>
+                      <span
+                        className={
+                          "font-semibold tabular-nums " +
+                          (projectedCash !== null && projectedCash < 0
+                            ? "text-amber-700"
+                            : "")
+                        }
+                      >
+                        {fmtMoney(projectedCash, selected.currency)}
+                      </span>
+                    </div>
+                    {projectedCash !== null &&
+                      projectedCash < 0 &&
+                      selected.supports_cash_debit && (
+                        <p className="mt-2 text-xs text-amber-700">
+                          Heads up — this buy would put cash below zero.
+                          Allowed, but you may want to top up first or
+                          uncheck the toggle if the cash moved separately.
+                        </p>
+                      )}
+                  </>
+                )}
+              </div>
+            </CardContent>
+          </Card>
 
-            <div className="flex justify-end gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => navigate(-1)}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={saveMutation.isPending}>
-                {saveMutation.isPending ? "Saving…" : "Record buy"}
-              </Button>
-            </div>
-          </form>
-        )}
-      </main>
-    </div>
+          {error && (
+            <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {error}
+            </p>
+          )}
+
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => navigate(-1)}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={saveMutation.isPending}>
+              {saveMutation.isPending ? "Saving…" : "Record buy"}
+            </Button>
+          </div>
+        </form>
+      )}
+    </main>
+
   );
 }

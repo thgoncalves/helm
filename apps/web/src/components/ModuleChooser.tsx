@@ -3,7 +3,7 @@
  * user pick which Helm module to land on.
  *
  * Visual language:
- *  - Mirrors the AppHeader's `ModuleSwitcher` pill so the two reinforce
+ *  - Mirrors the AppShell's `ModuleSwitcher` pill so the two reinforce
  *    each other, but at "feature card" scale: three large tappable cards
  *    with title, one-line description, and a soft accent border on hover.
  *  - All colors come from semantic shadcn tokens so every theme works.

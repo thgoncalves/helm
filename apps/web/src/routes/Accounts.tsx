@@ -35,7 +35,6 @@ import type {
   ManualAccountUpdate,
   YnabRefreshResponse,
 } from "@/types/api";
-import { AppHeader } from "@/components/AppHeader";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -211,169 +210,167 @@ export function Accounts() {
   }, [rows]);
 
   return (
-    <div className="min-h-screen bg-background">
-      <AppHeader />
-      <main className="mx-auto max-w-6xl px-4 py-6">
-        <header className="mb-6">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-2xl font-bold">Accounts</h2>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="mr-1 text-xs text-muted-foreground">
-                YNAB synced{" "}
-                <span className="font-medium text-foreground">
-                  {fmtRelative(lastSyncedAt)}
-                </span>
+    <main className="mx-auto max-w-6xl px-4 py-6">
+      <header className="mb-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-2xl font-bold">Accounts</h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="mr-1 text-xs text-muted-foreground">
+              YNAB synced{" "}
+              <span className="font-medium text-foreground">
+                {fmtRelative(lastSyncedAt)}
               </span>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => syncMutation.mutate()}
-                disabled={syncMutation.isPending}
-              >
-                {syncMutation.isPending ? "Syncing…" : "Sync YNAB"}
-              </Button>
-              <Button asChild type="button" variant="outline" size="sm">
-                <Link to="/investments/accounts">Add brokerage</Link>
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                onClick={() => setShowAddManual((s) => !s)}
-              >
-                {showAddManual ? "Cancel" : "Add cash account"}
-              </Button>
-            </div>
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => syncMutation.mutate()}
+              disabled={syncMutation.isPending}
+            >
+              {syncMutation.isPending ? "Syncing…" : "Sync YNAB"}
+            </Button>
+            <Button asChild type="button" variant="outline" size="sm">
+              <Link to="/investments/accounts">Add brokerage</Link>
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => setShowAddManual((s) => !s)}
+            >
+              {showAddManual ? "Cancel" : "Add cash account"}
+            </Button>
           </div>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Every cash and investment account, across YNAB, manual
-            entries, and your brokerage rows.
-          </p>
-        </header>
+        </div>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Every cash and investment account, across YNAB, manual
+          entries, and your brokerage rows.
+        </p>
+      </header>
 
-        {syncMutation.isError && (
-          <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            Sync failed: {extractError(syncMutation.error)}
-          </div>
-        )}
+      {syncMutation.isError && (
+        <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          Sync failed: {extractError(syncMutation.error)}
+        </div>
+      )}
 
-        {/* Totals strip */}
-        <section className="mb-6">
-          <h3 className="mb-3 text-sm font-semibold">Totals (CAD)</h3>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <TotalCard
-              label="Personal"
-              amount={totalCadByOwner.personal}
-              detail={`${groups.personal?.length ?? 0} account${
-                (groups.personal?.length ?? 0) === 1 ? "" : "s"
-              }`}
-              valueClass="text-emerald-600 dark:text-emerald-400"
+      {/* Totals strip */}
+      <section className="mb-6">
+        <h3 className="mb-3 text-sm font-semibold">Totals (CAD)</h3>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <TotalCard
+            label="Personal"
+            amount={totalCadByOwner.personal}
+            detail={`${groups.personal?.length ?? 0} account${
+              (groups.personal?.length ?? 0) === 1 ? "" : "s"
+            }`}
+            valueClass="text-emerald-600 dark:text-emerald-400"
+          />
+          <TotalCard
+            label="Business"
+            amount={totalCadByOwner.business}
+            detail={`${groups.business?.length ?? 0} account${
+              (groups.business?.length ?? 0) === 1 ? "" : "s"
+            }`}
+            valueClass="text-foreground"
+          />
+          <TotalCard
+            label="Unassigned"
+            amount={totalCadByOwner.unassigned}
+            detail={`${groups.unassigned?.length ?? 0} account${
+              (groups.unassigned?.length ?? 0) === 1 ? "" : "s"
+            }`}
+            muted
+          />
+        </div>
+      </section>
+
+      {showAddManual && (
+        <Card className="mb-6 border-primary/40">
+          <CardContent className="pt-6">
+            <ManualAccountForm
+              onCancel={() => setShowAddManual(false)}
+              onSaved={() => {
+                setShowAddManual(false);
+                void queryClient.invalidateQueries({
+                  queryKey: ["accounts"],
+                });
+              }}
             />
-            <TotalCard
-              label="Business"
-              amount={totalCadByOwner.business}
-              detail={`${groups.business?.length ?? 0} account${
-                (groups.business?.length ?? 0) === 1 ? "" : "s"
-              }`}
-              valueClass="text-foreground"
-            />
-            <TotalCard
-              label="Unassigned"
-              amount={totalCadByOwner.unassigned}
-              detail={`${groups.unassigned?.length ?? 0} account${
-                (groups.unassigned?.length ?? 0) === 1 ? "" : "s"
-              }`}
-              muted
-            />
-          </div>
-        </section>
+          </CardContent>
+        </Card>
+      )}
 
-        {showAddManual && (
-          <Card className="mb-6 border-primary/40">
-            <CardContent className="pt-6">
-              <ManualAccountForm
-                onCancel={() => setShowAddManual(false)}
-                onSaved={() => {
-                  setShowAddManual(false);
-                  void queryClient.invalidateQueries({
-                    queryKey: ["accounts"],
-                  });
-                }}
-              />
-            </CardContent>
-          </Card>
-        )}
+      {accountsQuery.isLoading && (
+        <LoadingBox />
+      )}
+      {accountsQuery.isError && (
+        <p className="text-sm text-destructive">
+          Failed to load: {extractError(accountsQuery.error)}
+        </p>
+      )}
 
-        {accountsQuery.isLoading && (
-          <LoadingBox />
-        )}
-        {accountsQuery.isError && (
-          <p className="text-sm text-destructive">
-            Failed to load: {extractError(accountsQuery.error)}
-          </p>
-        )}
-
-        {(["personal", "business", "unassigned"] as AccountOwner[]).map(
-          (owner) => {
-            const ownerRows = groups[owner];
-            if (!ownerRows || ownerRows.length === 0) return null;
-            const ownerCount = ownerRows.length;
-            return (
-              <section key={owner} className="mb-6">
-                <div className="mb-3 flex items-baseline justify-between">
-                  <h3 className="text-sm font-semibold">
-                    {labelForOwner(owner)}
-                  </h3>
-                  <span className="text-xs text-muted-foreground">
-                    {ownerCount} account{ownerCount === 1 ? "" : "s"}
-                  </span>
-                </div>
-                <Card>
-                  <CardContent className="p-0">
-                    <ul className="divide-y">
-                      {ownerRows.map((row) => (
-                        <AccountRowItem
-                          key={row.id}
-                          row={row}
-                          isEditing={editingId === row.id}
-                          isDeleting={
-                            deleteMutation.isPending &&
-                            deleteMutation.variables?.id === row.id
-                          }
-                          onToggleEdit={() =>
-                            setEditingId((cur) =>
-                              cur === row.id ? null : row.id,
+      {(["personal", "business", "unassigned"] as AccountOwner[]).map(
+        (owner) => {
+          const ownerRows = groups[owner];
+          if (!ownerRows || ownerRows.length === 0) return null;
+          const ownerCount = ownerRows.length;
+          return (
+            <section key={owner} className="mb-6">
+              <div className="mb-3 flex items-baseline justify-between">
+                <h3 className="text-sm font-semibold">
+                  {labelForOwner(owner)}
+                </h3>
+                <span className="text-xs text-muted-foreground">
+                  {ownerCount} account{ownerCount === 1 ? "" : "s"}
+                </span>
+              </div>
+              <Card>
+                <CardContent className="p-0">
+                  <ul className="divide-y">
+                    {ownerRows.map((row) => (
+                      <AccountRowItem
+                        key={row.id}
+                        row={row}
+                        isEditing={editingId === row.id}
+                        isDeleting={
+                          deleteMutation.isPending &&
+                          deleteMutation.variables?.id === row.id
+                        }
+                        onToggleEdit={() =>
+                          setEditingId((cur) =>
+                            cur === row.id ? null : row.id,
+                          )
+                        }
+                        onChangeTag={(tags) =>
+                          tagsMutation.mutate({ row, tags })
+                        }
+                        onDelete={() => {
+                          if (
+                            confirm(
+                              `Delete "${row.name}"? This cannot be undone.`,
                             )
+                          ) {
+                            deleteMutation.mutate(row);
                           }
-                          onChangeTag={(tags) =>
-                            tagsMutation.mutate({ row, tags })
-                          }
-                          onDelete={() => {
-                            if (
-                              confirm(
-                                `Delete "${row.name}"? This cannot be undone.`,
-                              )
-                            ) {
-                              deleteMutation.mutate(row);
-                            }
-                          }}
-                          onSaved={() => {
-                            setEditingId(null);
-                            void queryClient.invalidateQueries({
-                              queryKey: ["accounts"],
-                            });
-                          }}
-                        />
-                      ))}
-                    </ul>
-                  </CardContent>
-                </Card>
-              </section>
-            );
-          },
-        )}
-      </main>
-    </div>
+                        }}
+                        onSaved={() => {
+                          setEditingId(null);
+                          void queryClient.invalidateQueries({
+                            queryKey: ["accounts"],
+                          });
+                        }}
+                      />
+                    ))}
+                  </ul>
+                </CardContent>
+              </Card>
+            </section>
+          );
+        },
+      )}
+    </main>
+
   );
 }
 

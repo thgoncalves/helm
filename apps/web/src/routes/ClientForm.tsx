@@ -28,7 +28,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { AppHeader } from "@/components/AppHeader";
 import { LoadingBox } from "@/components/LoadingScreen";
 
 // ---------------------------------------------------------------------------
@@ -574,16 +573,13 @@ const newClientDefaults: ClientFormValues = {
 
 export function NewClient() {
   return (
-    <div className="min-h-screen bg-background">
-      <AppHeader />
+    <main className="mx-auto max-w-3xl px-4 py-8">
+      <div className="mb-6">
+        <h2 className="text-2xl font-bold">New Client</h2>
+      </div>
+      <ClientFormInner mode="create" defaultValues={newClientDefaults} />
+    </main>
 
-      <main className="mx-auto max-w-3xl px-4 py-8">
-        <div className="mb-6">
-          <h2 className="text-2xl font-bold">New Client</h2>
-        </div>
-        <ClientFormInner mode="create" defaultValues={newClientDefaults} />
-      </main>
-    </div>
   );
 }
 
@@ -608,42 +604,39 @@ export function EditClient() {
     isError && error instanceof ApiError && error.status === 404;
 
   return (
-    <div className="min-h-screen bg-background">
-      <AppHeader />
+    <main className="mx-auto max-w-3xl px-4 py-8">
+      <div className="mb-6">
+        <h2 className="text-2xl font-bold">
+          {client ? `Edit ${client.name}` : "Edit Client"}
+        </h2>
+      </div>
 
-      <main className="mx-auto max-w-3xl px-4 py-8">
-        <div className="mb-6">
-          <h2 className="text-2xl font-bold">
-            {client ? `Edit ${client.name}` : "Edit Client"}
-          </h2>
+      {isLoading && <LoadingBox />}
+
+      {is404 && (
+        <div className="text-center py-12">
+          <p className="text-lg font-medium">Client not found.</p>
+          <Button variant="outline" className="mt-4" asChild>
+            <Link to="/clients">Back to Clients</Link>
+          </Button>
         </div>
+      )}
 
-        {isLoading && <LoadingBox />}
+      {isError && !is404 && (
+        <p className="text-destructive">
+          Failed to load client:{" "}
+          {error instanceof Error ? error.message : "Unknown error"}
+        </p>
+      )}
 
-        {is404 && (
-          <div className="text-center py-12">
-            <p className="text-lg font-medium">Client not found.</p>
-            <Button variant="outline" className="mt-4" asChild>
-              <Link to="/clients">Back to Clients</Link>
-            </Button>
-          </div>
-        )}
+      {client && (
+        <ClientFormInner
+          mode="edit"
+          defaultValues={toFormValues(client)}
+          clientId={id}
+        />
+      )}
+    </main>
 
-        {isError && !is404 && (
-          <p className="text-destructive">
-            Failed to load client:{" "}
-            {error instanceof Error ? error.message : "Unknown error"}
-          </p>
-        )}
-
-        {client && (
-          <ClientFormInner
-            mode="edit"
-            defaultValues={toFormValues(client)}
-            clientId={id}
-          />
-        )}
-      </main>
-    </div>
   );
 }

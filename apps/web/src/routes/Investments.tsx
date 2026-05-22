@@ -14,7 +14,6 @@ import type {
   FundsVsStocksResponse,
   FundsVsStocksRow,
 } from "@/types/api";
-import { AppHeader } from "@/components/AppHeader";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { LoadingBox } from "@/components/LoadingScreen";
@@ -62,37 +61,35 @@ export function Investments() {
   const isEmpty = !data || num(data.total_cad) === 0;
 
   return (
-    <div className="min-h-screen bg-background">
-      <AppHeader />
-      <main className="mx-auto max-w-6xl px-4 py-6">
-        <div className="mb-6 flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">
-          <div>
-            <h2 className="text-2xl font-bold">Investments</h2>
-            <p className="text-sm text-muted-foreground">
-              {data
-                ? `Portfolio · ${data.base_currency}`
-                : "Portfolio tracker"}
-            </p>
-          </div>
-        </div>
-
-        {isLoading && <LoadingBox />}
-        {isError && (
-          <p className="text-destructive">
-            Failed to load portfolio:{" "}
-            {error instanceof Error ? error.message : "Unknown error"}
+    <main className="mx-auto max-w-6xl px-4 py-6">
+      <div className="mb-6 flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">
+        <div>
+          <h2 className="text-2xl font-bold">Investments</h2>
+          <p className="text-sm text-muted-foreground">
+            {data
+              ? `Portfolio · ${data.base_currency}`
+              : "Portfolio tracker"}
           </p>
-        )}
+        </div>
+      </div>
 
-        {!isLoading && isEmpty && <EmptyState />}
+      {isLoading && <LoadingBox />}
+      {isError && (
+        <p className="text-destructive">
+          Failed to load portfolio:{" "}
+          {error instanceof Error ? error.message : "Unknown error"}
+        </p>
+      )}
 
-        {data && !isEmpty && (
-          <section>
-            <FundsVsStocksSection data={data} />
-          </section>
-        )}
-      </main>
-    </div>
+      {!isLoading && isEmpty && <EmptyState />}
+
+      {data && !isEmpty && (
+        <section>
+          <FundsVsStocksSection data={data} />
+        </section>
+      )}
+    </main>
+
   );
 }
 

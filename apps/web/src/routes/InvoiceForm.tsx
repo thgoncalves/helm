@@ -42,7 +42,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { AppHeader } from "@/components/AppHeader";
 import { LoadingScreen } from "@/components/LoadingScreen";
 
 const SELECT_CLASSES =
@@ -274,304 +273,301 @@ function InvoiceFormInner({
     mode === "edit" && initialStatus !== "sent" && initialStatus !== "paid";
 
   return (
-    <div className="min-h-screen bg-background">
-      <AppHeader />
+    <main className="mx-auto max-w-5xl px-4 py-6">
+      <h2 className="mb-6 text-2xl font-bold">{heading}</h2>
 
-      <main className="mx-auto max-w-5xl px-4 py-6">
-        <h2 className="mb-6 text-2xl font-bold">{heading}</h2>
+      <form onSubmit={handleSubmit} className="space-y-6" noValidate>
+        {/* Invoice Details */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Invoice Details</CardTitle>
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div>
+              <Label htmlFor="invoice_number">Invoice #*</Label>
+              <Input
+                id="invoice_number"
+                required
+                value={state.invoice_number}
+                onChange={(e) =>
+                  setState({ ...state, invoice_number: e.target.value })
+                }
+                placeholder="INV-2026-0001"
+              />
+            </div>
+            <div>
+              <Label htmlFor="client_id">Client*</Label>
+              <select
+                id="client_id"
+                required
+                className={SELECT_CLASSES}
+                value={state.client_id}
+                onChange={(e) =>
+                  setState({ ...state, client_id: e.target.value })
+                }
+              >
+                <option value="">Select a client…</option>
+                {(clients ?? []).map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <Label htmlFor="issue_date">Issue Date*</Label>
+              <Input
+                id="issue_date"
+                type="date"
+                required
+                value={state.issue_date}
+                onChange={(e) =>
+                  setState({ ...state, issue_date: e.target.value })
+                }
+              />
+            </div>
+            <div>
+              <Label htmlFor="due_date">Due Date*</Label>
+              <Input
+                id="due_date"
+                type="date"
+                required
+                value={state.due_date}
+                onChange={(e) =>
+                  setState({ ...state, due_date: e.target.value })
+                }
+              />
+            </div>
+            <div>
+              <Label htmlFor="payment_terms">Payment Terms</Label>
+              <Input
+                id="payment_terms"
+                value={state.payment_terms}
+                onChange={(e) =>
+                  setState({ ...state, payment_terms: e.target.value })
+                }
+                placeholder="Net 30"
+              />
+            </div>
+            <div>
+              <Label htmlFor="notes">Notes</Label>
+              <textarea
+                id="notes"
+                className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                value={state.notes}
+                onChange={(e) =>
+                  setState({ ...state, notes: e.target.value })
+                }
+              />
+            </div>
+          </CardContent>
+        </Card>
 
-        <form onSubmit={handleSubmit} className="space-y-6" noValidate>
-          {/* Invoice Details */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Invoice Details</CardTitle>
-            </CardHeader>
-            <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div>
-                <Label htmlFor="invoice_number">Invoice #*</Label>
-                <Input
-                  id="invoice_number"
-                  required
-                  value={state.invoice_number}
-                  onChange={(e) =>
-                    setState({ ...state, invoice_number: e.target.value })
-                  }
-                  placeholder="INV-2026-0001"
-                />
-              </div>
-              <div>
-                <Label htmlFor="client_id">Client*</Label>
-                <select
-                  id="client_id"
-                  required
-                  className={SELECT_CLASSES}
-                  value={state.client_id}
-                  onChange={(e) =>
-                    setState({ ...state, client_id: e.target.value })
-                  }
-                >
-                  <option value="">Select a client…</option>
-                  {(clients ?? []).map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <Label htmlFor="issue_date">Issue Date*</Label>
-                <Input
-                  id="issue_date"
-                  type="date"
-                  required
-                  value={state.issue_date}
-                  onChange={(e) =>
-                    setState({ ...state, issue_date: e.target.value })
-                  }
-                />
-              </div>
-              <div>
-                <Label htmlFor="due_date">Due Date*</Label>
-                <Input
-                  id="due_date"
-                  type="date"
-                  required
-                  value={state.due_date}
-                  onChange={(e) =>
-                    setState({ ...state, due_date: e.target.value })
-                  }
-                />
-              </div>
-              <div>
-                <Label htmlFor="payment_terms">Payment Terms</Label>
-                <Input
-                  id="payment_terms"
-                  value={state.payment_terms}
-                  onChange={(e) =>
-                    setState({ ...state, payment_terms: e.target.value })
-                  }
-                  placeholder="Net 30"
-                />
-              </div>
-              <div>
-                <Label htmlFor="notes">Notes</Label>
-                <textarea
-                  id="notes"
-                  className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                  value={state.notes}
-                  onChange={(e) =>
-                    setState({ ...state, notes: e.target.value })
-                  }
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Line Items */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Line Items</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[720px] border-collapse text-sm">
-                  <thead>
-                    <tr className="border-b bg-muted/40 text-left">
-                      <th className="w-10 px-2 py-2"></th>
-                      <th className="px-2 py-2 font-semibold">Description</th>
-                      <th className="px-2 py-2 font-semibold">Qty</th>
-                      <th className="px-2 py-2 font-semibold">Unit Price</th>
-                      <th className="px-2 py-2 font-semibold">Taxable</th>
-                      <th className="px-2 py-2 font-semibold">Tax Rate %</th>
-                      <th className="px-2 py-2 text-right font-semibold">
-                        Tax
-                      </th>
-                      <th className="px-2 py-2 text-right font-semibold">
-                        Total
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {state.line_items.map((line, idx) => {
-                      const lt = lineTotals(line);
-                      return (
-                        <tr key={idx} className="border-b last:border-0">
-                          <td className="px-2 py-2 text-center">
-                            <input
-                              type="checkbox"
-                              checked={selectedRows.has(idx)}
-                              onChange={() => toggleRow(idx)}
-                              aria-label={`Select line ${idx + 1}`}
-                              className="h-4 w-4"
-                            />
-                          </td>
-                          <td className="px-2 py-2">
-                            <Input
-                              value={line.description}
-                              onChange={(e) =>
-                                updateLine(idx, { description: e.target.value })
-                              }
-                            />
-                          </td>
-                          <td className="px-2 py-2 w-24">
-                            <Input
-                              type="number"
-                              step="0.01"
-                              value={String(line.quantity)}
-                              onChange={(e) =>
-                                updateLine(idx, { quantity: e.target.value })
-                              }
-                              className="text-right"
-                            />
-                          </td>
-                          <td className="px-2 py-2 w-28">
-                            <Input
-                              type="number"
-                              step="0.01"
-                              value={String(line.unit_price)}
-                              onChange={(e) =>
-                                updateLine(idx, { unit_price: e.target.value })
-                              }
-                              className="text-right"
-                            />
-                          </td>
-                          <td className="px-2 py-2 text-center">
-                            <input
-                              type="checkbox"
-                              checked={line.is_taxable}
-                              onChange={(e) =>
-                                updateLine(idx, {
-                                  is_taxable: e.target.checked,
-                                  tax_category: e.target.checked ? "GST" : null,
-                                })
-                              }
-                              aria-label={`Taxable line ${idx + 1}`}
-                              className="h-4 w-4"
-                            />
-                          </td>
-                          <td className="px-2 py-2 w-24">
-                            <Input
-                              type="number"
-                              step="0.01"
-                              value={
-                                line.tax_rate !== null
-                                  ? (num(line.tax_rate) * 100).toFixed(2)
-                                  : ""
-                              }
-                              onChange={(e) => {
-                                const pct = num(e.target.value);
-                                updateLine(idx, {
-                                  tax_rate: String(pct / 100),
-                                });
-                              }}
-                              className="text-right"
-                              disabled={!line.is_taxable}
-                            />
-                          </td>
-                          <td className="px-2 py-2 text-right font-medium">
-                            {formatCAD(lt.tax)}
-                          </td>
-                          <td className="px-2 py-2 text-right font-semibold">
-                            {formatCAD(lt.total)}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-              <div className="mt-3 flex gap-2">
-                <Button type="button" variant="outline" onClick={addLine}>
-                  Add Line
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={removeSelected}
-                  disabled={selectedRows.size === 0}
-                >
-                  Remove Selected
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Totals */}
-          <div className="flex justify-end">
-            <Card className="w-full max-w-xs">
-              <CardContent className="space-y-1 pt-6 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Subtotal:</span>
-                  <span className="font-medium">
-                    {formatCAD(totals.subtotal)}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">GST:</span>
-                  <span className="font-medium">{formatCAD(totals.tax)}</span>
-                </div>
-                <div className="flex justify-between border-t pt-2">
-                  <span className="font-semibold">Total:</span>
-                  <span className="text-lg font-bold">
-                    {formatCAD(totals.total)}
-                  </span>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {saveMutation.isError && (
-            <p className="text-sm text-destructive">
-              Save failed:{" "}
-              {saveMutation.error instanceof ApiError
-                ? typeof saveMutation.error.body === "object" &&
-                  saveMutation.error.body &&
-                  "detail" in saveMutation.error.body
-                  ? String(
-                      (saveMutation.error.body as { detail: unknown }).detail,
-                    )
-                  : `Server error ${saveMutation.error.status}`
-                : String(saveMutation.error)}
-            </p>
-          )}
-
-          {/* Actions */}
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {mode === "edit" && (
+        {/* Line Items */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Line Items</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[720px] border-collapse text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/40 text-left">
+                    <th className="w-10 px-2 py-2"></th>
+                    <th className="px-2 py-2 font-semibold">Description</th>
+                    <th className="px-2 py-2 font-semibold">Qty</th>
+                    <th className="px-2 py-2 font-semibold">Unit Price</th>
+                    <th className="px-2 py-2 font-semibold">Taxable</th>
+                    <th className="px-2 py-2 font-semibold">Tax Rate %</th>
+                    <th className="px-2 py-2 text-right font-semibold">
+                      Tax
+                    </th>
+                    <th className="px-2 py-2 text-right font-semibold">
+                      Total
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {state.line_items.map((line, idx) => {
+                    const lt = lineTotals(line);
+                    return (
+                      <tr key={idx} className="border-b last:border-0">
+                        <td className="px-2 py-2 text-center">
+                          <input
+                            type="checkbox"
+                            checked={selectedRows.has(idx)}
+                            onChange={() => toggleRow(idx)}
+                            aria-label={`Select line ${idx + 1}`}
+                            className="h-4 w-4"
+                          />
+                        </td>
+                        <td className="px-2 py-2">
+                          <Input
+                            value={line.description}
+                            onChange={(e) =>
+                              updateLine(idx, { description: e.target.value })
+                            }
+                          />
+                        </td>
+                        <td className="px-2 py-2 w-24">
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={String(line.quantity)}
+                            onChange={(e) =>
+                              updateLine(idx, { quantity: e.target.value })
+                            }
+                            className="text-right"
+                          />
+                        </td>
+                        <td className="px-2 py-2 w-28">
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={String(line.unit_price)}
+                            onChange={(e) =>
+                              updateLine(idx, { unit_price: e.target.value })
+                            }
+                            className="text-right"
+                          />
+                        </td>
+                        <td className="px-2 py-2 text-center">
+                          <input
+                            type="checkbox"
+                            checked={line.is_taxable}
+                            onChange={(e) =>
+                              updateLine(idx, {
+                                is_taxable: e.target.checked,
+                                tax_category: e.target.checked ? "GST" : null,
+                              })
+                            }
+                            aria-label={`Taxable line ${idx + 1}`}
+                            className="h-4 w-4"
+                          />
+                        </td>
+                        <td className="px-2 py-2 w-24">
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={
+                              line.tax_rate !== null
+                                ? (num(line.tax_rate) * 100).toFixed(2)
+                                : ""
+                            }
+                            onChange={(e) => {
+                              const pct = num(e.target.value);
+                              updateLine(idx, {
+                                tax_rate: String(pct / 100),
+                              });
+                            }}
+                            className="text-right"
+                            disabled={!line.is_taxable}
+                          />
+                        </td>
+                        <td className="px-2 py-2 text-right font-medium">
+                          {formatCAD(lt.tax)}
+                        </td>
+                        <td className="px-2 py-2 text-right font-semibold">
+                          {formatCAD(lt.total)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-3 flex gap-2">
+              <Button type="button" variant="outline" onClick={addLine}>
+                Add Line
+              </Button>
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => {
-                  void downloadPdf();
-                }}
+                onClick={removeSelected}
+                disabled={selectedRows.size === 0}
               >
-                Download PDF
+                Remove Selected
               </Button>
-            )}
-            {canMarkSent && (
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => markSentMutation.mutate()}
-                disabled={markSentMutation.isPending}
-              >
-                Mark Sent
-              </Button>
-            )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Totals */}
+        <div className="flex justify-end">
+          <Card className="w-full max-w-xs">
+            <CardContent className="space-y-1 pt-6 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Subtotal:</span>
+                <span className="font-medium">
+                  {formatCAD(totals.subtotal)}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">GST:</span>
+                <span className="font-medium">{formatCAD(totals.tax)}</span>
+              </div>
+              <div className="flex justify-between border-t pt-2">
+                <span className="font-semibold">Total:</span>
+                <span className="text-lg font-bold">
+                  {formatCAD(totals.total)}
+                </span>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {saveMutation.isError && (
+          <p className="text-sm text-destructive">
+            Save failed:{" "}
+            {saveMutation.error instanceof ApiError
+              ? typeof saveMutation.error.body === "object" &&
+                saveMutation.error.body &&
+                "detail" in saveMutation.error.body
+                ? String(
+                    (saveMutation.error.body as { detail: unknown }).detail,
+                  )
+                : `Server error ${saveMutation.error.status}`
+              : String(saveMutation.error)}
+          </p>
+        )}
+
+        {/* Actions */}
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {mode === "edit" && (
             <Button
               type="button"
               variant="outline"
-              onClick={() => navigate("/invoices")}
+              onClick={() => {
+                void downloadPdf();
+              }}
             >
-              Cancel
+              Download PDF
             </Button>
-            <Button type="submit" disabled={saveMutation.isPending}>
-              {saveMutation.isPending ? "Saving…" : "Save"}
+          )}
+          {canMarkSent && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => markSentMutation.mutate()}
+              disabled={markSentMutation.isPending}
+            >
+              Mark Sent
             </Button>
-          </div>
-        </form>
-      </main>
-    </div>
+          )}
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => navigate("/invoices")}
+          >
+            Cancel
+          </Button>
+          <Button type="submit" disabled={saveMutation.isPending}>
+            {saveMutation.isPending ? "Saving…" : "Save"}
+          </Button>
+        </div>
+      </form>
+    </main>
+
   );
 }
 

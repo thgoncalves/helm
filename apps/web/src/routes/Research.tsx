@@ -18,7 +18,6 @@ import { useNavigate } from "react-router-dom";
 
 import { apiFetch, ApiError } from "@/lib/api";
 import type { ResearchRow } from "@/types/api";
-import { AppHeader } from "@/components/AppHeader";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { LoadingBox } from "@/components/LoadingScreen";
@@ -116,117 +115,115 @@ export function Research() {
   }, [rows, sector, sortKey]);
 
   return (
-    <div className="min-h-screen bg-background">
-      <AppHeader />
-      <main className="mx-auto max-w-6xl px-4 py-6">
-        <header className="mb-6">
-          <h2 className="text-2xl font-bold">Research</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Browse a curated universe of {rows.length || "—"} tickers. Click ↻
-            to load or refresh a price; click a row to see the chart + buy
-            form.
-          </p>
-        </header>
-
-        {/* Filters */}
-        <div className="mb-4 flex flex-wrap items-center gap-3">
-          <label className="flex items-center gap-2 text-sm">
-            <span className="text-muted-foreground">Sector</span>
-            <select
-              value={sector}
-              onChange={(e) => setSector(e.target.value)}
-              className="rounded-md border bg-background px-2 py-1 text-sm"
-            >
-              {sectors.map((s) => (
-                <option key={s} value={s}>
-                  {s === "all" ? "All sectors" : s}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <span className="text-muted-foreground">Sort by</span>
-            <select
-              value={sortKey}
-              onChange={(e) => setSortKey(e.target.value as SortKey)}
-              className="rounded-md border bg-background px-2 py-1 text-sm"
-            >
-              <option value="ticker">Ticker</option>
-              <option value="name">Name</option>
-              <option value="sector">Sector</option>
-              <option value="day_change_pct">Day Δ</option>
-              <option value="position">Position value</option>
-            </select>
-          </label>
-        </div>
-
-        <Card>
-          <CardContent className="p-0">
-            {listQ.isLoading ? (
-              <div className="p-4">
-                <LoadingBox />
-              </div>
-            ) : listQ.isError ? (
-              <p className="p-6 text-destructive">
-                Failed to load research universe:{" "}
-                {listQ.error instanceof Error
-                  ? listQ.error.message
-                  : "Unknown error"}
-              </p>
-            ) : visible.length === 0 ? (
-              <p className="p-6 text-muted-foreground">
-                No tickers match this filter.
-              </p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b bg-muted/40 text-left">
-                      <th className="px-3 py-2 font-semibold">Ticker</th>
-                      <th className="px-3 py-2 font-semibold">Name</th>
-                      <th className="px-3 py-2 font-semibold">Sector</th>
-                      <th className="px-3 py-2 text-right font-semibold">
-                        Price
-                      </th>
-                      <th className="px-3 py-2 text-right font-semibold">
-                        Day Δ
-                      </th>
-                      <th className="px-3 py-2 text-right font-semibold">
-                        Position
-                      </th>
-                      <th className="px-3 py-2 text-right font-semibold">
-                        {/* refresh */}
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {visible.map((r) => (
-                      <ResearchTableRow
-                        key={r.ticker}
-                        row={r}
-                        refreshing={refreshingTicker === r.ticker}
-                        onRefresh={() => refreshMut.mutate(r.ticker)}
-                        onOpen={() =>
-                          navigate(
-                            `/investments/stocks/${encodeURIComponent(r.ticker)}`,
-                          )
-                        }
-                      />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <p className="mt-6 text-xs text-muted-foreground">
-          Prices via Twelve Data, cached for 24h on this view. Fundamentals
-          (P/E, dividend yield, market cap, 52w hi/lo) are deferred — see{" "}
-          <code>docs/specs/investments-research-v1.md</code>.
+    <main className="mx-auto max-w-6xl px-4 py-6">
+      <header className="mb-6">
+        <h2 className="text-2xl font-bold">Research</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Browse a curated universe of {rows.length || "—"} tickers. Click ↻
+          to load or refresh a price; click a row to see the chart + buy
+          form.
         </p>
-      </main>
-    </div>
+      </header>
+
+      {/* Filters */}
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <label className="flex items-center gap-2 text-sm">
+          <span className="text-muted-foreground">Sector</span>
+          <select
+            value={sector}
+            onChange={(e) => setSector(e.target.value)}
+            className="rounded-md border bg-background px-2 py-1 text-sm"
+          >
+            {sectors.map((s) => (
+              <option key={s} value={s}>
+                {s === "all" ? "All sectors" : s}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <span className="text-muted-foreground">Sort by</span>
+          <select
+            value={sortKey}
+            onChange={(e) => setSortKey(e.target.value as SortKey)}
+            className="rounded-md border bg-background px-2 py-1 text-sm"
+          >
+            <option value="ticker">Ticker</option>
+            <option value="name">Name</option>
+            <option value="sector">Sector</option>
+            <option value="day_change_pct">Day Δ</option>
+            <option value="position">Position value</option>
+          </select>
+        </label>
+      </div>
+
+      <Card>
+        <CardContent className="p-0">
+          {listQ.isLoading ? (
+            <div className="p-4">
+              <LoadingBox />
+            </div>
+          ) : listQ.isError ? (
+            <p className="p-6 text-destructive">
+              Failed to load research universe:{" "}
+              {listQ.error instanceof Error
+                ? listQ.error.message
+                : "Unknown error"}
+            </p>
+          ) : visible.length === 0 ? (
+            <p className="p-6 text-muted-foreground">
+              No tickers match this filter.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/40 text-left">
+                    <th className="px-3 py-2 font-semibold">Ticker</th>
+                    <th className="px-3 py-2 font-semibold">Name</th>
+                    <th className="px-3 py-2 font-semibold">Sector</th>
+                    <th className="px-3 py-2 text-right font-semibold">
+                      Price
+                    </th>
+                    <th className="px-3 py-2 text-right font-semibold">
+                      Day Δ
+                    </th>
+                    <th className="px-3 py-2 text-right font-semibold">
+                      Position
+                    </th>
+                    <th className="px-3 py-2 text-right font-semibold">
+                      {/* refresh */}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visible.map((r) => (
+                    <ResearchTableRow
+                      key={r.ticker}
+                      row={r}
+                      refreshing={refreshingTicker === r.ticker}
+                      onRefresh={() => refreshMut.mutate(r.ticker)}
+                      onOpen={() =>
+                        navigate(
+                          `/investments/stocks/${encodeURIComponent(r.ticker)}`,
+                        )
+                      }
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <p className="mt-6 text-xs text-muted-foreground">
+        Prices via Twelve Data, cached for 24h on this view. Fundamentals
+        (P/E, dividend yield, market cap, 52w hi/lo) are deferred — see{" "}
+        <code>docs/specs/investments-research-v1.md</code>.
+      </p>
+    </main>
+
   );
 }
 
