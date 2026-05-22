@@ -23,7 +23,7 @@
  *    "Overdue" is the only client-side filter (we group it ourselves from
  *    sent + past-due).
  */
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { apiFetch } from "@/lib/api";
@@ -45,6 +45,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { AppHeader } from "@/components/AppHeader";
+import { LoadingBox } from "@/components/LoadingScreen";
 
 const SELECT_CLASSES =
   "flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm " +
@@ -102,9 +103,12 @@ export function Invoices() {
   const [appliedFrom, setAppliedFrom] = useState<string>(initial.from ?? "");
   const [appliedTo, setAppliedTo] = useState<string>(initial.to ?? "");
 
+  // Include archived clients so invoices belonging to inactive clients
+  // (e.g. CP) still resolve to a name in the table and the filter dropdown.
   const { data: clients } = useQuery<ClientRead[]>({
-    queryKey: ["clients", "active"],
-    queryFn: () => apiFetch<ClientRead[]>("/business/clients/"),
+    queryKey: ["clients", "all"],
+    queryFn: () =>
+      apiFetch<ClientRead[]>("/business/clients/?include_archived=true"),
     staleTime: 60_000,
   });
 
@@ -165,6 +169,40 @@ export function Invoices() {
   const clientNameById = useMemo(
     () => new Map((clients ?? []).map((c) => [c.id, c.name])),
     [clients],
+  );
+
+  // Group invoices by client; sort invoices within each group by issue
+  // date (newest first); sort groups alphabetically by client name.
+  const grouped = useMemo(() => {
+    const byClient = new Map<
+      string,
+      { clientId: string; clientName: string; invoices: InvoiceRead[]; subtotal: number }
+    >();
+    for (const inv of filtered) {
+      let g = byClient.get(inv.client_id);
+      if (!g) {
+        g = {
+          clientId: inv.client_id,
+          clientName: clientNameById.get(inv.client_id) ?? "Unknown client",
+          invoices: [],
+          subtotal: 0,
+        };
+        byClient.set(inv.client_id, g);
+      }
+      g.invoices.push(inv);
+      g.subtotal += num(inv.total);
+    }
+    for (const g of byClient.values()) {
+      g.invoices.sort((a, b) => b.issue_date.localeCompare(a.issue_date));
+    }
+    return Array.from(byClient.values()).sort((a, b) =>
+      a.clientName.localeCompare(b.clientName),
+    );
+  }, [filtered, clientNameById]);
+
+  const grandTotal = useMemo(
+    () => grouped.reduce((sum, g) => sum + g.subtotal, 0),
+    [grouped],
   );
 
   const totals = data?.totals_by_status;
@@ -245,6 +283,7 @@ export function Invoices() {
             {(clients ?? []).map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
+                {c.is_active ? "" : " (archived)"}
               </option>
             ))}
           </select>
@@ -306,7 +345,7 @@ export function Invoices() {
         <Card>
           <CardContent className="p-0">
             {isLoading && (
-              <p className="p-6 text-muted-foreground">Loading invoices…</p>
+              <LoadingBox className="m-4" />
             )}
             {isError && (
               <p className="p-6 text-destructive">
@@ -325,7 +364,6 @@ export function Invoices() {
                       <th className="px-4 py-2 font-semibold">Invoice #</th>
                       <th className="px-4 py-2 font-semibold">Date</th>
                       <th className="px-4 py-2 font-semibold">Due Date</th>
-                      <th className="px-4 py-2 font-semibold">Client</th>
                       <th className="px-4 py-2 font-semibold">Status</th>
                       <th className="px-4 py-2 text-right font-semibold">
                         Total
@@ -333,35 +371,69 @@ export function Invoices() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filtered.map((inv) => {
-                      const ds = displayStatus(inv.status, inv.due_date, today);
-                      return (
-                        <tr
-                          key={inv.id}
-                          className="cursor-pointer border-b last:border-0 hover:bg-accent/40"
-                          onClick={() => navigate(`/invoices/${inv.id}`)}
-                        >
-                          <td className="whitespace-nowrap px-4 py-2 font-medium">
-                            {inv.invoice_number}
-                          </td>
-                          <td className="whitespace-nowrap px-4 py-2 text-muted-foreground">
-                            {formatDate(inv.issue_date)}
-                          </td>
-                          <td className="whitespace-nowrap px-4 py-2 text-muted-foreground">
-                            {formatDate(inv.due_date)}
-                          </td>
-                          <td className="whitespace-nowrap px-4 py-2">
-                            {clientNameById.get(inv.client_id) ?? "—"}
-                          </td>
-                          <td className="px-4 py-2">
-                            <StatusBadge status={ds} />
-                          </td>
-                          <td className="whitespace-nowrap px-4 py-2 text-right font-semibold">
-                            {formatCAD(num(inv.total))}
-                          </td>
+                    {grouped.map((g) => (
+                      <Fragment key={g.clientId}>
+                        <tr className="border-b border-t bg-muted/60">
+                          <th
+                            colSpan={4}
+                            className="px-4 py-2 text-left text-sm font-semibold"
+                          >
+                            {g.clientName}
+                            <span className="ml-2 text-xs font-normal text-muted-foreground">
+                              ({g.invoices.length}{" "}
+                              {g.invoices.length === 1
+                                ? "invoice"
+                                : "invoices"}
+                              )
+                            </span>
+                          </th>
+                          <th className="whitespace-nowrap px-4 py-2 text-right text-sm font-semibold">
+                            {formatCAD(g.subtotal)}
+                          </th>
                         </tr>
-                      );
-                    })}
+                        {g.invoices.map((inv) => {
+                          const ds = displayStatus(
+                            inv.status,
+                            inv.due_date,
+                            today,
+                          );
+                          return (
+                            <tr
+                              key={inv.id}
+                              className="cursor-pointer border-b last:border-0 hover:bg-accent/40"
+                              onClick={() => navigate(`/invoices/${inv.id}`)}
+                            >
+                              <td className="whitespace-nowrap px-4 py-2 pl-8 font-medium">
+                                {inv.invoice_number}
+                              </td>
+                              <td className="whitespace-nowrap px-4 py-2 text-muted-foreground">
+                                {formatDate(inv.issue_date)}
+                              </td>
+                              <td className="whitespace-nowrap px-4 py-2 text-muted-foreground">
+                                {formatDate(inv.due_date)}
+                              </td>
+                              <td className="px-4 py-2">
+                                <StatusBadge status={ds} />
+                              </td>
+                              <td className="whitespace-nowrap px-4 py-2 text-right font-semibold">
+                                {formatCAD(num(inv.total))}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </Fragment>
+                    ))}
+                    <tr className="border-t-2 bg-muted">
+                      <td
+                        colSpan={4}
+                        className="px-4 py-3 text-right text-sm font-bold uppercase tracking-wide"
+                      >
+                        Grand total
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right text-base font-bold">
+                        {formatCAD(grandTotal)}
+                      </td>
+                    </tr>
                   </tbody>
                 </table>
               </div>

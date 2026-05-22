@@ -9,7 +9,7 @@
  *   - Click a row → navigate to /payments/:id (Delete lives on the edit form).
  *   - "Record Payment" button → /payments/new.
  */
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { apiFetch } from "@/lib/api";
@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { AppHeader } from "@/components/AppHeader";
+import { LoadingBox } from "@/components/LoadingScreen";
 
 const SELECT_CLASSES =
   "flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm " +
@@ -123,6 +124,62 @@ export function Payments() {
     return rows;
   }, [data, search]);
 
+  // Group payments by client; sort within each group by payment date
+  // (newest first); sort groups alphabetically by client name. Subtotal
+  // tracks Gross / Deduction / Net to mirror the per-row columns.
+  const grouped = useMemo(() => {
+    const byClient = new Map<
+      string,
+      {
+        clientId: string;
+        clientName: string;
+        payments: PaymentListRow[];
+        gross: number;
+        deduction: number;
+        net: number;
+      }
+    >();
+    for (const p of filtered) {
+      let g = byClient.get(p.client_id);
+      if (!g) {
+        g = {
+          clientId: p.client_id,
+          clientName: p.client_name,
+          payments: [],
+          gross: 0,
+          deduction: 0,
+          net: 0,
+        };
+        byClient.set(p.client_id, g);
+      }
+      g.payments.push(p);
+      g.gross += num(p.amount);
+      g.deduction += num(p.deduction_amount);
+      g.net += num(p.net);
+    }
+    for (const g of byClient.values()) {
+      g.payments.sort((a, b) =>
+        b.payment_date.localeCompare(a.payment_date),
+      );
+    }
+    return Array.from(byClient.values()).sort((a, b) =>
+      a.clientName.localeCompare(b.clientName),
+    );
+  }, [filtered]);
+
+  const grandTotals = useMemo(
+    () =>
+      grouped.reduce(
+        (acc, g) => ({
+          gross: acc.gross + g.gross,
+          deduction: acc.deduction + g.deduction,
+          net: acc.net + g.net,
+        }),
+        { gross: 0, deduction: 0, net: 0 },
+      ),
+    [grouped],
+  );
+
   return (
     <div className="min-h-screen bg-background">
       <AppHeader />
@@ -195,7 +252,7 @@ export function Payments() {
         <Card>
           <CardContent className="p-0">
             {isLoading && (
-              <p className="p-6 text-muted-foreground">Loading payments…</p>
+              <LoadingBox className="m-4" />
             )}
             {isError && (
               <p className="p-6 text-destructive">
@@ -213,54 +270,101 @@ export function Payments() {
                     <tr className="border-b bg-muted/40 text-left">
                       <th className="px-4 py-2 font-semibold">Date</th>
                       <th className="px-4 py-2 font-semibold">Invoice #</th>
-                      <th className="px-4 py-2 font-semibold">Client</th>
                       <th className="px-4 py-2 text-right font-semibold">
                         Gross
                       </th>
                       <th className="px-4 py-2 text-right font-semibold">
                         Deduction
                       </th>
-                      <th className="px-4 py-2 text-right font-semibold">Net</th>
+                      <th className="px-4 py-2 text-right font-semibold">
+                        Net
+                      </th>
                       <th className="px-4 py-2 font-semibold">Method</th>
                       <th className="px-4 py-2 font-semibold">Reference</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filtered.map((p) => {
-                      const deduction = num(p.deduction_amount);
-                      return (
-                        <tr
-                          key={p.id}
-                          className="cursor-pointer border-b last:border-0 hover:bg-accent/40"
-                          onClick={() => navigate(`/payments/${p.id}`)}
-                        >
-                          <td className="whitespace-nowrap px-4 py-2">
-                            {formatDate(p.payment_date)}
-                          </td>
-                          <td className="whitespace-nowrap px-4 py-2 font-medium">
-                            {p.invoice_number}
-                          </td>
-                          <td className="whitespace-nowrap px-4 py-2">
-                            {p.client_name}
-                          </td>
-                          <td className="whitespace-nowrap px-4 py-2 text-right">
-                            {formatCAD(num(p.amount))}
-                          </td>
-                          <td className="whitespace-nowrap px-4 py-2 text-right">
-                            {deduction > 0 ? formatCAD(deduction) : "—"}
-                          </td>
-                          <td className="whitespace-nowrap px-4 py-2 text-right font-semibold">
-                            {formatCAD(num(p.net))}
-                          </td>
-                          <td className="whitespace-nowrap px-4 py-2">
-                            {p.payment_method ?? "—"}
-                          </td>
-                          <td className="whitespace-nowrap px-4 py-2 text-muted-foreground">
-                            {p.reference ?? "—"}
-                          </td>
+                    {grouped.map((g) => (
+                      <Fragment key={g.clientId}>
+                        <tr className="border-b border-t bg-muted/60">
+                          <th
+                            colSpan={2}
+                            className="px-4 py-2 text-left text-sm font-semibold"
+                          >
+                            {g.clientName}
+                            <span className="ml-2 text-xs font-normal text-muted-foreground">
+                              ({g.payments.length}{" "}
+                              {g.payments.length === 1
+                                ? "payment"
+                                : "payments"}
+                              )
+                            </span>
+                          </th>
+                          <th className="whitespace-nowrap px-4 py-2 text-right text-sm font-semibold">
+                            {formatCAD(g.gross)}
+                          </th>
+                          <th className="whitespace-nowrap px-4 py-2 text-right text-sm font-semibold">
+                            {g.deduction > 0 ? formatCAD(g.deduction) : "—"}
+                          </th>
+                          <th className="whitespace-nowrap px-4 py-2 text-right text-sm font-semibold">
+                            {formatCAD(g.net)}
+                          </th>
+                          <th colSpan={2} />
                         </tr>
-                      );
-                    })}
+                        {g.payments.map((p) => {
+                          const deduction = num(p.deduction_amount);
+                          return (
+                            <tr
+                              key={p.id}
+                              className="cursor-pointer border-b last:border-0 hover:bg-accent/40"
+                              onClick={() => navigate(`/payments/${p.id}`)}
+                            >
+                              <td className="whitespace-nowrap px-4 py-2 pl-8">
+                                {formatDate(p.payment_date)}
+                              </td>
+                              <td className="whitespace-nowrap px-4 py-2 font-medium">
+                                {p.invoice_number}
+                              </td>
+                              <td className="whitespace-nowrap px-4 py-2 text-right">
+                                {formatCAD(num(p.amount))}
+                              </td>
+                              <td className="whitespace-nowrap px-4 py-2 text-right">
+                                {deduction > 0 ? formatCAD(deduction) : "—"}
+                              </td>
+                              <td className="whitespace-nowrap px-4 py-2 text-right font-semibold">
+                                {formatCAD(num(p.net))}
+                              </td>
+                              <td className="whitespace-nowrap px-4 py-2">
+                                {p.payment_method ?? "—"}
+                              </td>
+                              <td className="whitespace-nowrap px-4 py-2 text-muted-foreground">
+                                {p.reference ?? "—"}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </Fragment>
+                    ))}
+                    <tr className="border-t-2 bg-muted">
+                      <td
+                        colSpan={2}
+                        className="px-4 py-3 text-right text-sm font-bold uppercase tracking-wide"
+                      >
+                        Grand total
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-bold">
+                        {formatCAD(grandTotals.gross)}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-bold">
+                        {grandTotals.deduction > 0
+                          ? formatCAD(grandTotals.deduction)
+                          : "—"}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right text-base font-bold">
+                        {formatCAD(grandTotals.net)}
+                      </td>
+                      <td colSpan={2} />
+                    </tr>
                   </tbody>
                 </table>
               </div>
