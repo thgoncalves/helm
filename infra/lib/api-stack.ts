@@ -243,6 +243,31 @@ export class ApiStack extends cdk.Stack {
     // env name to build the secret path.
     fn.addEnvironment('HELM_YNAB_SECRET_ARN', ynabSecret.secretArn);
 
+    // -------------------------------------------------------------------------
+    // Twelve Data API key — Secrets Manager.
+    //
+    // Used by the Stocks routes (search, quote, history) to call the
+    // Twelve Data REST API. Seed the secret value via the AWS console
+    // after first deploy — the CDK construct only creates the resource
+    // shell.
+    // -------------------------------------------------------------------------
+    const twelveDataSecret = new secretsmanager.Secret(this, 'TwelveDataApiKey', {
+      secretName: `helm/${config.env}/twelvedata/api-key`,
+      description:
+        'Twelve Data REST API key. Seed via the AWS console; read by the ' +
+        'API Lambda for stock quotes, search, and history.',
+      removalPolicy:
+        config.env === 'main'
+          ? cdk.RemovalPolicy.RETAIN
+          : cdk.RemovalPolicy.DESTROY,
+    });
+
+    twelveDataSecret.grantRead(fn);
+    fn.addEnvironment(
+      'HELM_TWELVEDATA_SECRET_ARN',
+      twelveDataSecret.secretArn,
+    );
+
     // Suppress unused-import warning for lambdaEventSources (re-exported
     // so future event-source additions don't need another import).
     void lambdaEventSources;
