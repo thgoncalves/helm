@@ -58,17 +58,11 @@ def accounts_db(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     }
     ynab_accounts: dict[str, dict[str, Any]] = {}
     manual_accounts: dict[UUID, dict[str, Any]] = {}
-    investment_accounts: dict[UUID, dict[str, Any]] = {}
-    # Holdings keyed by account_id → list[row], so the aggregator's
-    # SUM/COUNT query can read totals per account.
-    investment_holdings: dict[UUID, list[dict[str, Any]]] = {}
 
     stores = {
         "ynab_budgets": ynab_budgets,
         "ynab_accounts": ynab_accounts,
         "manual_accounts": manual_accounts,
-        "investment_accounts": investment_accounts,
-        "investment_holdings": investment_holdings,
     }
 
     def fetch_all(
@@ -94,15 +88,6 @@ def accounts_db(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
             )
         if "FROM manual_accounts" in sql:
             return sorted(manual_accounts.values(), key=lambda r: r["name"])
-        if "FROM investment_accounts" in sql and "WHERE is_active = TRUE" in sql:
-            return sorted(
-                (
-                    r
-                    for r in investment_accounts.values()
-                    if r["is_active"]
-                ),
-                key=lambda r: r["name"],
-            )
         raise NotImplementedError(f"accounts_db.fetch_all: {sql[:120]}")
 
     def fetch_one(
@@ -110,21 +95,12 @@ def accounts_db(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     ) -> dict[str, Any] | None:
         sql = sql.strip()
         params = params or {}
-        # ---- Aggregator's holdings summary --------------------------------
-        if "FROM investment_holdings" in sql and "SUM(shares * current_price)" in sql:
-            rows = investment_holdings.get(params["id"], [])
-            total = sum(
-                Decimal(r["shares"]) * Decimal(r["current_price"]) for r in rows
-            )
-            return {"total": total, "n": len(rows)}
         # ---- ynab_budgets currency lookup ---------------------------------
         if "FROM ynab_budgets WHERE id = :id" in sql:
             return ynab_budgets.get(params["id"])
         # ---- existence checks before UPDATE ------------------------------
         if "FROM manual_accounts WHERE id = :id" in sql:
             return manual_accounts.get(params["id"])
-        if "FROM investment_accounts WHERE id = :id" in sql:
-            return investment_accounts.get(params["id"])
         # ---- UPDATE ... RETURNING * --------------------------------------
         if sql.startswith("UPDATE ynab_accounts"):
             row = ynab_accounts.get(params["id"])
@@ -134,12 +110,6 @@ def accounts_db(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
             return row
         if sql.startswith("UPDATE manual_accounts"):
             row = manual_accounts.get(params["id"])
-            if row is None:
-                return None
-            _apply_assignments(row, sql, params)
-            return row
-        if sql.startswith("UPDATE investment_accounts"):
-            row = investment_accounts.get(params["id"])
             if row is None:
                 return None
             _apply_assignments(row, sql, params)
@@ -194,12 +164,9 @@ def accounts_db(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
                 existing["last_synced_at"] = params["now"]
                 # helm_kind / helm_owner intentionally NOT touched.
             return {}
-        # ---- DELETE manual / investment ----------------------------------
+        # ---- DELETE manual ------------------------------------------------
         if sql.startswith("DELETE FROM manual_accounts"):
             manual_accounts.pop(params["id"], None)
-            return {}
-        if sql.startswith("DELETE FROM investment_accounts"):
-            investment_accounts.pop(params["id"], None)
             return {}
         # Anything else (the rest of the YNAB sync — budgets, categories,
         # months, transactions) — silently no-op so we can call into
@@ -274,12 +241,11 @@ def _new_manual_row(params: dict[str, Any]) -> dict[str, Any]:
 
 
 class TestAccountsAggregator:
-    def test_unions_rows_from_all_three_sources(
+    def test_unions_rows_from_both_sources(
         self, client: TestClient, accounts_db: dict[str, Any]
     ) -> None:
         """One row per source, correctly namespaced and shaped."""
         manual_id = uuid4()
-        inv_id = uuid4()
 
         accounts_db["ynab_accounts"][_YNAB_ROW_ID] = {
             "id": _YNAB_ROW_ID,
@@ -311,35 +277,13 @@ class TestAccountsAggregator:
             "created_at": datetime.now(timezone.utc),
             "updated_at": datetime.now(timezone.utc),
         }
-        accounts_db["investment_accounts"][inv_id] = {
-            "id": inv_id,
-            "name": "Scotia iTrade",
-            "kind": "itrade",
-            "currency": "CAD",
-            "owner_label": None,
-            "contribution_limit": None,
-            "notes": None,
-            "is_active": True,
-            "owner": "personal",
-            "helm_kind": "investing_stock",
-            "bank": "Scotia iTrade",
-            "cash_balance": Decimal("1234.00"),
-            "cash_currency": "CAD",
-            "balance_as_of": None,
-            "created_at": datetime.now(timezone.utc),
-            "updated_at": datetime.now(timezone.utc),
-        }
-        # One holding worth $3,320.
-        accounts_db["investment_holdings"][inv_id] = [
-            {"shares": Decimal("10"), "current_price": Decimal("332.00")}
-        ]
 
         resp = client.get("/accounts")
         assert resp.status_code == 200, resp.text
         body = resp.json()
         rows = body["accounts"]
         by_source = {r["source"]: r for r in rows}
-        assert set(by_source) == {"ynab", "manual", "investment"}
+        assert set(by_source) == {"ynab", "manual"}
 
         ynab = by_source["ynab"]
         assert ynab["id"] == f"ynab:{_YNAB_ROW_ID}"
@@ -357,13 +301,6 @@ class TestAccountsAggregator:
         # BRL 18,600 × 0.27 → CAD 5,022.00.
         assert Decimal(str(manual["balance_cad"])) == Decimal("5022.00")
         assert manual["is_editable"] is True
-
-        inv = by_source["investment"]
-        # Cash + holdings: 1,234 + (10 × 332) = 4,554.
-        assert Decimal(str(inv["balance"])) == Decimal("4554.00")
-        assert inv["extra"]["holdings_count"] == 1
-        assert inv["extra"]["cash_balance"] == 1234.0
-        assert inv["kind"] == "investing_stock"
 
 
 class TestTagsPatch:

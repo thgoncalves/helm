@@ -1,8 +1,8 @@
 """Shared balance aggregation.
 
-Computes CAD-converted balances across the three account sources
-(YNAB-cached, manual, investment). Used by the live ``/money/health``
-endpoint and by the snapshot writer that captures the same numbers to
+Computes CAD-converted balances across the two account sources
+(YNAB-cached, manual). Used by the live ``/money/health`` endpoint and
+by the snapshot writer that captures the same numbers to
 ``net_worth_snapshots`` for the trend chart.
 
 Keeping the math in one place means a snapshot and a live KPI computed
@@ -13,7 +13,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Any
 
 from app import db
 from app.investments.fx import FxRateUnavailable, get_rate
@@ -148,34 +147,7 @@ def compute_balances() -> Balances:
             continue
         _add(kind, row.get("owner"), cad)
 
-    # Investment accounts: cash + holdings (shares × current_price).
-    inv_rows = db.fetch_all(
-        "SELECT * FROM investment_accounts WHERE is_active = TRUE"
-    )
-    for row in inv_rows:
-        currency = row.get("currency") or "CAD"
-        cash_balance = Decimal(row.get("cash_balance") or 0)
-        holdings_total = _holdings_total(row["id"])
-        total = cash_balance + holdings_total
-        kind = row.get("helm_kind") or "investing_fund"
-        cad = _to_cad(total, currency, b.warnings)
-        if cad is None:
-            continue
-        _add(kind, row.get("owner"), cad)
-
     return b
-
-
-def _holdings_total(account_id: Any) -> Decimal:
-    row = db.fetch_one(
-        """
-        SELECT COALESCE(SUM(shares * current_price), 0) AS total
-        FROM investment_holdings
-        WHERE account_id = :id
-        """,
-        {"id": account_id},
-    )
-    return Decimal(row.get("total") or 0) if row else Decimal("0")
 
 
 def _to_cad(

@@ -208,6 +208,7 @@ export function Stocks() {
                   <tbody>
                     {positions.map((p) => {
                       const unreal = num(p.unrealized);
+                      const isCad = p.currency.toUpperCase() === "CAD";
                       return (
                         <tr
                           key={p.ticker}
@@ -228,9 +229,18 @@ export function Stocks() {
                             {p.accounts}
                           </td>
                           <td className="px-4 py-2 text-right font-semibold">
-                            {p.current_value === null
-                              ? "—"
-                              : fmtMoney(p.current_value, p.currency)}
+                            <div>
+                              {p.current_value === null
+                                ? "—"
+                                : fmtMoney(p.current_value, p.currency)}
+                            </div>
+                            {!isCad && (
+                              <div className="text-xs font-normal text-muted-foreground">
+                                {p.current_value_cad === null
+                                  ? "FX unavailable"
+                                  : `≈ ${fmtMoney(p.current_value_cad, "CAD")}`}
+                              </div>
+                            )}
                           </td>
                           <td
                             className={
@@ -242,11 +252,20 @@ export function Stocks() {
                                   : "")
                             }
                           >
-                            {p.unrealized === null
-                              ? "—"
-                              : unreal === 0
+                            <div>
+                              {p.unrealized === null
                                 ? "—"
-                                : `${unreal > 0 ? "+" : ""}${fmtMoney(p.unrealized, p.currency)}`}
+                                : unreal === 0
+                                  ? "—"
+                                  : `${unreal > 0 ? "+" : ""}${fmtMoney(p.unrealized, p.currency)}`}
+                            </div>
+                            {!isCad && p.unrealized !== null && unreal !== 0 && (
+                              <div className="text-xs font-normal text-muted-foreground">
+                                {p.unrealized_cad === null
+                                  ? "FX unavailable"
+                                  : `≈ ${num(p.unrealized_cad) > 0 ? "+" : ""}${fmtMoney(p.unrealized_cad, "CAD")}`}
+                              </div>
+                            )}
                           </td>
                         </tr>
                       );

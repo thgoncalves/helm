@@ -42,8 +42,6 @@ def money_db(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     }
     ynab_accounts: dict[str, dict[str, Any]] = {}
     manual_accounts: dict[UUID, dict[str, Any]] = {}
-    investment_accounts: dict[UUID, dict[str, Any]] = {}
-    investment_holdings: dict[UUID, list[dict[str, Any]]] = {}
     # YNAB transactions for the 12-month flow math. Each row: dict with
     # amount (signed milliunits), posted_date (date), transfer_account_id.
     ynab_transactions: list[dict[str, Any]] = []
@@ -56,8 +54,6 @@ def money_db(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         "ynab_budgets": ynab_budgets,
         "ynab_accounts": ynab_accounts,
         "manual_accounts": manual_accounts,
-        "investment_accounts": investment_accounts,
-        "investment_holdings": investment_holdings,
         "ynab_transactions": ynab_transactions,
         "net_worth_snapshots": net_worth_snapshots,
         "settings": settings_rows,
@@ -94,10 +90,6 @@ def money_db(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
             )
         if "FROM manual_accounts" in sql:
             return [r for r in manual_accounts.values() if r["is_active"]]
-        if "FROM investment_accounts" in sql:
-            return [
-                r for r in investment_accounts.values() if r["is_active"]
-            ]
         if "FROM settings" in sql:
             # money_health._load_targets queries by key list. Return any
             # rows seeded by the test; empty list → defaults fire.
@@ -157,13 +149,6 @@ def money_db(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
                 if b["is_active"]:
                     return b
             return None
-        if "FROM investment_holdings" in sql and "SUM(shares * current_price)" in sql:
-            rows = investment_holdings.get(params["id"], [])
-            total = sum(
-                Decimal(r["shares"]) * Decimal(r["current_price"])
-                for r in rows
-            )
-            return {"total": total, "n": len(rows)}
         if "FROM ynab_transactions" in sql and "SUM(CASE" in sql:
             # Aggregate inflow + outflow over the trailing window.
             since = params["since"]
@@ -276,40 +261,16 @@ class TestNetWorth:
             "created_at": datetime.now(timezone.utc),
             "updated_at": datetime.now(timezone.utc),
         }
-        # Investment account with $3,000 in holdings + $500 cash, CAD.
-        inv_id = uuid4()
-        money_db["investment_accounts"][inv_id] = {
-            "id": inv_id,
-            "name": "iTrade",
-            "kind": "itrade",
-            "currency": "CAD",
-            "owner_label": None,
-            "contribution_limit": None,
-            "notes": None,
-            "is_active": True,
-            "owner": "personal",
-            "helm_kind": "investing_stock",
-            "bank": "Scotia iTrade",
-            "cash_balance": Decimal("500.00"),
-            "cash_currency": "CAD",
-            "balance_as_of": None,
-            "created_at": datetime.now(timezone.utc),
-            "updated_at": datetime.now(timezone.utc),
-        }
-        money_db["investment_holdings"][inv_id] = [
-            {"shares": Decimal("30"), "current_price": Decimal("100.00")},
-        ]
-
         resp = client.get("/money/health")
         assert resp.status_code == 200, resp.text
         body = resp.json()
-        # Assets: 5000 (TD) + 5000 (Itaú BRL→CAD) + 3500 (iTrade) = 13500.
-        assert Decimal(body["assets_cad"]) == Decimal("13500.00")
+        # Assets: 5000 (TD) + 5000 (Itaú BRL→CAD) = 10000.
+        assert Decimal(body["assets_cad"]) == Decimal("10000.00")
         # Liabilities: 1200 (Visa, abs value).
         assert Decimal(body["liabilities_cad"]) == Decimal("1200.00")
-        assert Decimal(body["net_worth_cad"]) == Decimal("12300.00")
+        assert Decimal(body["net_worth_cad"]) == Decimal("8800.00")
         # All sources owned by Personal in this fixture.
-        assert Decimal(body["personal_net_worth_cad"]) == Decimal("12300.00")
+        assert Decimal(body["personal_net_worth_cad"]) == Decimal("8800.00")
         assert Decimal(body["business_net_worth_cad"]) == Decimal("0.00")
 
 
@@ -600,26 +561,21 @@ class TestAllocation:
             "helm_owner": "personal",
             "last_synced_at": datetime.now(timezone.utc),
         }
-        inv_id = uuid4()
-        money_db["investment_accounts"][inv_id] = {
-            "id": inv_id,
+        # $5,000 manual fund (investing_fund tagged) in CAD.
+        money_db["manual_accounts"][uuid4()] = {
+            "id": uuid4(),
             "name": "iTrade",
-            "kind": "itrade",
+            "bank": None,
             "currency": "CAD",
-            "owner_label": None,
-            "contribution_limit": None,
+            "balance": Decimal("5000.00"),
+            "balance_as_of": date.today(),
+            "kind": "investing_fund",
+            "owner": "personal",
             "notes": None,
             "is_active": True,
-            "owner": "personal",
-            "helm_kind": "investing_fund",
-            "bank": None,
-            "cash_balance": Decimal("5000.00"),
-            "cash_currency": "CAD",
-            "balance_as_of": None,
             "created_at": datetime.now(timezone.utc),
             "updated_at": datetime.now(timezone.utc),
         }
-        money_db["investment_holdings"][inv_id] = []
 
         resp = client.get("/money/health")
         body = resp.json()

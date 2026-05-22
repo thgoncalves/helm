@@ -98,26 +98,13 @@ const INVESTMENTS_NAV: readonly NavItem[] = [
   {
     to: "/investments",
     label: "Overview",
-    // Lit on exact /investments, OR anywhere under /investments/holdings
-    // (new + edit). The exact match keeps it from stealing the active
-    // state on /investments/accounts and /investments/targets.
     matchExact: ["/investments"],
-    matchPrefixes: ["/investments/holdings"],
+    matchPrefixes: [],
   },
   {
     to: "/investments/stocks",
     label: "Stocks",
     matchPrefixes: ["/investments/stocks"],
-  },
-  {
-    to: "/investments/accounts",
-    label: "Accounts",
-    matchPrefixes: ["/investments/accounts"],
-  },
-  {
-    to: "/investments/targets",
-    label: "Targets",
-    matchPrefixes: ["/investments/targets"],
   },
 ] as const;
 

@@ -13,14 +13,7 @@ from app.routers import accounts_manual as accounts_manual_router
 from app.routers import clients as clients_router
 from app.routers import dashboard as dashboard_router
 from app.routers import expenses as expenses_router
-from app.routers import investments_accounts as investments_accounts_router
-from app.routers import (
-    investments_contributions as investments_contributions_router,
-)
-from app.routers import investments_holdings as investments_holdings_router
-from app.routers import investments_portfolio as investments_portfolio_router
 from app.routers import investments_stocks as investments_stocks_router
-from app.routers import investments_targets as investments_targets_router
 from app.routers import invoices as invoices_router
 from app.routers import money_health as money_health_router
 from app.routers import money_ynab as money_ynab_router
@@ -70,25 +63,8 @@ app.include_router(transfers_router.router, prefix="/business/transfers")
 app.include_router(money_ynab_router.router, prefix="/money")
 app.include_router(money_health_router.router, prefix="/money")
 
-# Investments — portfolio tracker (V1). Four sub-routers behind one prefix.
-app.include_router(
-    investments_accounts_router.router, prefix="/investments/accounts"
-)
-app.include_router(
-    investments_holdings_router.router, prefix="/investments/holdings"
-)
-app.include_router(
-    investments_targets_router.router, prefix="/investments/targets"
-)
-app.include_router(
-    investments_portfolio_router.router, prefix="/investments/portfolio"
-)
-# Contributions router declares its own /accounts/{id}/contributions
-# and /contributions/room paths, so it mounts directly under /investments.
-app.include_router(
-    investments_contributions_router.router, prefix="/investments"
-)
-# Stocks V1 — search, detail, transactions, refresh-quote.
+# Investments — Stocks V1 is the only surface. Funds come through the
+# unified /accounts page (tagged investing_fund).
 app.include_router(
     investments_stocks_router.router, prefix="/investments/stocks"
 )

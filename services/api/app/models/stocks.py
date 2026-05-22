@@ -45,7 +45,7 @@ class StockSearchHit(BaseModel):
 class StockPositionRow(BaseModel):
     """Per-(account, ticker) summary for the StockDetail page."""
 
-    account_source: Literal["investment", "manual", "ynab"]
+    account_source: Literal["manual", "ynab"]
     account_id: UUID
     account_name: str
     account_kind: str | None = None  # itrade | tfsa | rrsp | corp | brazil
@@ -75,17 +75,15 @@ class StockDetailResponse(BaseModel):
 
 
 TransactionType = Literal["buy", "sell", "split", "dividend"]
-AccountSource = Literal["investment", "manual", "ynab"]
+AccountSource = Literal["manual", "ynab"]
 
 
 class StockAccountRow(BaseModel):
     """Unified account list for the Stocks UI.
 
     Surfaces every account tagged ``helm_kind='investing_stock'`` across
-    the three sources Helm aggregates on the Accounts page so the buy
-    form can offer the user's *real* brokerage cash account (often a
-    YNAB-synced row) instead of forcing a dupe under
-    ``investment_accounts``.
+    manual_accounts and ynab_accounts so the buy form can offer the
+    user's *real* brokerage cash account (often a YNAB-synced row).
     """
 
     source: AccountSource
@@ -99,13 +97,12 @@ class StockAccountRow(BaseModel):
     cash_balance: Decimal
     balance_as_of: date | None = None
     supports_cash_debit: bool
-    #   True for investment + manual sources where Helm owns the balance.
-    #   False for YNAB rows (their balance comes from sync; we never
-    #   write back to YNAB).
+    #   True for manual rows where Helm owns the balance. False for
+    #   YNAB rows (their balance comes from sync; we never write back).
 
 
 class StockTransactionCreate(BaseModel):
-    account_source: AccountSource = "investment"
+    account_source: AccountSource = "manual"
     account_id: UUID
     ticker: str = Field(min_length=1, max_length=20)
     transaction_date: date
@@ -119,7 +116,7 @@ class StockTransactionCreate(BaseModel):
     # without a schema change.
     transaction_type: TransactionType = "buy"
 
-    # When True, the brokerage account's cash balance is debited by
+    # When True, the manual account's cash balance is debited by
     # quantity*unit_price + fees (or refunded on delete). Ignored for
     # ynab source — the YNAB sync owns those balances.
     auto_debit_cash: bool = True
@@ -143,6 +140,34 @@ class StockTransactionRead(BaseModel):
     updated_at: datetime
 
 
+class FundsVsStocksRow(BaseModel):
+    """One side of the Funds-vs-Stocks comparison strip."""
+
+    bucket: Literal["funds", "stocks"]
+    current_value_cad: Decimal
+    accounts_count: int
+    holdings_count: int = 0
+    #   For stocks: number of distinct tickers. For funds: 0 (we don't
+    #   track underlying holdings — just the balance snapshot).
+    cost_basis_cad: Decimal | None = None
+    #   Only available for stocks (sum of ACB across lots, FX-converted).
+    unrealized_cad: Decimal | None = None
+    unrealized_pct: Decimal | None = None
+    stale_days: int | None = None
+    #   For funds: max age of any balance_as_of in this bucket. Surfaces
+    #   "your fund balances are X days old" so the comparison context is
+    #   honest. None for stocks (always live via quote cache).
+
+
+class FundsVsStocksResponse(BaseModel):
+    funds: FundsVsStocksRow
+    stocks: FundsVsStocksRow
+    total_cad: Decimal
+    funds_pct: Decimal
+    stocks_pct: Decimal
+    base_currency: str = "CAD"
+
+
 class StockPortfolioRow(BaseModel):
     """One row per held ticker for the Stocks landing page.
 
@@ -150,6 +175,10 @@ class StockPortfolioRow(BaseModel):
     ticker. ``current_price`` and ``current_value`` come from the
     cached quote if available; ``None`` until first viewed on the
     detail page.
+
+    The ``*_cad`` fields surface the same amounts converted to CAD via
+    the BoC FX cache so the user can compare USD/BRL positions to their
+    CAD ones at a glance. ``None`` when FX is unavailable.
     """
 
     ticker: str
@@ -161,6 +190,11 @@ class StockPortfolioRow(BaseModel):
     current_price: Decimal | None = None
     current_value: Decimal | None = None
     unrealized: Decimal | None = None
+    # CAD-converted mirrors. Same as the native fields when currency is
+    # already CAD. None on FX miss.
+    acb_total_cad: Decimal | None = None
+    current_value_cad: Decimal | None = None
+    unrealized_cad: Decimal | None = None
 
 
 StockDetailResponse.model_rebuild()

@@ -4,12 +4,11 @@
  * Route: /investments/stocks/buy?ticker=AAPL
  *
  * The account dropdown is fed by `GET /investments/stocks/accounts`,
- * which unifies investment_accounts, manual_accounts, and ynab_accounts
- * filtered to ``helm_kind='investing_stock'``. The selected account
- * carries a ``supports_cash_debit`` flag — YNAB-sourced accounts have
- * it off because the YNAB sync owns those balances, so we never write
- * back to YNAB. Investment / manual sources get the auto-debit toggle
- * as before.
+ * which unifies manual_accounts and ynab_accounts filtered to
+ * ``helm_kind='investing_stock'``. The selected account carries a
+ * ``supports_cash_debit`` flag — YNAB-sourced accounts have it off
+ * because the YNAB sync owns those balances, so we never write back
+ * to YNAB. Manual accounts get the auto-debit toggle.
  */
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -66,8 +65,6 @@ function accountKey(a: StockAccountRow): string {
 
 function sourceLabel(source: StockAccountRow["source"]): string {
   switch (source) {
-    case "investment":
-      return "Helm";
     case "manual":
       return "Manual";
     case "ynab":

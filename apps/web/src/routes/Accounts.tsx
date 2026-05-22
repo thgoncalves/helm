@@ -1,19 +1,16 @@
 /**
- * Accounts — unified management page across all three sources.
+ * Accounts — unified management page across YNAB-synced and manual
+ * sources.
  *
- * Reads GET /accounts (a union of ynab_accounts, manual_accounts, and
- * investment_accounts). The visual language mirrors the Money +
- * Business dashboards: top bar with a context action, a KPI strip with
- * totals, then a grouped list.
+ * Reads GET /accounts (a union of ynab_accounts and manual_accounts).
+ * The visual language mirrors the Money + Business dashboards: top bar
+ * with a context action, a KPI strip with totals, then a grouped list.
  *
  * Source-specific behaviour:
  *   - YNAB rows are read-only except for the kind/owner tags. The
  *     global "Sync YNAB" button at the top refreshes them in bulk.
  *   - Manual rows expand into an inline editor where the user can edit
  *     name, bank, balance, currency, kind, owner, notes.
- *   - Investment rows expand into a smaller inline editor for the
- *     uninvested cash position + the kind/owner tags. The actual
- *     equity holdings keep their existing UI under /investments.
  */
 import { useMemo, useState } from "react";
 import {
@@ -36,7 +33,6 @@ import type {
   ManualAccountOwner,
   ManualAccountRead,
   ManualAccountUpdate,
-  InvestmentAccountRead,
   YnabRefreshResponse,
 } from "@/types/api";
 import { AppHeader } from "@/components/AppHeader";
@@ -113,11 +109,7 @@ function fmtAsOf(s: string | null): string {
 }
 
 function sourceBadge(source: AccountSource): string {
-  return source === "ynab"
-    ? "YNAB"
-    : source === "manual"
-      ? "Manual"
-      : "Investment";
+  return source === "ynab" ? "YNAB" : "Manual";
 }
 
 function labelForKind(kind: AccountKind): string {
@@ -359,9 +351,7 @@ export function Accounts() {
                           onDelete={() => {
                             if (
                               confirm(
-                                row.source === "investment"
-                                  ? `Delete "${row.name}" and all its holdings? This cannot be undone.`
-                                  : `Delete "${row.name}"? This cannot be undone.`,
+                                `Delete "${row.name}"? This cannot be undone.`,
                               )
                             ) {
                               deleteMutation.mutate(row);
@@ -449,8 +439,6 @@ function AccountRowItem({
     row.balance_cad === null
       ? null
       : fmtMoney(row.balance_cad, "CAD");
-  const showHoldingsLink =
-    row.source === "investment" && row.kind === "investing_stock";
   return (
     <li className="px-4 py-3">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:gap-4">
@@ -471,24 +459,6 @@ function AccountRowItem({
             {row.source === "ynab"
               ? `Synced ${fmtRelative(row.last_synced_at)}`
               : `As of ${fmtAsOf(row.balance_as_of)}`}
-            {row.source === "investment" &&
-              typeof row.extra?.["holdings_count"] === "number" && (
-                <>
-                  {" · "}
-                  {row.extra["holdings_count"] as number} holding(s)
-                </>
-              )}
-            {showHoldingsLink && (
-              <>
-                {" · "}
-                <Link
-                  to={`/investments/accounts`}
-                  className="text-primary underline-offset-4 hover:underline"
-                >
-                  View holdings
-                </Link>
-              </>
-            )}
           </p>
         </div>
 
@@ -565,16 +535,6 @@ function AccountRowItem({
           <ManualAccountForm
             existingId={unwrapId(row.id)}
             initial={row}
-            onCancel={onToggleEdit}
-            onSaved={onSaved}
-          />
-        </div>
-      )}
-      {isEditing && row.source === "investment" && (
-        <div className="mt-4 rounded-md border bg-muted/30 p-4">
-          <InvestmentAccountInlineForm
-            existingId={unwrapId(row.id)}
-            row={row}
             onCancel={onToggleEdit}
             onSaved={onSaved}
           />
@@ -739,119 +699,6 @@ function ManualAccountForm({
         </Button>
         <Button type="submit" disabled={mutation.isPending}>
           {mutation.isPending ? "Saving…" : isEdit ? "Save" : "Create"}
-        </Button>
-      </div>
-    </form>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Investment account inline form (edit only — create lives elsewhere)
-// ---------------------------------------------------------------------------
-
-function InvestmentAccountInlineForm({
-  existingId,
-  row,
-  onCancel,
-  onSaved,
-}: {
-  existingId: string;
-  row: AccountRow;
-  onCancel: () => void;
-  onSaved: () => void;
-}) {
-  const initialCash = (row.extra?.["cash_balance"] as number) ?? 0;
-  const initialCashCcy =
-    (row.extra?.["cash_currency"] as string) ?? row.currency;
-
-  const [name, setName] = useState(row.name);
-  const [bank, setBank] = useState(row.bank ?? "");
-  const [cashBalance, setCashBalance] = useState(String(initialCash));
-  const [cashCurrency, setCashCurrency] = useState(initialCashCcy);
-  const [serverError, setServerError] = useState<string | null>(null);
-
-  const mutation = useMutation<InvestmentAccountRead, ApiError, void>({
-    mutationFn: () =>
-      apiFetch<InvestmentAccountRead>(
-        `/investments/accounts/${existingId}`,
-        {
-          method: "PATCH",
-          body: JSON.stringify({
-            name,
-            bank: bank || null,
-            cash_balance: cashBalance,
-            cash_currency: cashCurrency.toUpperCase(),
-          }),
-        },
-      ),
-    onSuccess: () => {
-      setServerError(null);
-      onSaved();
-    },
-    onError: (err) => setServerError(extractError(err)),
-  });
-
-  return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        mutation.mutate();
-      }}
-      className="grid gap-3 sm:grid-cols-2"
-    >
-      <div>
-        <Label htmlFor="ia-name">Name</Label>
-        <Input
-          id="ia-name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          required
-        />
-      </div>
-      <div>
-        <Label htmlFor="ia-bank">Brokerage / bank</Label>
-        <Input
-          id="ia-bank"
-          value={bank}
-          onChange={(e) => setBank(e.target.value)}
-          placeholder="Scotia iTrade, Itaú Investimentos, …"
-        />
-      </div>
-      <div>
-        <Label htmlFor="ia-cash">Cash balance</Label>
-        <Input
-          id="ia-cash"
-          type="number"
-          step="0.01"
-          value={cashBalance}
-          onChange={(e) => setCashBalance(e.target.value)}
-        />
-        <p className="mt-1 text-xs text-muted-foreground">
-          Uninvested cash sitting in the brokerage account.
-        </p>
-      </div>
-      <div>
-        <Label htmlFor="ia-cash-ccy">Cash currency</Label>
-        <Input
-          id="ia-cash-ccy"
-          value={cashCurrency}
-          maxLength={3}
-          onChange={(e) =>
-            setCashCurrency(e.target.value.toUpperCase())
-          }
-        />
-      </div>
-      {serverError && (
-        <p className="sm:col-span-2 text-sm text-destructive">
-          {serverError}
-        </p>
-      )}
-      <div className="sm:col-span-2 flex justify-end gap-2">
-        <Button type="button" variant="outline" onClick={onCancel}>
-          Cancel
-        </Button>
-        <Button type="submit" disabled={mutation.isPending}>
-          {mutation.isPending ? "Saving…" : "Save"}
         </Button>
       </div>
     </form>

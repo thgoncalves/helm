@@ -35,10 +35,6 @@ import { AccountType } from "@/routes/AccountType";
 import { MoneyDashboard } from "@/routes/MoneyDashboard";
 import { Accounts } from "@/routes/Accounts";
 import { Investments } from "@/routes/Investments";
-import { InvestmentAccounts } from "@/routes/InvestmentAccounts";
-import { NewHolding, EditHolding } from "@/routes/HoldingForm";
-import { InvestmentTargets } from "@/routes/InvestmentTargets";
-import { AccountContributions } from "@/routes/AccountContributions";
 import { Stocks } from "@/routes/Stocks";
 import { StockDetail } from "@/routes/StockDetail";
 import { RecordPurchase } from "@/routes/RecordPurchase";
@@ -104,26 +100,6 @@ export function App() {
 
           {/* Investments module — portfolio tracker (V1). */}
           <Route path="/investments" element={<Investments />} />
-          <Route
-            path="/investments/accounts"
-            element={<InvestmentAccounts />}
-          />
-          <Route
-            path="/investments/accounts/:id/contributions"
-            element={<AccountContributions />}
-          />
-          <Route
-            path="/investments/holdings/new"
-            element={<NewHolding />}
-          />
-          <Route
-            path="/investments/holdings/:id"
-            element={<EditHolding />}
-          />
-          <Route
-            path="/investments/targets"
-            element={<InvestmentTargets />}
-          />
           <Route path="/investments/stocks" element={<Stocks />} />
           <Route
             path="/investments/stocks/buy"

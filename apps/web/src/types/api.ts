@@ -592,211 +592,18 @@ export interface MoneyHealthResponse {
 }
 
 // ---------------------------------------------------------------------------
-// Investments — portfolio tracker
+// Investments — cross-source helpers (Stocks live in stocks-only types below)
 // ---------------------------------------------------------------------------
-
-export type InvestmentAccountKind =
-  | "itrade"
-  | "rrsp"
-  | "tfsa"
-  | "brazil"
-  | "corp";
-
-export type AssetClass =
-  | "equity_ca"
-  | "equity_us"
-  | "equity_international"
-  | "bonds"
-  | "cash"
-  | "alternative"
-  | "real_estate"
-  | "crypto"
-  | "other";
 
 /** Cross-source Helm taxonomy. NULL = unassigned. */
 export type HelmAccountKind = "investing_fund" | "investing_stock";
 export type HelmAccountOwner = "personal" | "business";
 
-export interface InvestmentAccountRead {
-  id: string;
-  name: string;
-  kind: InvestmentAccountKind;
-  currency: string;
-  owner_label: string | null;
-  contribution_limit: number | string | null;
-  notes: string | null;
-  is_active: boolean;
-  // Accounts-page taxonomy + per-account brokerage cash. All optional.
-  owner: HelmAccountOwner | null;
-  helm_kind: HelmAccountKind | null;
-  bank: string | null;
-  cash_balance: number | string;
-  cash_currency: string | null;
-  balance_as_of: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface InvestmentAccountCreate {
-  name: string;
-  kind: InvestmentAccountKind;
-  currency: string;
-  owner_label?: string | null;
-  contribution_limit?: number | string | null;
-  notes?: string | null;
-  is_active?: boolean;
-  owner?: HelmAccountOwner | null;
-  helm_kind?: HelmAccountKind | null;
-  bank?: string | null;
-  cash_balance?: number | string;
-  cash_currency?: string | null;
-}
-
-export type InvestmentAccountUpdate = Partial<InvestmentAccountCreate>;
-
-export interface InvestmentHoldingRead {
-  id: string;
-  account_id: string;
-  ticker: string;
-  asset_class: AssetClass;
-  shares: number | string;
-  avg_cost: number | string;
-  current_price: number | string;
-  currency: string;
-  as_of: string;
-  notes: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface InvestmentHoldingCreate {
-  account_id: string;
-  ticker: string;
-  asset_class: AssetClass;
-  shares: number | string;
-  avg_cost: number | string;
-  current_price: number | string;
-  currency: string;
-  as_of: string;
-  notes?: string | null;
-}
-
-export type InvestmentHoldingUpdate = Partial<
-  Omit<InvestmentHoldingCreate, "account_id">
->;
-
-export interface TargetAllocationRow {
-  asset_class: AssetClass;
-  target_pct: number | string;
-}
-
-export interface TargetAllocationsPut {
-  targets: TargetAllocationRow[];
-}
-
-export interface PortfolioTotals {
-  market_value: number | string;
-  cost_basis: number | string;
-  unrealized: number | string;
-  unrealized_pct: number | string | null;
-}
-
-export interface PortfolioByKind {
-  kind: InvestmentAccountKind;
-  market_value: number | string;
-  share_pct: number | string | null;
-}
-
-export interface PortfolioAllocationRow {
-  asset_class: AssetClass;
-  market_value: number | string;
-  actual_pct: number | string;
-  target_pct: number | string | null;
-  drift_pct: number | string | null;
-}
-
-export interface PortfolioHolding {
-  id: string;
-  account_id: string;
-  account_name: string;
-  account_kind: InvestmentAccountKind;
-  ticker: string;
-  asset_class: AssetClass;
-  shares: number | string;
-  avg_cost: number | string;
-  current_price: number | string;
-  currency: string;
-  market_value_native: number | string;
-  market_value_cad: number | string;
-  unrealized: number | string;
-  unrealized_pct: number | string | null;
-  as_of: string;
-}
-
-export interface PortfolioFxUsed {
-  pair: string;
-  rate: number | string;
-  rate_date: string;
-}
-
-export interface PortfolioResponse {
-  as_of: string;
-  currency: string;
-  totals: PortfolioTotals;
-  by_account_kind: PortfolioByKind[];
-  allocation: PortfolioAllocationRow[];
-  holdings: PortfolioHolding[];
-  fx_rates_used: PortfolioFxUsed[];
-}
-
-// ---------------------------------------------------------------------------
-// Contributions (deposits / withdrawals) on investment accounts
-// ---------------------------------------------------------------------------
-
-export type ContributionKind = "deposit" | "withdrawal";
-
-export interface InvestmentContributionRead {
-  id: string;
-  account_id: string;
-  contributed_on: string;
-  kind: ContributionKind;
-  amount: number | string;
-  currency: string;
-  fx_rate_cad: number | string;
-  /** Signed by kind — deposits positive, withdrawals negative. */
-  amount_cad: number | string;
-  notes: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface InvestmentContributionCreate {
-  contributed_on: string;
-  kind: ContributionKind;
-  amount: number | string;
-  currency: string;
-  notes?: string | null;
-}
-
-export type InvestmentContributionUpdate =
-  Partial<InvestmentContributionCreate>;
-
-export interface ContributionRoom {
-  account_id: string;
-  account_name: string;
-  account_kind: InvestmentAccountKind;
-  currency: string;
-  contribution_limit: number | string;
-  contributed_ytd: number | string;
-  remaining: number | string;
-}
-
-
 // ---------------------------------------------------------------------------
 // Unified Accounts page (services/api/app/routers/accounts.py)
 // ---------------------------------------------------------------------------
 
-export type AccountSource = "ynab" | "manual" | "investment";
+export type AccountSource = "ynab" | "manual";
 
 /** Cross-source kind. `"unassigned"` is the sentinel for rows the user
  *  hasn't tagged yet (and for new YNAB rows whose YNAB type doesn't
@@ -824,8 +631,8 @@ export interface AccountRow {
   /** Balance converted to CAD via the fx_rates cache. `null` when the
    *  conversion failed (no FX cached for this currency). */
   balance_cad: number | string | null;
-  /** ISO date string when balance was last touched (manual + investment
-   *  rows) or `null` for YNAB rows (use `last_synced_at` instead). */
+  /** ISO date string when balance was last touched (manual rows) or
+   *  `null` for YNAB rows (use `last_synced_at` instead). */
   balance_as_of: string | null;
   last_synced_at: string | null;
   kind: AccountKind;
@@ -930,7 +737,7 @@ export interface StockSearchHit {
 
 export type StockTransactionType = "buy" | "sell" | "split" | "dividend";
 
-export type StockAccountSource = "investment" | "manual" | "ynab";
+export type StockAccountSource = "manual" | "ynab";
 
 export interface StockAccountRow {
   source: StockAccountSource;
@@ -996,6 +803,26 @@ export interface StockDetailResponse {
   transactions: StockTransactionRead[];
 }
 
+export interface FundsVsStocksRow {
+  bucket: "funds" | "stocks";
+  current_value_cad: number | string;
+  accounts_count: number;
+  holdings_count: number;
+  cost_basis_cad: number | string | null;
+  unrealized_cad: number | string | null;
+  unrealized_pct: number | string | null;
+  stale_days: number | null;
+}
+
+export interface FundsVsStocksResponse {
+  funds: FundsVsStocksRow;
+  stocks: FundsVsStocksRow;
+  total_cad: number | string;
+  funds_pct: number | string;
+  stocks_pct: number | string;
+  base_currency: string;
+}
+
 export interface StockPortfolioRow {
   ticker: string;
   name: string | null;
@@ -1006,4 +833,7 @@ export interface StockPortfolioRow {
   current_price: number | string | null;
   current_value: number | string | null;
   unrealized: number | string | null;
+  acb_total_cad: number | string | null;
+  current_value_cad: number | string | null;
+  unrealized_cad: number | string | null;
 }

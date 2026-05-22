@@ -4,12 +4,11 @@ The Accounts page reads through ``GET /accounts``, which unions:
 
 * YNAB-sourced accounts (``ynab_accounts``)
 * Manual cash accounts (``manual_accounts``)
-* Investment accounts (``investment_accounts``)
 
 Each row is normalised to a common shape with source-specific fields
-shoved into ``extra``. ``id`` is namespaced (``"ynab:..."`` / ``"manual:..."``
-/ ``"investment:..."``) so the union remains unique even when underlying
-IDs collide across sources.
+shoved into ``extra``. ``id`` is namespaced (``"ynab:..."`` / ``"manual:..."``)
+so the union remains unique even when underlying IDs collide across
+sources.
 """
 
 from __future__ import annotations
@@ -20,7 +19,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-AccountSource = Literal["ynab", "manual", "investment"]
+AccountSource = Literal["ynab", "manual"]
 AccountKind = Literal[
     "checking",
     "savings",
@@ -59,8 +58,7 @@ class AccountRow(BaseModel):
     owner: AccountOwner = "unassigned"
 
     is_editable: bool
-    """``False`` for YNAB rows (upstream-owned); ``True`` for manual +
-    investment rows."""
+    """``False`` for YNAB rows (upstream-owned); ``True`` for manual rows."""
 
     is_active: bool = True
 
@@ -77,9 +75,8 @@ class AccountTagsUpdate(BaseModel):
     """Body for ``PATCH /accounts/{source}/{id}/tags``.
 
     Used for both YNAB rows (writes ``helm_kind`` / ``helm_owner``) and
-    manual / investment rows (writes the equivalent columns). Both
-    fields optional so the caller can update one without re-sending the
-    other.
+    manual rows (writes the equivalent columns). Both fields optional so
+    the caller can update one without re-sending the other.
     """
 
     kind: AccountKind | None = None

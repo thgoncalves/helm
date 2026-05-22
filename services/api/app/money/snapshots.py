@@ -8,7 +8,6 @@ Called from the account write paths:
 
 * ``app.ynab.sync.refresh`` — after each YNAB pull.
 * ``app.routers.accounts_manual`` — POST / PATCH / DELETE.
-* ``app.routers.investments_accounts`` — POST / PATCH / DELETE.
 * ``app.routers.accounts.update_tags`` — kind / owner changes affect
   the kind + owner breakdown.
 

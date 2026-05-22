@@ -29,12 +29,12 @@ export const stockTransactions = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
 
     /** Which table ``account_id`` points at. Polymorphic so a buy can
-     *  be recorded against a brokerage cash account that lives in any
-     *  of the three account sources Helm aggregates on the Accounts
-     *  page (investment_accounts | manual_accounts | ynab_accounts). */
+     *  be recorded against a brokerage cash account that lives in
+     *  either of the two account sources Helm aggregates on the
+     *  Accounts page (manual_accounts | ynab_accounts). */
     account_source: varchar('account_source', { length: 15 })
       .notNull()
-      .default('investment'),
+      .default('manual'),
 
     account_id: uuid('account_id').notNull(),
     //   No FK — the referenced row lives in the table named by

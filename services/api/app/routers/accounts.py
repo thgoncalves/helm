@@ -1,15 +1,13 @@
 """FastAPI router for ``/accounts`` — the unified Accounts page.
 
-Reads from three sources and unions them into a common shape:
+Reads from two sources and unions them into a common shape:
 
-* ``ynab_accounts``        — read-only, synced from YNAB.
-* ``manual_accounts``      — fully editable cash accounts.
-* ``investment_accounts``  — editable brokerage rows with optional cash + holdings.
+* ``ynab_accounts``    — read-only, synced from YNAB.
+* ``manual_accounts``  — fully editable cash accounts.
 
 Writes on this router are limited to the Helm-side taxonomy
-(``kind`` + ``owner``); the source-specific CRUD (manual create/update,
-investment account fields) lives on its own router so this aggregator
-stays read-mostly.
+(``kind`` + ``owner``); the source-specific CRUD (manual create/update)
+lives on its own router so this aggregator stays read-mostly.
 
 The Sync action on the page hits :func:`sync_ynab_accounts`, which is a
 thin alias over ``POST /money/ynab/refresh`` so the URL matches what the
@@ -70,11 +68,10 @@ _YNAB_TYPE_TO_KIND: dict[str, str] = {
 
 @router.get("", response_model=AccountListResponse)
 def list_accounts() -> AccountListResponse:
-    """Union of all three account sources, normalised for the page."""
+    """Union of both account sources, normalised for the page."""
     rows: list[AccountRow] = []
     rows.extend(_load_ynab_rows())
     rows.extend(_load_manual_rows())
-    rows.extend(_load_investment_rows())
     return AccountListResponse(accounts=rows)
 
 
@@ -92,8 +89,8 @@ def update_tags(
     """Update the Helm-side taxonomy on any source's account row.
 
     For YNAB rows this writes ``helm_kind`` / ``helm_owner`` (the only
-    Helm-mutable columns on a synced row). For manual + investment rows
-    it writes the equivalent native columns.
+    Helm-mutable columns on a synced row). For manual rows it writes the
+    equivalent native columns.
     """
     fields = payload.model_dump(exclude_unset=True)
     if not fields:
@@ -160,27 +157,6 @@ def update_tags(
             )
         record_snapshot()
         return _manual_row_to_account(row)
-
-    if source == "investment":
-        col_map = {"kind": "helm_kind", "owner": "owner"}
-        set_clauses = [
-            f"{col_map[k]} = :{col_map[k]}" for k in fields
-        ]
-        set_clauses.append("updated_at = :now")
-        params = {"id": _parse_uuid(account_id), "now": now}
-        for k, v in fields.items():
-            params[col_map[k]] = _denull(v)
-        row = db.fetch_one(
-            f"UPDATE investment_accounts SET {', '.join(set_clauses)} "
-            f"WHERE id = :id RETURNING *",
-            params,
-        )
-        if row is None:
-            raise HTTPException(
-                status_code=404, detail="Investment account not found."
-            )
-        record_snapshot()
-        return _investment_row_to_account(row)
 
     raise HTTPException(
         status_code=404, detail=f"Unknown account source: {source!r}"
@@ -270,13 +246,6 @@ def _load_manual_rows() -> list[AccountRow]:
     return [_manual_row_to_account(r) for r in rows]
 
 
-def _load_investment_rows() -> list[AccountRow]:
-    rows = db.fetch_all(
-        "SELECT * FROM investment_accounts WHERE is_active = TRUE ORDER BY name"
-    )
-    return [_investment_row_to_account(r) for r in rows]
-
-
 # ---------------------------------------------------------------------------
 # Row → AccountRow shape conversion
 # ---------------------------------------------------------------------------
@@ -339,40 +308,6 @@ def _manual_row_to_account(row: dict[str, Any]) -> AccountRow:
     )
 
 
-def _investment_row_to_account(row: dict[str, Any]) -> AccountRow:
-    currency = row.get("currency") or "CAD"
-    cash_balance = Decimal(row.get("cash_balance") or 0)
-    holdings_value, holdings_count = _holdings_summary(row["id"], currency)
-    total = cash_balance + holdings_value
-    return AccountRow(
-        source="investment",
-        id=f"investment:{row['id']}",
-        name=row.get("name") or "",
-        bank=row.get("bank"),
-        currency=currency,
-        balance=total,
-        balance_cad=_to_cad(total, currency),
-        balance_as_of=row.get("balance_as_of"),
-        last_synced_at=None,
-        kind=row.get("helm_kind") or "unassigned",
-        owner=row.get("owner") or "unassigned",
-        is_editable=True,
-        is_active=bool(row.get("is_active", True)),
-        extra={
-            "regulatory_kind": row.get("kind"),
-            "cash_balance": float(cash_balance),
-            "cash_currency": row.get("cash_currency") or currency,
-            "holdings_count": holdings_count,
-            "holdings_value": float(holdings_value),
-            "contribution_limit": (
-                float(row["contribution_limit"])
-                if row.get("contribution_limit") is not None
-                else None
-            ),
-        },
-    )
-
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -402,31 +337,6 @@ def _budget_currency(budget_id: str) -> str | None:
         {"id": budget_id},
     )
     return row.get("currency_code") if row else None
-
-
-def _holdings_summary(
-    account_id: Any, account_currency: str
-) -> tuple[Decimal, int]:
-    """Sum ``shares * current_price`` for the account; return (total, count).
-
-    Returns ``(0, 0)`` if no holdings — keeps the aggregator simple for
-    cash-only / fund-style accounts.
-    """
-    row = db.fetch_one(
-        """
-        SELECT
-          COALESCE(SUM(shares * current_price), 0) AS total,
-          COUNT(*) AS n
-        FROM investment_holdings
-        WHERE account_id = :id
-        """,
-        {"id": account_id},
-    )
-    if row is None:
-        return Decimal("0"), 0
-    total = Decimal(row.get("total") or 0)
-    count = int(row.get("n") or 0)
-    return total, count
 
 
 def _parse_uuid(s: str) -> UUID:

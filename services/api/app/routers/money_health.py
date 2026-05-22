@@ -2,8 +2,8 @@
 
 Health-first dashboard payload. Reads:
 
-* the unified accounts surface (``ynab_accounts`` + ``manual_accounts``
-  + ``investment_accounts``) for current balances by kind/owner, and
+* the unified accounts surface (``ynab_accounts`` + ``manual_accounts``)
+  for current balances by kind/owner, and
 * the cached YNAB transactions for trailing-12-month income/expenses.
 
 CAD is the common base — YNAB amounts come from the local cache in
