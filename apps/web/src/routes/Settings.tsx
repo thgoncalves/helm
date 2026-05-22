@@ -40,6 +40,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AppHeader } from "@/components/AppHeader";
 import type { YnabStatusResponse } from "@/types/api";
+import { LoadingBox } from "@/components/LoadingScreen";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -470,7 +471,7 @@ function YnabSection() {
 
       <div className="space-y-4">
         {statusQ.isLoading && (
-          <p className="text-sm text-muted-foreground">Loading status…</p>
+          <LoadingBox />
         )}
 
         {!statusQ.isLoading && (
@@ -954,7 +955,7 @@ export function Settings() {
           <div className="px-6 py-6 space-y-10 max-w-5xl">
 
             {isLoading && (
-              <p className="text-muted-foreground">Loading settings…</p>
+              <LoadingBox />
             )}
             {isError && (
               <p className="text-destructive">

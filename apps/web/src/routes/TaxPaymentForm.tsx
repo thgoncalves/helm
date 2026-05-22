@@ -30,6 +30,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AppHeader } from "@/components/AppHeader";
+import { LoadingScreen } from "@/components/LoadingScreen";
 
 const SELECT_CLASSES =
   "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm " +
@@ -403,11 +404,7 @@ export function EditTaxPayment() {
   });
 
   if (isLoading || !data) {
-    return (
-      <main className="flex min-h-screen items-center justify-center text-muted-foreground">
-        Loading GST payment…
-      </main>
-    );
+    return <LoadingScreen />;
   }
   if (isError) {
     return (

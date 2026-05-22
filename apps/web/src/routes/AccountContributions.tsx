@@ -30,6 +30,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { labelForAccountKind } from "@/lib/accountKind";
 import { cn } from "@/lib/utils";
+import { LoadingBox } from "@/components/LoadingScreen";
 
 interface FormState {
   contributed_on: string;
@@ -184,7 +185,7 @@ export function AccountContributions() {
                 {account.currency}
               </p>
             ) : (
-              <p className="text-sm text-muted-foreground">Loading…</p>
+              <LoadingBox />
             )}
           </div>
           <Link
@@ -302,7 +303,7 @@ export function AccountContributions() {
         )}
 
         {contributionsQ.isLoading && (
-          <p className="text-muted-foreground">Loading contributions…</p>
+          <LoadingBox />
         )}
         {contributions.length === 0 && contributionsQ.isSuccess && (
           <p className="text-sm text-muted-foreground">

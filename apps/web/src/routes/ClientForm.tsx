@@ -29,6 +29,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AppHeader } from "@/components/AppHeader";
+import { LoadingBox } from "@/components/LoadingScreen";
 
 // ---------------------------------------------------------------------------
 // Zod schema
@@ -617,7 +618,7 @@ export function EditClient() {
           </h2>
         </div>
 
-        {isLoading && <p className="text-muted-foreground">Loading client…</p>}
+        {isLoading && <LoadingBox />}
 
         {is404 && (
           <div className="text-center py-12">

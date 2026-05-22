@@ -14,6 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { AppHeader } from "@/components/AppHeader";
 import { ApiError } from "@/lib/api";
+import { LoadingBox } from "@/components/LoadingScreen";
 
 function formatRate(rate: number | string | null | undefined): string {
   if (rate === null || rate === undefined) return "—";
@@ -82,7 +83,7 @@ export function ClientDetail() {
         </div>
 
         {isLoading && (
-          <p className="text-muted-foreground">Loading client…</p>
+          <LoadingBox />
         )}
 
         {is404 && (

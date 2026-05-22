@@ -6,6 +6,7 @@
  * account (you can't "move" a holding between accounts — delete + recreate).
  */
 import { useEffect, useState } from "react";
+import { LoadingBox } from "@/components/LoadingScreen";
 import {
   useMutation,
   useQuery,
@@ -228,7 +229,7 @@ function HoldingForm({ mode }: { mode: "create" | "edit" }) {
         </div>
 
         {mode === "edit" && holdingQ.isLoading && (
-          <p className="text-muted-foreground">Loading…</p>
+          <LoadingBox />
         )}
 
         {(mode === "create" || holdingQ.data) && (

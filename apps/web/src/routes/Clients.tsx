@@ -19,6 +19,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AppHeader } from "@/components/AppHeader";
+import { LoadingBox } from "@/components/LoadingScreen";
 
 function formatRate(rate: number | string | null | undefined): string {
   if (rate === null || rate === undefined) return "—";
@@ -115,7 +116,7 @@ export function Clients() {
           </CardHeader>
           <CardContent>
             {isLoading && (
-              <p className="text-muted-foreground">Loading clients…</p>
+              <LoadingBox />
             )}
 
             {isError && (

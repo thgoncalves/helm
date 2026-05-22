@@ -53,6 +53,7 @@ import type {
 import { formatCAD, num } from "@/lib/invoice";
 import { AppHeader } from "@/components/AppHeader";
 import { Card, CardContent } from "@/components/ui/card";
+import { LoadingBox } from "@/components/LoadingScreen";
 
 // ---------------------------------------------------------------------------
 // Theme-aware chart palette
@@ -264,7 +265,7 @@ export function Dashboard() {
         </div>
 
         {isLoading && (
-          <p className="text-muted-foreground">Loading dashboard…</p>
+          <LoadingBox />
         )}
         {isError && (
           <p className="text-destructive">

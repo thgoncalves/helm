@@ -8,6 +8,7 @@
  * tolerance band.
  */
 import { useEffect, useState } from "react";
+import { LoadingBox } from "@/components/LoadingScreen";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 
@@ -123,7 +124,7 @@ export function InvestmentTargets() {
           </Link>
         </div>
 
-        {isLoading && <p className="text-muted-foreground">Loading…</p>}
+        {isLoading && <LoadingBox />}
         {isError && (
           <p className="text-destructive">Failed to load targets.</p>
         )}

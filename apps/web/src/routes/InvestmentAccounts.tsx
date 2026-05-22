@@ -4,6 +4,7 @@
  * Business Clients page.
  */
 import { useEffect, useState } from "react";
+import { LoadingBox } from "@/components/LoadingScreen";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 
@@ -318,7 +319,7 @@ export function InvestmentAccounts() {
         </Card>
 
         {isLoading && (
-          <p className="text-muted-foreground">Loading accounts…</p>
+          <LoadingBox />
         )}
         {isError && (
           <p className="text-destructive">

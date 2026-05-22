@@ -44,6 +44,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { LoadingBox } from "@/components/LoadingScreen";
 
 // ---------------------------------------------------------------------------
 // Constants / helpers
@@ -312,7 +313,7 @@ export function Accounts() {
         )}
 
         {accountsQuery.isLoading && (
-          <p className="text-sm text-muted-foreground">Loading accounts…</p>
+          <LoadingBox />
         )}
         {accountsQuery.isError && (
           <p className="text-sm text-destructive">

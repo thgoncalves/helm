@@ -7,6 +7,7 @@
  * pain is most likely to be felt.
  */
 import { useEffect, useState } from "react";
+import { cn } from "@/lib/utils";
 
 const PHRASES = [
   "Pruning trees…",
@@ -137,5 +138,44 @@ export function LoadingScreen() {
         </p>
       </div>
     </main>
+  );
+}
+
+/**
+ * LoadingBox — inline loading state for route bodies.
+ *
+ * A subtle bordered card with three bouncing dots and a rotating phrase.
+ * Drop in wherever a query is loading (`{isLoading && <LoadingBox />}`)
+ * so cold-start waits across the whole app share the same playful UX.
+ *
+ * @param className - extra classes (e.g. `m-4` to add margin when used
+ *                    in a context without surrounding padding).
+ */
+export function LoadingBox({ className }: { className?: string }) {
+  const { phrase, fading } = useRotatingPhrase();
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className={cn(
+        "flex items-center gap-3 rounded-md border border-border bg-muted/30 px-4 py-3",
+        className,
+      )}
+    >
+      <div className="flex items-end gap-1" aria-hidden>
+        <span className="block h-2 w-2 animate-bounce rounded-full bg-primary [animation-delay:-0.3s]" />
+        <span className="block h-2 w-2 animate-bounce rounded-full bg-primary [animation-delay:-0.15s]" />
+        <span className="block h-2 w-2 animate-bounce rounded-full bg-primary" />
+      </div>
+      <p
+        className={cn(
+          "text-sm font-medium transition-opacity ease-in-out",
+          fading ? "opacity-0" : "opacity-100",
+        )}
+        style={{ transitionDuration: "900ms" }}
+      >
+        {phrase}
+      </p>
+    </div>
   );
 }

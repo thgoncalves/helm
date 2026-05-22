@@ -19,6 +19,7 @@ import { formatCAD, num } from "@/lib/invoice";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { AppHeader } from "@/components/AppHeader";
+import { LoadingBox } from "@/components/LoadingScreen";
 
 function formatDate(iso: string): string {
   const [y, m, d] = iso.split("-").map(Number) as [number, number, number];
@@ -156,7 +157,7 @@ export function LinkTaxInvoices() {
         <Card>
           <CardContent className="p-0">
             {linkableQuery.isLoading && (
-              <p className="p-6 text-muted-foreground">Loading invoices…</p>
+              <LoadingBox className="m-4" />
             )}
             {linkableQuery.isError && (
               <p className="p-6 text-destructive">

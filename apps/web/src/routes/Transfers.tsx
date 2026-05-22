@@ -31,6 +31,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { AppHeader } from "@/components/AppHeader";
+import { LoadingBox } from "@/components/LoadingScreen";
 
 const SELECT_CLASSES =
   "flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm " +
@@ -215,7 +216,7 @@ export function Transfers() {
         <Card>
           <CardContent className="p-0">
             {isLoading && (
-              <p className="p-6 text-muted-foreground">Loading transfers…</p>
+              <LoadingBox className="m-4" />
             )}
             {isError && (
               <p className="p-6 text-destructive">

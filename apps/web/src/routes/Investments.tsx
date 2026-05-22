@@ -35,6 +35,7 @@ import { Button } from "@/components/ui/button";
 import { labelForAccountKind } from "@/lib/accountKind";
 import { labelForAssetClass } from "@/lib/assetClass";
 import { cn } from "@/lib/utils";
+import { LoadingBox } from "@/components/LoadingScreen";
 
 const CHART_COLORS = {
   primary: "hsl(var(--primary))",
@@ -145,7 +146,7 @@ export function Investments() {
         </div>
 
         {isLoading && (
-          <p className="text-muted-foreground">Loading portfolio…</p>
+          <LoadingBox />
         )}
         {isError && (
           <p className="text-destructive">

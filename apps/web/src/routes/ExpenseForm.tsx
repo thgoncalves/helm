@@ -32,6 +32,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { LoadingScreen } from "@/components/LoadingScreen";
 
 const SELECT_CLASSES =
   "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm " +
@@ -198,14 +199,7 @@ export function ExpenseForm() {
   }, [status, ocrError]);
 
   if (expenseQuery.isLoading || !expenseQuery.data) {
-    return (
-      <div className="min-h-screen bg-background">
-        <AppHeader />
-        <main className="mx-auto max-w-5xl px-4 py-6">
-          <p className="text-muted-foreground">Loading expense…</p>
-        </main>
-      </div>
-    );
+    return <LoadingScreen />;
   }
   if (expenseQuery.isError) {
     return (
