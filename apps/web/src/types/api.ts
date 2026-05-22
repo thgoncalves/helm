@@ -901,3 +901,109 @@ export interface TimesheetSummary {
   contract_remaining_hours: number | string | null;
   contract_remaining_amount: number | string | null;
 }
+
+// ---------------------------------------------------------------------------
+// Investments — Stocks V1
+// ---------------------------------------------------------------------------
+
+export interface StockQuoteRead {
+  ticker: string;
+  name: string | null;
+  exchange: string | null;
+  currency: string;
+  last_price: number | string;
+  previous_close: number | string | null;
+  fetched_at: string;
+}
+
+export interface StockPricePoint {
+  date: string;
+  close: number | string;
+}
+
+export interface StockSearchHit {
+  ticker: string;
+  name: string | null;
+  exchange: string | null;
+  type: string | null;
+}
+
+export type StockTransactionType = "buy" | "sell" | "split" | "dividend";
+
+export type StockAccountSource = "investment" | "manual" | "ynab";
+
+export interface StockAccountRow {
+  source: StockAccountSource;
+  id: string;
+  name: string;
+  bank: string | null;
+  kind: string | null;
+  currency: string;
+  cash_balance: number | string;
+  balance_as_of: string | null;
+  supports_cash_debit: boolean;
+}
+
+export interface StockTransactionRead {
+  id: string;
+  account_source: StockAccountSource;
+  account_id: string;
+  ticker: string;
+  transaction_type: StockTransactionType;
+  transaction_date: string;
+  quantity: number | string;
+  unit_price: number | string;
+  fees: number | string;
+  currency: string;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StockTransactionCreate {
+  account_source: StockAccountSource;
+  account_id: string;
+  ticker: string;
+  transaction_date: string;
+  quantity: number | string;
+  unit_price: number | string;
+  fees?: number | string;
+  currency: string;
+  notes?: string | null;
+  transaction_type?: StockTransactionType;
+  auto_debit_cash?: boolean;
+}
+
+export interface StockPositionRow {
+  account_source: StockAccountSource;
+  account_id: string;
+  account_name: string;
+  account_kind: string | null;
+  quantity: number | string;
+  acb_per_share: number | string;
+  acb_total: number | string;
+  currency: string;
+  current_price: number | string | null;
+  current_value: number | string | null;
+  unrealized: number | string | null;
+  unrealized_pct: number | string | null;
+}
+
+export interface StockDetailResponse {
+  quote: StockQuoteRead;
+  history: StockPricePoint[];
+  positions: StockPositionRow[];
+  transactions: StockTransactionRead[];
+}
+
+export interface StockPortfolioRow {
+  ticker: string;
+  name: string | null;
+  accounts: number;
+  shares: number | string;
+  acb_total: number | string;
+  currency: string;
+  current_price: number | string | null;
+  current_value: number | string | null;
+  unrealized: number | string | null;
+}

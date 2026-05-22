@@ -105,6 +105,11 @@ const INVESTMENTS_NAV: readonly NavItem[] = [
     matchPrefixes: ["/investments/holdings"],
   },
   {
+    to: "/investments/stocks",
+    label: "Stocks",
+    matchPrefixes: ["/investments/stocks"],
+  },
+  {
     to: "/investments/accounts",
     label: "Accounts",
     matchPrefixes: ["/investments/accounts"],

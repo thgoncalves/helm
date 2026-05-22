@@ -39,6 +39,9 @@ import { InvestmentAccounts } from "@/routes/InvestmentAccounts";
 import { NewHolding, EditHolding } from "@/routes/HoldingForm";
 import { InvestmentTargets } from "@/routes/InvestmentTargets";
 import { AccountContributions } from "@/routes/AccountContributions";
+import { Stocks } from "@/routes/Stocks";
+import { StockDetail } from "@/routes/StockDetail";
+import { RecordPurchase } from "@/routes/RecordPurchase";
 import { Clients } from "@/routes/Clients";
 import { ClientDetail } from "@/routes/ClientDetail";
 import { NewClient, EditClient } from "@/routes/ClientForm";
@@ -120,6 +123,15 @@ export function App() {
           <Route
             path="/investments/targets"
             element={<InvestmentTargets />}
+          />
+          <Route path="/investments/stocks" element={<Stocks />} />
+          <Route
+            path="/investments/stocks/buy"
+            element={<RecordPurchase />}
+          />
+          <Route
+            path="/investments/stocks/:ticker"
+            element={<StockDetail />}
           />
 
           {/* Legacy /personal/* — silent redirect into Money so any saved
