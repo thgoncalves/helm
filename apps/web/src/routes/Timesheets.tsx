@@ -314,6 +314,12 @@ export function Timesheets() {
       void queryClient.invalidateQueries({
         queryKey: ["timesheet-summary", clientId],
       });
+      // Submitting a timesheet creates a new invoice; if it carries GST
+      // the Taxes landing surfaces need to refresh too.
+      void queryClient.invalidateQueries({ queryKey: ["tax-summary"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["tax-unpaid-invoices"],
+      });
       navigate(`/invoices/${result.invoice.id}`);
     },
     onError: (err) => {

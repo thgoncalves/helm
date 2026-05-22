@@ -43,6 +43,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AppHeader } from "@/components/AppHeader";
+import { LoadingScreen } from "@/components/LoadingScreen";
 
 const SELECT_CLASSES =
   "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm " +
@@ -219,6 +220,13 @@ function InvoiceFormInner({
       void queryClient.invalidateQueries({
         queryKey: ["invoice", saved.invoice.id],
       });
+      // GST on the invoice affects the Taxes landing surfaces — refresh
+      // the unpaid-invoices feed and the KPI summary so the row shows up
+      // (or disappears) without a hard reload.
+      void queryClient.invalidateQueries({ queryKey: ["tax-summary"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["tax-unpaid-invoices"],
+      });
       navigate(`/invoices/${saved.invoice.id}`);
     },
   });
@@ -231,6 +239,10 @@ function InvoiceFormInner({
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["invoices"] });
       void queryClient.invalidateQueries({ queryKey: ["invoice", invoiceId] });
+      void queryClient.invalidateQueries({ queryKey: ["tax-summary"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["tax-unpaid-invoices"],
+      });
       navigate("/invoices");
     },
   });
@@ -579,11 +591,7 @@ export function EditInvoice() {
   });
 
   if (isLoading || !data) {
-    return (
-      <main className="flex min-h-screen items-center justify-center text-muted-foreground">
-        Loading invoice…
-      </main>
-    );
+    return <LoadingScreen />;
   }
   if (isError) {
     return (

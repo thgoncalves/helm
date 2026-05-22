@@ -37,6 +37,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { AppHeader } from "@/components/AppHeader";
+import { LoadingBox } from "@/components/LoadingScreen";
 
 function formatDate(iso: string): string {
   const [y, m, d] = iso.split("-").map(Number) as [number, number, number];
@@ -129,7 +130,81 @@ export function Taxes() {
           />
         </div>
 
-        {/* Search for payments */}
+        {/* Invoices with unpaid GST — surfaced first so any new
+            GST-bearing invoice is visible without scrolling. */}
+        <h3 className="mb-3 text-lg font-semibold">Invoices with Unpaid GST</h3>
+        <div className="mb-3 flex gap-2">
+          <Input
+            placeholder="Search invoice # or client…"
+            value={unpaidSearch}
+            onChange={(e) => setUnpaidSearch(e.target.value)}
+            className="flex-1"
+            aria-label="Search unpaid invoices"
+          />
+          <Button
+            variant="outline"
+            onClick={() => setUnpaidSearch("")}
+            disabled={!unpaidSearch}
+          >
+            Clear
+          </Button>
+        </div>
+
+        <Card className="mb-8">
+          <CardContent className="p-0">
+            {filteredUnpaid.length === 0 ? (
+              <p className="p-6 text-muted-foreground">
+                No invoices currently have unpaid GST.
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[720px] text-sm">
+                  <thead>
+                    <tr className="border-b bg-muted/40 text-left">
+                      <th className="px-4 py-2 font-semibold">Invoice #</th>
+                      <th className="px-4 py-2 font-semibold">Client</th>
+                      <th className="px-4 py-2 font-semibold">Date</th>
+                      <th className="px-4 py-2 text-right font-semibold">
+                        Total
+                      </th>
+                      <th className="px-4 py-2 text-right font-semibold">
+                        GST Amount
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredUnpaid.map((inv) => (
+                      <tr
+                        key={inv.invoice_id}
+                        className="border-b last:border-0 hover:bg-accent/40 cursor-pointer"
+                        onClick={() => navigate(`/invoices/${inv.invoice_id}`)}
+                      >
+                        <td className="whitespace-nowrap px-4 py-2 font-medium">
+                          {inv.invoice_number}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-2">
+                          {inv.client_name}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-2 text-muted-foreground">
+                          {formatDate(inv.issue_date)}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-2 text-right">
+                          {formatCAD(num(inv.total))}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-2 text-right font-semibold">
+                          {formatCAD(num(inv.tax_amount))}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* GST payments table */}
+        <h3 className="mb-3 text-lg font-semibold">GST Payments</h3>
         <div className="mb-3 flex gap-2">
           <Input
             placeholder="Search GST payments…"
@@ -147,11 +222,10 @@ export function Taxes() {
           </Button>
         </div>
 
-        {/* GST payments table */}
-        <Card className="mb-6">
+        <Card>
           <CardContent className="p-0">
             {isLoading && (
-              <p className="p-6 text-muted-foreground">Loading payments…</p>
+              <LoadingBox className="m-4" />
             )}
             {isError && (
               <p className="p-6 text-destructive">
@@ -210,78 +284,6 @@ export function Taxes() {
                         </tr>
                       );
                     })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Invoices with unpaid GST */}
-        <h3 className="mb-3 text-lg font-semibold">Invoices with Unpaid GST</h3>
-        <div className="mb-3 flex gap-2">
-          <Input
-            placeholder="Search invoice # or client…"
-            value={unpaidSearch}
-            onChange={(e) => setUnpaidSearch(e.target.value)}
-            className="flex-1"
-            aria-label="Search unpaid invoices"
-          />
-          <Button
-            variant="outline"
-            onClick={() => setUnpaidSearch("")}
-            disabled={!unpaidSearch}
-          >
-            Clear
-          </Button>
-        </div>
-
-        <Card>
-          <CardContent className="p-0">
-            {filteredUnpaid.length === 0 ? (
-              <p className="p-6 text-muted-foreground">
-                No invoices currently have unpaid GST.
-              </p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[720px] text-sm">
-                  <thead>
-                    <tr className="border-b bg-muted/40 text-left">
-                      <th className="px-4 py-2 font-semibold">Invoice #</th>
-                      <th className="px-4 py-2 font-semibold">Client</th>
-                      <th className="px-4 py-2 font-semibold">Date</th>
-                      <th className="px-4 py-2 text-right font-semibold">
-                        Total
-                      </th>
-                      <th className="px-4 py-2 text-right font-semibold">
-                        GST Amount
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredUnpaid.map((inv) => (
-                      <tr
-                        key={inv.invoice_id}
-                        className="border-b last:border-0 hover:bg-accent/40 cursor-pointer"
-                        onClick={() => navigate(`/invoices/${inv.invoice_id}`)}
-                      >
-                        <td className="whitespace-nowrap px-4 py-2 font-medium">
-                          {inv.invoice_number}
-                        </td>
-                        <td className="whitespace-nowrap px-4 py-2">
-                          {inv.client_name}
-                        </td>
-                        <td className="whitespace-nowrap px-4 py-2 text-muted-foreground">
-                          {formatDate(inv.issue_date)}
-                        </td>
-                        <td className="whitespace-nowrap px-4 py-2 text-right">
-                          {formatCAD(num(inv.total))}
-                        </td>
-                        <td className="whitespace-nowrap px-4 py-2 text-right font-semibold">
-                          {formatCAD(num(inv.tax_amount))}
-                        </td>
-                      </tr>
-                    ))}
                   </tbody>
                 </table>
               </div>
