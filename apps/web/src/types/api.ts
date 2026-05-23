@@ -662,7 +662,8 @@ export type ManualAccountKind =
   | "checking"
   | "savings"
   | "credit_card"
-  | "line_of_credit";
+  | "line_of_credit"
+  | "investing_fund";
 export type ManualAccountOwner = "personal" | "business";
 
 export interface ManualAccountRead {
@@ -861,4 +862,36 @@ export interface ResearchRow {
   position_currency: string | null;
   position_value_native: number | string | null;
   position_value_cad: number | string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Investing Dashboard snapshots (services/api/app/routers/investments_snapshots.py)
+// ---------------------------------------------------------------------------
+
+export type InvestingSnapshotSource = "manual_fund" | "stocks";
+
+export interface InvestingSnapshotRow {
+  snapshot_date: string;
+  source_kind: InvestingSnapshotSource;
+  /** UUID of the manual_account for funds; null for the stocks aggregate. */
+  source_id: string | null;
+  label: string;
+  native_currency: string;
+  native_amount: number | string;
+  cad_amount: number | string;
+  fx_rate: number | string;
+  created_at: string | null;
+}
+
+export interface InvestingSnapshotDay {
+  snapshot_date: string;
+  rows: InvestingSnapshotRow[];
+  total_cad: number | string;
+}
+
+export interface InvestingSnapshotHistoryItem {
+  snapshot_date: string;
+  total_cad: number | string;
+  /** Per-source CAD breakdown keyed by `label` (e.g. "XP", "Stocks"). */
+  by_source: Record<string, number | string>;
 }
