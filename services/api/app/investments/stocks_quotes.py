@@ -49,6 +49,51 @@ _HEADERS = {"Accept": "application/json"}
 QUOTE_TTL = timedelta(minutes=15)
 HISTORY_REFRESH_AGE = timedelta(hours=24)
 
+# 2-letter country codes the user is likely to type, mapped to the
+# country-name strings Twelve Data's `country=` query expects. Anything
+# not in this table is treated as an exchange MIC (NASDAQ, NYSE, TSX,
+# NEO, BCBA, BMV, …) — Twelve Data also accepts those via `exchange=`.
+_COUNTRY_CODES: dict[str, str] = {
+    "US": "United States",
+    "CA": "Canada",
+    "UK": "United Kingdom",
+    "GB": "United Kingdom",
+    "BR": "Brazil",
+    "DE": "Germany",
+    "FR": "France",
+    "AU": "Australia",
+    "JP": "Japan",
+    "CN": "China",
+    "IN": "India",
+    "MX": "Mexico",
+}
+
+
+def _split_symbol(ticker: str) -> tuple[str, dict[str, str]]:
+    """Parse Bloomberg-style ``SYMBOL:CODE`` tickers.
+
+    Examples:
+
+      * ``"AAPL"``        → ``("AAPL", {})``
+      * ``"AAPL:CA"``     → ``("AAPL", {"country": "Canada"})``
+      * ``"AAPL:NASDAQ"`` → ``("AAPL", {"exchange": "NASDAQ"})``
+      * ``"RY.TO"``       → ``("RY.TO", {})``  (Yahoo suffix handled by TD itself)
+
+    The colon syntax lets the user disambiguate same-symbol-different-
+    exchange listings (e.g. AAPL on NASDAQ vs. its TSX-listed CDR)
+    without us having to teach the UI a separate exchange field.
+    """
+    if ":" not in ticker:
+        return ticker, {}
+    symbol, _, suffix = ticker.partition(":")
+    symbol = symbol.strip()
+    suffix = suffix.strip().upper()
+    if not symbol or not suffix:
+        return ticker, {}
+    if len(suffix) == 2 and suffix in _COUNTRY_CODES:
+        return symbol, {"country": _COUNTRY_CODES[suffix]}
+    return symbol, {"exchange": suffix}
+
 
 class QuoteUpstreamError(RuntimeError):
     """Provider returned a non-2xx or unparseable response."""
@@ -192,9 +237,16 @@ class Quote:
 
 
 def _fetch_quote_upstream(ticker: str) -> Quote:
-    """Twelve Data ``/quote?symbol=…`` — richer than ``/price``."""
+    """Twelve Data ``/quote?symbol=…`` — richer than ``/price``.
+
+    ``ticker`` may use the colon disambiguator (``AAPL:CA``); the
+    cached row is keyed on the original string so future lookups match
+    exactly. The returned ``Quote.ticker`` preserves the colon form too.
+    """
+    symbol, extra = _split_symbol(ticker)
+    params: dict[str, Any] = {"symbol": symbol, **extra}
     try:
-        payload = _request("/quote", {"symbol": ticker})
+        payload = _request("/quote", params)
     except QuoteUpstreamError as e:
         if e.status == 404:
             raise TickerNotFound(ticker) from e
@@ -202,7 +254,7 @@ def _fetch_quote_upstream(ticker: str) -> Quote:
     if not isinstance(payload, dict) or not payload.get("symbol"):
         raise TickerNotFound(ticker)
     return Quote(
-        ticker=payload.get("symbol", ticker),
+        ticker=ticker,
         name=payload.get("name"),
         exchange=payload.get("exchange"),
         currency=payload.get("currency") or "USD",
@@ -289,16 +341,16 @@ class HistoryPoint:
 def _fetch_history_upstream(
     ticker: str, *, outputsize: int = 365, interval: str = "1day"
 ) -> list[HistoryPoint]:
+    symbol, extra = _split_symbol(ticker)
+    params: dict[str, Any] = {
+        "symbol": symbol,
+        "interval": interval,
+        "outputsize": str(outputsize),
+        "order": "ASC",
+        **extra,
+    }
     try:
-        payload = _request(
-            "/time_series",
-            {
-                "symbol": ticker,
-                "interval": interval,
-                "outputsize": str(outputsize),
-                "order": "ASC",
-            },
-        )
+        payload = _request("/time_series", params)
     except QuoteUpstreamError as e:
         if e.status == 404:
             raise TickerNotFound(ticker) from e
