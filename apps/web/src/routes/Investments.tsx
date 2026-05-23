@@ -31,6 +31,7 @@ import {
   CartesianGrid,
   Line,
   LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -366,14 +367,25 @@ function KpiStrip({ data }: { data: FundsVsStocksResponse }) {
 // History chart
 // ---------------------------------------------------------------------------
 
-type ChartMode = "total" | "stacked";
+type ChartView = "total" | "stacked";
+type ChartScale = "cad" | "pct";
+
+/** Percent-change suffix appended to each source/total key when scale=pct
+ *  (e.g. ``"Stocks"`` → ``"Stocks__pct"``). Prefixing two underscores keeps
+ *  the suffix unique even if a real account is ever named "pct". */
+const PCT_SUFFIX = "__pct";
+
+function pctKey(label: string): string {
+  return `${label}${PCT_SUFFIX}`;
+}
 
 function HistoryCard({
   history,
 }: {
   history: InvestingSnapshotHistoryItem[];
 }) {
-  const [mode, setMode] = useState<ChartMode>("total");
+  const [view, setView] = useState<ChartView>("total");
+  const [scale, setScale] = useState<ChartScale>("cad");
 
   const sourceLabels = useMemo(() => {
     const set = new Set<string>();
@@ -382,6 +394,33 @@ function HistoryCard({
     }
     return Array.from(set).sort();
   }, [history]);
+
+  // Bases for percent-change rebasing — first non-zero value per series.
+  // A source that's always zero gets no base and is skipped in pct mode.
+  const bases = useMemo(() => {
+    const out: { total: number | null; bySource: Record<string, number | null> } = {
+      total: null,
+      bySource: {},
+    };
+    for (const item of history) {
+      if (out.total === null) {
+        const t = num(item.total_cad);
+        if (t !== 0) out.total = t;
+      }
+    }
+    for (const label of sourceLabels) {
+      let base: number | null = null;
+      for (const item of history) {
+        const v = num(item.by_source[label] ?? 0);
+        if (v !== 0) {
+          base = v;
+          break;
+        }
+      }
+      out.bySource[label] = base;
+    }
+    return out;
+  }, [history, sourceLabels]);
 
   const data = useMemo(
     () =>
@@ -393,9 +432,28 @@ function HistoryCard({
         for (const label of sourceLabels) {
           row[label] = num(item.by_source[label] ?? 0);
         }
+        // Percent-change keys — independent of the CAD keys so the
+        // chart can swap series without re-shaping data on every toggle.
+        if (bases.total !== null) {
+          row[pctKey("total")] = ((num(item.total_cad) / bases.total) - 1) * 100;
+        }
+        for (const label of sourceLabels) {
+          const base = bases.bySource[label];
+          if (base !== null) {
+            row[pctKey(label)] =
+              ((num(item.by_source[label] ?? 0) / base) - 1) * 100;
+          }
+        }
         return row;
       }),
-    [history, sourceLabels],
+    [history, sourceLabels, bases],
+  );
+
+  // Series that survive rebasing — used for both the stacked-pct lines
+  // and the legend (so a zero-history source doesn't get an orphaned chip).
+  const pctSourceLabels = useMemo(
+    () => sourceLabels.filter((l) => bases.bySource[l] !== null),
+    [sourceLabels, bases],
   );
 
   if (history.length === 0) {
@@ -408,104 +466,115 @@ function HistoryCard({
     );
   }
 
+  const isPct = scale === "pct";
+  // Y-axis + tooltip number formatting — branches once on scale.
+  const yTick = (v: number | string) =>
+    isPct ? `${Number(v) >= 0 ? "+" : ""}${Number(v).toFixed(0)}%` : compactCAD(Number(v));
+  const tooltipFmt = (v: number | string) =>
+    isPct
+      ? `${Number(v) >= 0 ? "+" : ""}${Number(v).toFixed(2)}%`
+      : fmtCAD(Number(v));
+
   return (
     <Card>
       <CardContent className="space-y-3 p-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
             History
           </h3>
-          <div
-            role="tablist"
-            aria-label="Chart mode"
-            className="flex overflow-hidden rounded-md border text-xs"
-          >
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mode === "total"}
-              onClick={() => setMode("total")}
-              className={cn(
-                "px-2.5 py-1",
-                mode === "total"
-                  ? "bg-primary text-primary-foreground"
-                  : "hover:bg-muted",
-              )}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* View — what to chart */}
+            <div
+              role="tablist"
+              aria-label="Chart view"
+              className="flex overflow-hidden rounded-md border text-xs"
             >
-              Total
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mode === "stacked"}
-              onClick={() => setMode("stacked")}
-              className={cn(
-                "border-l px-2.5 py-1",
-                mode === "stacked"
-                  ? "bg-primary text-primary-foreground"
-                  : "hover:bg-muted",
-              )}
+              <button
+                type="button"
+                role="tab"
+                aria-selected={view === "total"}
+                onClick={() => setView("total")}
+                className={cn(
+                  "px-2.5 py-1",
+                  view === "total"
+                    ? "bg-primary text-primary-foreground"
+                    : "hover:bg-muted",
+                )}
+              >
+                Total
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={view === "stacked"}
+                onClick={() => setView("stacked")}
+                className={cn(
+                  "border-l px-2.5 py-1",
+                  view === "stacked"
+                    ? "bg-primary text-primary-foreground"
+                    : "hover:bg-muted",
+                )}
+              >
+                By source
+              </button>
+            </div>
+
+            {/* Scale — amount vs. percent change */}
+            <div
+              role="tablist"
+              aria-label="Chart scale"
+              className="flex overflow-hidden rounded-md border text-xs"
             >
-              By source
-            </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={scale === "cad"}
+                onClick={() => setScale("cad")}
+                className={cn(
+                  "px-2.5 py-1",
+                  scale === "cad"
+                    ? "bg-primary text-primary-foreground"
+                    : "hover:bg-muted",
+                )}
+                title="Show CAD amounts"
+              >
+                $
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={scale === "pct"}
+                onClick={() => setScale("pct")}
+                className={cn(
+                  "border-l px-2.5 py-1",
+                  scale === "pct"
+                    ? "bg-primary text-primary-foreground"
+                    : "hover:bg-muted",
+                )}
+                title="Show balance change vs. first snapshot"
+              >
+                %
+              </button>
+            </div>
           </div>
         </div>
 
         <div className="h-72 w-full">
           <ResponsiveContainer width="100%" height="100%">
-            {mode === "total" ? (
-              <LineChart
-                data={data}
-                margin={{ top: 8, right: 16, left: 8, bottom: 0 }}
-              >
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke="hsl(var(--border))"
-                />
-                <XAxis
-                  dataKey="date"
-                  tickFormatter={(v) => fmtDate(String(v))}
-                  fontSize={11}
-                />
-                <YAxis
-                  tickFormatter={(v) => compactCAD(Number(v))}
-                  fontSize={11}
-                  width={48}
-                />
-                <Tooltip
-                  formatter={(v) => fmtCAD(Number(v))}
-                  labelFormatter={(label) => fmtDate(String(label))}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="total"
-                  stroke={CHART_PALETTE[0]}
-                  strokeWidth={2}
-                  dot={{ r: 3 }}
-                  activeDot={{ r: 5 }}
-                />
-              </LineChart>
-            ) : (
+            {view === "stacked" && scale === "cad" ? (
               <AreaChart
                 data={data}
                 margin={{ top: 8, right: 16, left: 8, bottom: 0 }}
               >
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke="hsl(var(--border))"
-                />
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                 <XAxis
                   dataKey="date"
                   tickFormatter={(v) => fmtDate(String(v))}
                   fontSize={11}
                 />
-                <YAxis
-                  tickFormatter={(v) => compactCAD(Number(v))}
-                  fontSize={11}
-                  width={48}
-                />
+                <YAxis tickFormatter={yTick} fontSize={11} width={56} />
                 <Tooltip
-                  formatter={(v) => fmtCAD(Number(v))}
+                  formatter={tooltipFmt}
                   labelFormatter={(label) => fmtDate(String(label))}
                   wrapperStyle={{ zIndex: 10 }}
                 />
@@ -521,29 +590,84 @@ function HistoryCard({
                   />
                 ))}
               </AreaChart>
+            ) : (
+              // Three of four modes are line charts; only stacked+CAD is areas.
+              <LineChart
+                data={data}
+                margin={{ top: 8, right: 16, left: 8, bottom: 0 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <XAxis
+                  dataKey="date"
+                  tickFormatter={(v) => fmtDate(String(v))}
+                  fontSize={11}
+                />
+                <YAxis tickFormatter={yTick} fontSize={11} width={56} />
+                <Tooltip
+                  formatter={tooltipFmt}
+                  labelFormatter={(label) => fmtDate(String(label))}
+                  wrapperStyle={{ zIndex: 10 }}
+                />
+                {isPct && (
+                  <ReferenceLine
+                    y={0}
+                    stroke="hsl(var(--muted-foreground))"
+                    strokeDasharray="2 2"
+                  />
+                )}
+                {view === "total" ? (
+                  <Line
+                    type="monotone"
+                    dataKey={isPct ? pctKey("total") : "total"}
+                    stroke={CHART_PALETTE[0]}
+                    strokeWidth={2}
+                    dot={{ r: 3 }}
+                    activeDot={{ r: 5 }}
+                    name="Total"
+                  />
+                ) : (
+                  pctSourceLabels.map((label, i) => (
+                    <Line
+                      key={label}
+                      type="monotone"
+                      dataKey={pctKey(label)}
+                      stroke={CHART_PALETTE[i % CHART_PALETTE.length]}
+                      strokeWidth={1.5}
+                      dot={false}
+                      activeDot={{ r: 4 }}
+                      name={label}
+                    />
+                  ))
+                )}
+              </LineChart>
             )}
           </ResponsiveContainer>
         </div>
 
-        {/* Custom legend rendered OUTSIDE the chart so long account names
-         *  wrap into the card flow instead of overlapping the plot area
-         *  (Recharts' built-in <Legend> sits inside the SVG bounds). */}
-        {mode === "stacked" && (
+        {/* Out-of-SVG legend so long account names wrap into card flow.
+         *  Only needed when there are multiple series. */}
+        {view === "stacked" && (
           <ul className="flex flex-wrap gap-x-3 gap-y-1 pt-1 text-xs text-muted-foreground">
-            {sourceLabels.map((label, i) => (
+            {(scale === "cad" ? sourceLabels : pctSourceLabels).map((label, i) => (
               <li key={label} className="flex items-center gap-1.5">
                 <span
                   aria-hidden
                   className="inline-block h-2.5 w-2.5 shrink-0 rounded-sm"
                   style={{
-                    backgroundColor:
-                      CHART_PALETTE[i % CHART_PALETTE.length],
+                    backgroundColor: CHART_PALETTE[i % CHART_PALETTE.length],
                   }}
                 />
                 <span>{label}</span>
               </li>
             ))}
           </ul>
+        )}
+
+        {isPct && (
+          <p className="pt-1 text-xs italic text-muted-foreground">
+            Balance change since first snapshot — not return. Deposits and
+            withdrawals show up as steps, not gains.
+          </p>
         )}
       </CardContent>
     </Card>
