@@ -111,8 +111,8 @@ const SECTIONS: readonly SidebarSection[] = [
     items: [
       {
         to: "/investments",
-        label: "Overview",
-        icon: "chart-line",
+        label: "Dashboard",
+        icon: "layout-grid",
         matchExact: ["/investments"],
         matchPrefixes: [],
       },
