@@ -87,7 +87,7 @@ export function Stocks() {
             <Input
               id="ticker-search"
               autoFocus
-              placeholder="e.g. AAPL, Apple, RY.TO"
+              placeholder="e.g. AAPL, RY:CA, PFE:CA, RY.TO"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => {

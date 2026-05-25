@@ -218,7 +218,7 @@ export function Research() {
       </Card>
 
       <p className="mt-6 text-xs text-muted-foreground">
-        Prices via Twelve Data, cached for 24h on this view. Fundamentals
+        Prices via Yahoo Finance, cached for 24h on this view. Fundamentals
         (P/E, dividend yield, market cap, 52w hi/lo) are deferred — see{" "}
         <code>docs/specs/investments-research-v1.md</code>.
       </p>

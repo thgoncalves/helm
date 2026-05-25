@@ -8,7 +8,7 @@ Routes:
                                  quote (LEFT JOIN) and the user's
                                  aggregated position, FX-converted to
                                  CAD when applicable.
-* ``POST   /refresh/{ticker}``   Force a Twelve Data quote refresh for
+* ``POST   /refresh/{ticker}``   Force a Yahoo Finance quote refresh for
                                  one ticker. 404 if the ticker isn't in
                                  ``research_tickers``.
 
@@ -29,7 +29,6 @@ from app import db
 from app.deps import get_current_user
 from app.investments.fx import FxRateUnavailable, get_rate as fx_rate
 from app.investments.stocks_quotes import (
-    QuoteApiKeyMissing,
     QuoteRateLimited,
     QuoteUpstreamError,
     TickerNotFound,
@@ -44,7 +43,7 @@ _BASE_CCY = "CAD"
 
 
 def _quote_http(exc: QuoteUpstreamError) -> HTTPException:
-    """Map Twelve Data exceptions to API Gateway-friendly HTTP errors."""
+    """Map Yahoo Finance exceptions to API Gateway-friendly HTTP errors."""
     if isinstance(exc, TickerNotFound):
         return HTTPException(
             status_code=404,
@@ -57,11 +56,6 @@ def _quote_http(exc: QuoteUpstreamError) -> HTTPException:
                 "code": "QUOTE_RATE_LIMITED",
                 "message": "Price provider is rate-limiting us.",
             },
-        )
-    if isinstance(exc, QuoteApiKeyMissing):
-        return HTTPException(
-            status_code=503,
-            detail={"code": "QUOTE_API_KEY_MISSING", "message": str(exc)},
         )
     return HTTPException(
         status_code=502,
@@ -211,8 +205,8 @@ def refresh_one(ticker: str) -> ResearchRow:
     """Force-refresh the cached quote for one research ticker.
 
     Validates that the ticker is in the curated universe before
-    spending a Twelve Data call so a typo on the wire doesn't drain
-    the daily budget.
+    spending an upstream call so a typo on the wire doesn't generate
+    gratuitous traffic against Yahoo's anonymous-rate ceiling.
     """
     ticker = ticker.strip().upper()
     row = db.fetch_one(

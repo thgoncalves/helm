@@ -1,23 +1,23 @@
-"""Twelve Data client with a local cache layer.
+"""Yahoo Finance client with a local cache layer.
 
-Single free API for everything we need:
+Two endpoints cover everything we need, both keyless and free:
 
-* ``GET /quote?symbol=AAPL``         current price + name + currency + delta
-* ``GET /time_series?symbol=AAPL&interval=1day&outputsize=365``
-                                      daily closes for the chart
-* ``GET /symbol_search?symbol=apple`` typeahead
+* ``GET /v8/finance/chart/{sym}?interval=1d&range=1d``  current quote
+* ``GET /v8/finance/chart/{sym}?interval=1d&range=1y``  daily closes
+* ``GET /v1/finance/search?q=...``                       typeahead
 
-Free tier: 800 calls/day, 8/min, no premium-tier gates on historical
-data. The API key is read from either:
-
-* ``HELM_TWELVEDATA_API_KEY`` env (local dev — pasted plain), or
-* the Secrets Manager value at ``HELM_TWELVEDATA_SECRET_ARN``.
+User-facing tickers use the ``SYMBOL:CODE`` Bloomberg syntax
+(``PFE:CA``, ``AAPL:NASDAQ``, plain ``AAPL``). ``_to_yahoo_symbols``
+translates the colon syntax to one or more Yahoo suffixed forms
+(``PFE.NE``, ``PFE.TO``); the upstream fetchers iterate the candidates
+and accept the first non-404. The cache layer is keyed on the original
+user ticker, so this translation is invisible to the rest of the app.
 
 Errors map to the same shape the router uses regardless of provider —
 ``TickerNotFound`` for unknown symbols, ``QuoteRateLimited`` for 429s,
 ``QuoteUpstreamError`` for everything else.
 
-Cache strategy mirrors what we had on Yahoo:
+Cache strategy:
 
 * ``stock_quotes``        upsert per ticker; serve from cache if
                           ``fetched_at`` is within ``QUOTE_TTL``.
@@ -27,7 +27,6 @@ Cache strategy mirrors what we had on Yahoo:
 
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timezone, timedelta
@@ -35,64 +34,98 @@ from decimal import Decimal
 from typing import Any
 
 import httpx
-from botocore.exceptions import ClientError
 
-from app import aws, db
-from app.config import settings
+from app import db
 
 logger = logging.getLogger(__name__)
 
-_BASE_URL = "https://api.twelvedata.com"
+_BASE_URL = "https://query1.finance.yahoo.com"
 _TIMEOUT = httpx.Timeout(10.0, read=10.0, connect=5.0)
-_HEADERS = {"Accept": "application/json"}
+# Yahoo returns 401/403 without a recognizable User-Agent.
+_HEADERS = {
+    "Accept": "application/json",
+    "User-Agent": "Mozilla/5.0 (compatible; helm-finance/1.0)",
+}
 
 QUOTE_TTL = timedelta(minutes=15)
 HISTORY_REFRESH_AGE = timedelta(hours=24)
 
-# 2-letter country codes the user is likely to type, mapped to the
-# country-name strings Twelve Data's `country=` query expects. Anything
-# not in this table is treated as an exchange MIC (NASDAQ, NYSE, TSX,
-# NEO, BCBA, BMV, …) — Twelve Data also accepts those via `exchange=`.
-_COUNTRY_CODES: dict[str, str] = {
-    "US": "United States",
-    "CA": "Canada",
-    "UK": "United Kingdom",
-    "GB": "United Kingdom",
-    "BR": "Brazil",
-    "DE": "Germany",
-    "FR": "France",
-    "AU": "Australia",
-    "JP": "Japan",
-    "CN": "China",
-    "IN": "India",
-    "MX": "Mexico",
+# 2-letter user codes → ordered list of Yahoo suffixes to try. The
+# ``.NE`` (Cboe Canada / NEO) entry comes first for ``CA`` because all
+# the US-primary CDRs that motivated this migration (PFE, IBM, AMZN,
+# …) live on NEO; ``.TO`` covers true TSX-primary listings like RY and
+# BCE, picked up by the fallback when ``.NE`` 404s.
+_SUFFIX_MAP: dict[str, list[str]] = {
+    "US":      [""],
+    "NASDAQ":  [""],
+    "NYSE":    [""],
+    "AMEX":    [""],
+    "CA":      [".NE", ".TO"],
+    "TSX":     [".TO"],
+    "NEO":     [".NE"],
+    "CBOE":    [".NE"],
+    "BR":      [".SA"],
+    "BOVESPA": [".SA"],
+    "B3":      [".SA"],
+    "UK":      [".L"],
+    "GB":      [".L"],
+    "LSE":     [".L"],
+    "DE":      [".DE"],
+    "FR":      [".PA"],
+    "AU":      [".AX"],
+    "JP":      [".T"],
+    "CN":      [".SS"],
+    "IN":      [".NS"],
+    "MX":      [".MX"],
 }
 
+# Yahoo's chart endpoint only accepts these range strings.
+_YAHOO_RANGES: list[tuple[int, str]] = [
+    (1,    "1d"),
+    (5,    "5d"),
+    (31,   "1mo"),
+    (93,   "3mo"),
+    (186,  "6mo"),
+    (366,  "1y"),
+    (732,  "2y"),
+    (1830, "5y"),
+    (3660, "10y"),
+]
 
-def _split_symbol(ticker: str) -> tuple[str, dict[str, str]]:
-    """Parse Bloomberg-style ``SYMBOL:CODE`` tickers.
 
-    Examples:
+def _to_yahoo_symbols(ticker: str) -> tuple[str, list[str]]:
+    """Translate a user-facing ticker into Yahoo's suffix syntax.
 
-      * ``"AAPL"``        → ``("AAPL", {})``
-      * ``"AAPL:CA"``     → ``("AAPL", {"country": "Canada"})``
-      * ``"AAPL:NASDAQ"`` → ``("AAPL", {"exchange": "NASDAQ"})``
-      * ``"RY.TO"``       → ``("RY.TO", {})``  (Yahoo suffix handled by TD itself)
+    Returns ``(original_ticker, [candidate_yahoo_symbols])``.
 
-    The colon syntax lets the user disambiguate same-symbol-different-
-    exchange listings (e.g. AAPL on NASDAQ vs. its TSX-listed CDR)
-    without us having to teach the UI a separate exchange field.
+      * ``"AAPL"``        → ``("AAPL", ["AAPL"])``
+      * ``"AAPL:NASDAQ"`` → ``("AAPL:NASDAQ", ["AAPL"])``
+      * ``"PFE:CA"``      → ``("PFE:CA", ["PFE.NE", "PFE.TO"])``
+      * ``"RY:CA"``       → ``("RY:CA", ["RY.NE", "RY.TO"])``
+      * ``"PETR4:BR"``    → ``("PETR4:BR", ["PETR4.SA"])``
+      * ``"RY.TO"``       → ``("RY.TO", ["RY.TO"])``
+      * ``"AAPL:XX"``     → ``("AAPL:XX", ["AAPL"])``
+
+    The CA two-candidate ladder is the only ambiguity. Callers iterate
+    the list and accept the first non-404 response.
     """
     if ":" not in ticker:
-        return ticker, {}
-    symbol, _, suffix = ticker.partition(":")
+        return ticker, [ticker]
+    symbol, _, code = ticker.partition(":")
     symbol = symbol.strip()
-    suffix = suffix.strip().upper()
-    if not symbol or not suffix:
-        return ticker, {}
-    if len(suffix) == 2 and suffix in _COUNTRY_CODES:
-        return symbol, {"country": _COUNTRY_CODES[suffix]}
-    return symbol, {"exchange": suffix}
+    code = code.strip().upper()
+    if not symbol or not code:
+        return ticker, [ticker]
+    suffixes = _SUFFIX_MAP.get(code, [""])
+    return ticker, [f"{symbol}{sfx}" for sfx in suffixes]
+
+
+def _yahoo_range(days: int) -> str:
+    """Pick the smallest Yahoo range string that covers ``days``."""
+    for threshold, label in _YAHOO_RANGES:
+        if days <= threshold:
+            return label
+    return "max"
 
 
 class QuoteUpstreamError(RuntimeError):
@@ -113,62 +146,13 @@ class TickerNotFound(QuoteUpstreamError):
 
 
 class QuoteRateLimited(QuoteUpstreamError):
-    """Provider returned 429 (or its equivalent free-tier credit cap)."""
+    """Provider returned 429 (or its equivalent)."""
 
     def __init__(self) -> None:
         super().__init__(
             429,
             "Price provider is rate-limiting us. Try again shortly.",
         )
-
-
-class QuoteApiKeyMissing(QuoteUpstreamError):
-    """No HELM_TWELVEDATA_API_KEY / HELM_TWELVEDATA_SECRET_ARN configured."""
-
-    def __init__(self) -> None:
-        super().__init__(
-            503,
-            "Twelve Data API key is not configured. Set HELM_TWELVEDATA_API_KEY "
-            "in services/api/.env (local) or HELM_TWELVEDATA_SECRET_ARN (deployed).",
-        )
-
-
-# ---------------------------------------------------------------------------
-# API key resolution (Secrets Manager → env fallback)
-# ---------------------------------------------------------------------------
-
-_CACHED_KEY: str | None = None
-
-
-def _load_api_key() -> str:
-    global _CACHED_KEY
-    if _CACHED_KEY:
-        return _CACHED_KEY
-    inline = (settings.twelvedata_api_key or "").strip()
-    if inline:
-        _CACHED_KEY = inline
-        return inline
-    arn = (settings.twelvedata_secret_arn or "").strip()
-    if not arn:
-        raise QuoteApiKeyMissing()
-    try:
-        response = aws.secretsmanager().get_secret_value(SecretId=arn)
-    except ClientError as e:
-        raise QuoteUpstreamError(
-            500, f"Failed to load Twelve Data key from Secrets Manager: {e}"
-        ) from e
-    raw = response.get("SecretString") or ""
-    # Allow either plain string or {"api_key": "..."} JSON.
-    try:
-        parsed = json.loads(raw)
-        key = parsed.get("api_key") or parsed.get("key") or raw
-    except (ValueError, TypeError):
-        key = raw
-    key = (key or "").strip()
-    if not key:
-        raise QuoteApiKeyMissing()
-    _CACHED_KEY = key
-    return key
 
 
 # ---------------------------------------------------------------------------
@@ -191,14 +175,20 @@ def _http() -> httpx.Client:
 
 
 def _request(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-    final_params = dict(params or {})
-    final_params["apikey"] = _load_api_key()
     try:
-        response = _http().get(path, params=final_params)
+        response = _http().get(path, params=params or {})
     except httpx.HTTPError as e:
-        raise QuoteUpstreamError(0, f"Twelve Data unreachable: {e}") from e
+        raise QuoteUpstreamError(0, f"Yahoo Finance unreachable: {e}") from e
     if response.status_code == 429:
         raise QuoteRateLimited()
+    if response.status_code in (401, 403):
+        raise QuoteUpstreamError(
+            response.status_code,
+            "Yahoo Finance blocked the request — investigate User-Agent.",
+        )
+    if response.status_code == 404:
+        # Yahoo serves 404 + JSON envelope for unknown tickers.
+        raise QuoteUpstreamError(404, response.text[:200])
     if response.status_code >= 400:
         raise QuoteUpstreamError(response.status_code, response.text[:200])
     try:
@@ -207,16 +197,20 @@ def _request(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         raise QuoteUpstreamError(
             response.status_code, "non-JSON response"
         ) from e
-    # Twelve Data signals errors inside a 200 with `status: "error"`.
-    if isinstance(payload, dict) and payload.get("status") == "error":
-        code = int(payload.get("code") or 0)
-        msg = str(payload.get("message") or "Twelve Data error.")
-        if code == 429 or "credit" in msg.lower():
-            raise QuoteRateLimited()
-        if code == 404 or "not found" in msg.lower():
-            # Caller can wrap with TickerNotFound if it has the ticker.
+    # Yahoo also signals errors inside a 200 with chart.error / finance.error.
+    error = None
+    if isinstance(payload, dict):
+        for envelope in ("chart", "finance"):
+            section = payload.get(envelope)
+            if isinstance(section, dict) and section.get("error"):
+                error = section["error"]
+                break
+    if error:
+        code = str(error.get("code") or "")
+        msg = str(error.get("description") or error.get("code") or "Yahoo error.")
+        if code.lower() == "not found":
             raise QuoteUpstreamError(404, msg)
-        raise QuoteUpstreamError(code or 502, msg)
+        raise QuoteUpstreamError(502, msg)
     return payload
 
 
@@ -236,32 +230,56 @@ class Quote:
     fetched_at: datetime
 
 
-def _fetch_quote_upstream(ticker: str) -> Quote:
-    """Twelve Data ``/quote?symbol=…`` — richer than ``/price``.
-
-    ``ticker`` may use the colon disambiguator (``AAPL:CA``); the
-    cached row is keyed on the original string so future lookups match
-    exactly. The returned ``Quote.ticker`` preserves the colon form too.
-    """
-    symbol, extra = _split_symbol(ticker)
-    params: dict[str, Any] = {"symbol": symbol, **extra}
-    try:
-        payload = _request("/quote", params)
-    except QuoteUpstreamError as e:
-        if e.status == 404:
-            raise TickerNotFound(ticker) from e
-        raise
-    if not isinstance(payload, dict) or not payload.get("symbol"):
+def _parse_chart_meta(meta: dict[str, Any], ticker: str) -> Quote:
+    price = meta.get("regularMarketPrice")
+    if price is None:
         raise TickerNotFound(ticker)
     return Quote(
         ticker=ticker,
-        name=payload.get("name"),
-        exchange=payload.get("exchange"),
-        currency=payload.get("currency") or "USD",
-        last_price=_decimal(payload.get("close")),
-        previous_close=_optional_decimal(payload.get("previous_close")),
+        name=meta.get("longName") or meta.get("shortName"),
+        exchange=meta.get("exchangeName"),
+        currency=meta.get("currency") or "USD",
+        last_price=_decimal(price),
+        previous_close=_optional_decimal(meta.get("chartPreviousClose")),
         fetched_at=datetime.now(timezone.utc),
     )
+
+
+def _fetch_quote_upstream(ticker: str) -> Quote:
+    """Yahoo ``/v8/finance/chart/{sym}?range=1d`` — quote via chart meta.
+
+    Iterates Yahoo candidates for the colon-syntax ticker; the cached
+    row is keyed on the original ``ticker`` string so future lookups
+    match exactly. Returned ``Quote.ticker`` preserves the colon form.
+    """
+    original, candidates = _to_yahoo_symbols(ticker)
+    params = {"interval": "1d", "range": "1d"}
+    last_error: QuoteUpstreamError | None = None
+    for yahoo_sym in candidates:
+        try:
+            payload = _request(
+                f"/v8/finance/chart/{yahoo_sym}", params
+            )
+        except QuoteUpstreamError as e:
+            if e.status == 404:
+                last_error = e
+                continue
+            raise
+        result_list = (payload.get("chart") or {}).get("result") or []
+        if not result_list:
+            last_error = TickerNotFound(original)
+            continue
+        meta = result_list[0].get("meta") or {}
+        try:
+            return _parse_chart_meta(meta, original)
+        except TickerNotFound as e:
+            last_error = e
+            continue
+    if last_error is not None and last_error.status == 404:
+        raise TickerNotFound(original) from last_error
+    if last_error is not None:
+        raise last_error
+    raise TickerNotFound(original)
 
 
 def get_cached_quote(ticker: str) -> Quote | None:
@@ -339,39 +357,45 @@ class HistoryPoint:
 
 
 def _fetch_history_upstream(
-    ticker: str, *, outputsize: int = 365, interval: str = "1day"
+    ticker: str, *, days: int = 365
 ) -> list[HistoryPoint]:
-    symbol, extra = _split_symbol(ticker)
-    params: dict[str, Any] = {
-        "symbol": symbol,
-        "interval": interval,
-        "outputsize": str(outputsize),
-        "order": "ASC",
-        **extra,
-    }
-    try:
-        payload = _request("/time_series", params)
-    except QuoteUpstreamError as e:
-        if e.status == 404:
-            raise TickerNotFound(ticker) from e
-        raise
-    meta = payload.get("meta") or {}
-    currency = meta.get("currency") or "USD"
-    rows = payload.get("values") or []
-    out: list[HistoryPoint] = []
-    for row in rows:
-        ds = row.get("datetime")
-        close = row.get("close")
-        if not ds or close is None:
-            continue
+    original, candidates = _to_yahoo_symbols(ticker)
+    params = {"interval": "1d", "range": _yahoo_range(days)}
+    last_error: QuoteUpstreamError | None = None
+    for yahoo_sym in candidates:
         try:
-            day = date.fromisoformat(ds[:10])
-        except ValueError:
+            payload = _request(
+                f"/v8/finance/chart/{yahoo_sym}", params
+            )
+        except QuoteUpstreamError as e:
+            if e.status == 404:
+                last_error = e
+                continue
+            raise
+        result_list = (payload.get("chart") or {}).get("result") or []
+        if not result_list:
+            last_error = TickerNotFound(original)
             continue
-        out.append(
-            HistoryPoint(date=day, close=_decimal(close), currency=currency)
-        )
-    return out
+        result = result_list[0]
+        timestamps = result.get("timestamp") or []
+        indicators = result.get("indicators") or {}
+        quotes = indicators.get("quote") or [{}]
+        closes = quotes[0].get("close") or []
+        currency = (result.get("meta") or {}).get("currency") or "USD"
+        out: list[HistoryPoint] = []
+        for ts, close in zip(timestamps, closes):
+            if close is None or ts is None:
+                continue
+            day = datetime.fromtimestamp(int(ts), tz=timezone.utc).date()
+            out.append(
+                HistoryPoint(date=day, close=_decimal(close), currency=currency)
+            )
+        return out
+    if last_error is not None and last_error.status == 404:
+        raise TickerNotFound(original) from last_error
+    if last_error is not None:
+        raise last_error
+    return []
 
 
 def get_history(ticker: str, *, days: int = 365) -> list[HistoryPoint]:
@@ -396,7 +420,7 @@ def get_history(ticker: str, *, days: int = 365) -> list[HistoryPoint]:
             fresh_enough = True
 
     if not fresh_enough:
-        upstream = _fetch_history_upstream(ticker, outputsize=days)
+        upstream = _fetch_history_upstream(ticker, days=days)
         if upstream:
             _upsert_history(ticker, upstream)
             rows = db.fetch_all(
@@ -457,19 +481,27 @@ class SearchHit:
 def search_symbols(query: str, *, limit: int = 8) -> list[SearchHit]:
     if not query.strip():
         return []
-    payload = _request("/symbol_search", {"symbol": query, "outputsize": str(limit)})
-    rows = payload.get("data") or []
+    try:
+        payload = _request(
+            "/v1/finance/search",
+            {"q": query, "quotesCount": str(limit), "newsCount": "0"},
+        )
+    except QuoteUpstreamError:
+        # Search is best-effort; the caller renders an empty dropdown
+        # rather than failing the page on a Yahoo blip.
+        return []
+    quotes = payload.get("quotes") or []
     out: list[SearchHit] = []
-    for row in rows[:limit]:
-        symbol = row.get("symbol")
+    for q in quotes[:limit]:
+        symbol = q.get("symbol")
         if not symbol:
             continue
         out.append(
             SearchHit(
                 ticker=symbol,
-                name=row.get("instrument_name"),
-                exchange=row.get("exchange"),
-                type=row.get("instrument_type"),
+                name=q.get("longname") or q.get("shortname"),
+                exchange=q.get("exchDisp") or q.get("exchange"),
+                type=q.get("typeDisp") or q.get("quoteType"),
             )
         )
     return out

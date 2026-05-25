@@ -248,7 +248,7 @@ export function RecordPurchase() {
                 id="ticker"
                 value={ticker}
                 onChange={(e) => setTicker(e.target.value.toUpperCase())}
-                placeholder="e.g. AAPL, RY.TO"
+                placeholder="e.g. AAPL, RY:CA, PFE:CA"
                 required
               />
 

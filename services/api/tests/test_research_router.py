@@ -8,8 +8,8 @@ Covers the V1 contract in ``docs/specs/investments-research-v1.md``:
 * Positions are aggregated across stock_transactions and FX-converted
   to CAD when the quote currency differs from CAD.
 * ``POST /refresh/{ticker}`` rejects tickers that aren't in the
-  research universe (so a typo can't drain the Twelve Data daily
-  budget).
+  research universe (so a typo can't generate gratuitous traffic to
+  Yahoo).
 
 Follows the same monkeypatch-on-top-of-autouse pattern as the Accounts
 tests: the conftest fake covers Business surfaces; we layer Research-
@@ -283,13 +283,13 @@ class TestRefreshOne:
         research_db: dict[str, Any],
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """A typo'd ticker 404s before we ever call Twelve Data."""
+        """A typo'd ticker 404s before we ever call Yahoo."""
         _seed_universe(research_db)
         called = {"n": 0}
 
         def fake_get_quote(*args: Any, **kwargs: Any) -> Any:
             called["n"] += 1
-            raise AssertionError("Twelve Data must not be called")
+            raise AssertionError("Yahoo must not be called")
 
         monkeypatch.setattr(quotes_module, "get_quote", fake_get_quote)
         monkeypatch.setattr(research_router_module, "get_quote", fake_get_quote)
