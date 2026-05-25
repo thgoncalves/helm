@@ -22,7 +22,7 @@
  *
  * Spec: docs/specs/investing-dashboard-snapshots-v1.md
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import {
@@ -45,6 +45,8 @@ import type {
   FundsVsStocksResponse,
   InvestingSnapshotDay,
   InvestingSnapshotHistoryItem,
+  InvestingSnapshotRow,
+  StockPortfolioRow,
 } from "@/types/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -169,6 +171,12 @@ export function Investments() {
       apiFetch<InvestingSnapshotHistoryItem[]>("/investments/snapshots/history"),
   });
 
+  const positionsQ = useQuery<StockPortfolioRow[]>({
+    queryKey: ["stock-positions"],
+    queryFn: () =>
+      apiFetch<StockPortfolioRow[]>("/investments/stocks/positions"),
+  });
+
   const snapshotMutation = useMutation({
     mutationFn: () =>
       apiFetch<InvestingSnapshotDay>("/investments/snapshots", {
@@ -197,7 +205,10 @@ export function Investments() {
       : null;
 
   const isLoading =
-    comparisonQ.isLoading || accountsQ.isLoading || historyQ.isLoading;
+    comparisonQ.isLoading ||
+    accountsQ.isLoading ||
+    historyQ.isLoading ||
+    positionsQ.isLoading;
 
   return (
     <div className="mx-auto max-w-6xl space-y-5 px-4 py-6">
@@ -239,10 +250,15 @@ export function Investments() {
           funds={fundAccounts}
           stocksCad={stocksCad}
           stocksAsOf={null}
+          stockPositions={positionsQ.data ?? []}
           onSnapshot={() => snapshotMutation.mutate()}
           snapshotPending={snapshotMutation.isPending}
           snapshotDisabled={fundAccounts.length === 0 && stocksCad === 0}
         />
+      )}
+
+      {!isLoading && (historyQ.data?.length ?? 0) > 0 && (
+        <SnapshotsCard history={historyQ.data ?? []} />
       )}
     </div>
   );
@@ -395,37 +411,44 @@ function HistoryCard({
     return Array.from(set).sort();
   }, [history]);
 
-  // Bases for percent-change rebasing — first non-zero value per series.
-  // A source that's always zero gets no base and is skipped in pct mode.
+  // Bases for percent-change rebasing — first non-zero value per series,
+  // remembered with the index where it first appeared so we can leave
+  // earlier rows blank (a source that started later shouldn't plot at
+  // -100% for the period it didn't exist).
   const bases = useMemo(() => {
-    const out: { total: number | null; bySource: Record<string, number | null> } = {
+    const out: {
+      total: { value: number; startIndex: number } | null;
+      bySource: Record<string, { value: number; startIndex: number } | null>;
+    } = {
       total: null,
       bySource: {},
     };
-    for (const item of history) {
-      if (out.total === null) {
-        const t = num(item.total_cad);
-        if (t !== 0) out.total = t;
+    for (let i = 0; i < history.length; i++) {
+      const t = num(history[i].total_cad);
+      if (t !== 0) {
+        out.total = { value: t, startIndex: i };
+        break;
       }
     }
     for (const label of sourceLabels) {
-      let base: number | null = null;
-      for (const item of history) {
-        const v = num(item.by_source[label] ?? 0);
+      out.bySource[label] = null;
+      for (let i = 0; i < history.length; i++) {
+        const v = num(history[i].by_source[label] ?? 0);
         if (v !== 0) {
-          base = v;
+          out.bySource[label] = { value: v, startIndex: i };
           break;
         }
       }
-      out.bySource[label] = base;
     }
     return out;
   }, [history, sourceLabels]);
 
   const data = useMemo(
     () =>
-      history.map((item) => {
-        const row: Record<string, number | string> = {
+      history.map((item, idx) => {
+        // ``null`` over ``undefined`` so recharts treats it as a real
+        // gap (skip the dot) rather than dropping the field entirely.
+        const row: Record<string, number | string | null> = {
           date: item.snapshot_date,
           total: num(item.total_cad),
         };
@@ -435,13 +458,18 @@ function HistoryCard({
         // Percent-change keys — independent of the CAD keys so the
         // chart can swap series without re-shaping data on every toggle.
         if (bases.total !== null) {
-          row[pctKey("total")] = ((num(item.total_cad) / bases.total) - 1) * 100;
+          row[pctKey("total")] =
+            idx < bases.total.startIndex
+              ? null
+              : (num(item.total_cad) / bases.total.value - 1) * 100;
         }
         for (const label of sourceLabels) {
           const base = bases.bySource[label];
           if (base !== null) {
             row[pctKey(label)] =
-              ((num(item.by_source[label] ?? 0) / base) - 1) * 100;
+              idx < base.startIndex
+                ? null
+                : (num(item.by_source[label] ?? 0) / base.value - 1) * 100;
           }
         }
         return row;
@@ -682,6 +710,7 @@ function PositionsCard({
   funds,
   stocksCad,
   stocksAsOf,
+  stockPositions,
   onSnapshot,
   snapshotPending,
   snapshotDisabled,
@@ -689,6 +718,7 @@ function PositionsCard({
   funds: AccountRow[];
   stocksCad: number;
   stocksAsOf: string | null;
+  stockPositions: StockPortfolioRow[];
   onSnapshot: () => void;
   snapshotPending: boolean;
   snapshotDisabled: boolean;
@@ -732,6 +762,7 @@ function PositionsCard({
               <>
                 <SectionRow
                   label="Manual funds — tap any balance to update"
+                  tone="amber"
                   editable
                 />
                 {manualFunds.map((f) => (
@@ -741,7 +772,10 @@ function PositionsCard({
             )}
             {ynabFunds.length > 0 && (
               <>
-                <SectionRow label="YNAB-linked — synced automatically" />
+                <SectionRow
+                  label="YNAB-linked — synced automatically"
+                  tone="sky"
+                />
                 {ynabFunds.map((f) => (
                   <YnabFundRow key={f.id} fund={f} />
                 ))}
@@ -749,19 +783,30 @@ function PositionsCard({
             )}
             {stocksCad > 0 && (
               <>
-                <SectionRow label="Stocks — live from last quote" />
-                <tr className="border-t">
-                  <td className="px-4 py-3 font-medium">Stocks (aggregate)</td>
-                  <td className="px-4 py-3 text-right text-muted-foreground">
-                    —
-                  </td>
-                  <td className="px-4 py-3 text-right tabular-nums">
-                    {fmtCAD(stocksCad)}
-                  </td>
-                  <td className="px-4 py-3 text-right text-xs text-muted-foreground">
-                    {fmtSyncTime(stocksAsOf)}
-                  </td>
-                </tr>
+                <SectionRow
+                  label="Stocks — live from last quote"
+                  tone="emerald"
+                />
+                {stockPositions.length === 0 ? (
+                  <tr className="border-t">
+                    <td className="px-4 py-3 font-medium">
+                      Stocks (aggregate)
+                    </td>
+                    <td className="px-4 py-3 text-right text-muted-foreground">
+                      —
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums">
+                      {fmtCAD(stocksCad)}
+                    </td>
+                    <td className="px-4 py-3 text-right text-xs text-muted-foreground">
+                      {fmtSyncTime(stocksAsOf)}
+                    </td>
+                  </tr>
+                ) : (
+                  stockPositions.map((p) => (
+                    <StockRow key={p.ticker} position={p} />
+                  ))
+                )}
               </>
             )}
           </tbody>
@@ -771,21 +816,50 @@ function PositionsCard({
   );
 }
 
+type SectionTone = "amber" | "sky" | "emerald";
+
+const SECTION_TONE_CLASSES: Record<
+  SectionTone,
+  { row: string; text: string; icon: string }
+> = {
+  amber: {
+    row: "bg-amber-100 dark:bg-amber-500/15 border-l-4 border-amber-500",
+    text: "text-amber-900 dark:text-amber-200",
+    icon: "text-amber-700 dark:text-amber-300",
+  },
+  sky: {
+    row: "bg-sky-100 dark:bg-sky-500/15 border-l-4 border-sky-500",
+    text: "text-sky-900 dark:text-sky-200",
+    icon: "text-sky-700 dark:text-sky-300",
+  },
+  emerald: {
+    row: "bg-emerald-100 dark:bg-emerald-500/15 border-l-4 border-emerald-500",
+    text: "text-emerald-900 dark:text-emerald-200",
+    icon: "text-emerald-700 dark:text-emerald-300",
+  },
+};
+
 function SectionRow({
   label,
+  tone,
   editable = false,
 }: {
   label: string;
+  tone: SectionTone;
   editable?: boolean;
 }) {
+  const t = SECTION_TONE_CLASSES[tone];
   return (
-    <tr className="bg-muted/30">
+    <tr className={t.row}>
       <td
         colSpan={4}
-        className="px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+        className={cn(
+          "px-4 py-2 text-xs font-bold uppercase tracking-wider",
+          t.text,
+        )}
       >
         {editable && (
-          <i className="ti ti-pencil mr-1.5 text-primary" aria-hidden />
+          <i className={cn("ti ti-pencil mr-1.5", t.icon)} aria-hidden />
         )}
         {label}
       </td>
@@ -891,6 +965,49 @@ function ManualFundRow({ fund }: { fund: AccountRow }) {
   );
 }
 
+function StockRow({ position }: { position: StockPortfolioRow }) {
+  const shares = num(position.shares);
+  const cad = num(position.current_value_cad);
+  const cost = num(position.acb_total_cad);
+  const unrealCad = num(position.unrealized_cad);
+  const pct = cost > 0 ? (unrealCad / cost) * 100 : null;
+  return (
+    <tr className="border-t">
+      <td className="px-4 py-3">
+        <div className="font-medium">{position.ticker}</div>
+        {position.name && (
+          <div className="text-xs text-muted-foreground">{position.name}</div>
+        )}
+      </td>
+      <td className="px-4 py-3 text-right tabular-nums">
+        {shares.toLocaleString("en-CA", { maximumFractionDigits: 4 })}
+        <span className="ml-1 text-xs text-muted-foreground">sh</span>
+      </td>
+      <td className="px-4 py-3 text-right tabular-nums">
+        {position.current_value_cad === null ? "—" : fmtCAD(cad)}
+      </td>
+      <td className="px-4 py-3 text-right text-xs tabular-nums">
+        {pct === null ? (
+          <span className="text-muted-foreground">—</span>
+        ) : (
+          <span
+            className={cn(
+              "font-medium",
+              pct > 0
+                ? "text-emerald-600 dark:text-emerald-400"
+                : pct < 0
+                  ? "text-red-600 dark:text-red-400"
+                  : "text-muted-foreground",
+            )}
+          >
+            {fmtPct(pct)}
+          </span>
+        )}
+      </td>
+    </tr>
+  );
+}
+
 function YnabFundRow({ fund }: { fund: AccountRow }) {
   return (
     <tr className="border-t">
@@ -936,5 +1053,372 @@ function EmptyPositions() {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Snapshots history — one row per date, click for edit/delete modal
+// ---------------------------------------------------------------------------
+
+function SnapshotsCard({
+  history,
+}: {
+  history: InvestingSnapshotHistoryItem[];
+}) {
+  // Newest first in the list — the modal can still re-fetch if needed.
+  const sorted = useMemo(
+    () => [...history].sort((a, b) => b.snapshot_date.localeCompare(a.snapshot_date)),
+    [history],
+  );
+  const [openDate, setOpenDate] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <>
+      <Card>
+        <CardContent className="p-0">
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            aria-expanded={expanded}
+            aria-controls="snapshots-list"
+            className={cn(
+              "flex w-full items-center justify-between gap-2 border-b px-4 py-3 text-left",
+              "hover:bg-muted/30 focus-visible:bg-muted/30 focus-visible:outline-none",
+              !expanded && "border-b-0",
+            )}
+          >
+            <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+              <i
+                className={cn(
+                  "ti mr-1.5 text-base align-[-1px]",
+                  expanded ? "ti-chevron-down" : "ti-chevron-right",
+                )}
+                aria-hidden
+              />
+              Snapshots
+            </h3>
+            <span className="text-xs text-muted-foreground">
+              {sorted.length} total
+            </span>
+          </button>
+          {expanded && (
+            <ul
+              id="snapshots-list"
+              className="max-h-72 overflow-y-auto"
+            >
+              {sorted.map((item) => {
+                const sources = Object.keys(item.by_source);
+                return (
+                  <li
+                    key={item.snapshot_date}
+                    className="border-t first:border-t-0"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setOpenDate(item.snapshot_date)}
+                      className={cn(
+                        "flex w-full items-center justify-between gap-2 px-4 py-2.5 text-left",
+                        "hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none",
+                      )}
+                    >
+                      <div>
+                        <div className="text-sm font-medium">
+                          {fmtDate(item.snapshot_date)}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {sources.length} source{sources.length === 1 ? "" : "s"}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-sm font-semibold tabular-nums">
+                          {fmtCAD(item.total_cad)}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          edit ›
+                        </div>
+                      </div>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+      {openDate && (
+        <SnapshotModal
+          snapshotDate={openDate}
+          onClose={() => setOpenDate(null)}
+        />
+      )}
+    </>
+  );
+}
+
+function SnapshotModal({
+  snapshotDate,
+  onClose,
+}: {
+  snapshotDate: string;
+  onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  const dayQ = useQuery<InvestingSnapshotDay>({
+    queryKey: ["investing-snapshot", snapshotDate],
+    queryFn: () =>
+      apiFetch<InvestingSnapshotDay>(
+        `/investments/snapshots/${snapshotDate}`,
+      ),
+  });
+
+  // Escape closes; backdrop click closes.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  function invalidate() {
+    qc.invalidateQueries({ queryKey: ["investing-snapshot", snapshotDate] });
+    qc.invalidateQueries({ queryKey: ["investing-snapshots-history"] });
+  }
+
+  const deleteDay = useMutation({
+    mutationFn: () =>
+      apiFetch<void>(`/investments/snapshots/${snapshotDate}`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => {
+      invalidate();
+      onClose();
+    },
+  });
+
+  function confirmAndDeleteDay() {
+    if (
+      window.confirm(
+        `Delete the ${fmtDate(snapshotDate)} snapshot? This removes every row for that date.`,
+      )
+    ) {
+      deleteDay.mutate();
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Edit snapshot for ${fmtDate(snapshotDate)}`}
+      onClick={onClose}
+    >
+      <div
+        className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-lg border bg-card shadow-lg"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b px-4 py-3">
+          <div>
+            <h3 className="text-base font-semibold">
+              {fmtDate(snapshotDate)}
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              Edit native amounts or remove individual rows. CAD is
+              recomputed using the rate captured that day.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+            aria-label="Close"
+          >
+            <i className="ti ti-x" aria-hidden />
+          </button>
+        </div>
+
+        <div className="p-4">
+          {dayQ.isLoading && <LoadingBox />}
+          {dayQ.isError && (
+            <p className="text-sm text-destructive">
+              Failed to load this snapshot.
+            </p>
+          )}
+          {dayQ.data && (
+            <>
+              <table className="w-full text-sm">
+                <thead className="text-left text-xs uppercase text-muted-foreground">
+                  <tr>
+                    <th className="pb-2 font-medium">Source</th>
+                    <th className="pb-2 text-right font-medium">
+                      Native amount
+                    </th>
+                    <th className="pb-2 text-right font-medium">CAD</th>
+                    <th className="w-12" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {dayQ.data.rows.map((row) => (
+                    <SnapshotRowEditor
+                      key={row.id ?? `${row.source_kind}-${row.source_id}`}
+                      row={row}
+                      onChanged={invalidate}
+                    />
+                  ))}
+                </tbody>
+              </table>
+
+              <div className="mt-4 flex items-center justify-between border-t pt-3">
+                <span className="text-xs text-muted-foreground">
+                  Total: <strong>{fmtCAD(dayQ.data.total_cad)}</strong>
+                </span>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  onClick={confirmAndDeleteDay}
+                  disabled={deleteDay.isPending}
+                >
+                  {deleteDay.isPending
+                    ? "Deleting…"
+                    : "Delete entire snapshot"}
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SnapshotRowEditor({
+  row,
+  onChanged,
+}: {
+  row: InvestingSnapshotRow;
+  onChanged: () => void;
+}) {
+  const [draft, setDraft] = useState(String(row.native_amount));
+  const [editing, setEditing] = useState(false);
+  // Reset the draft if the underlying row is replaced (e.g. after invalidate).
+  useEffect(() => {
+    setDraft(String(row.native_amount));
+  }, [row.native_amount]);
+
+  const save = useMutation({
+    mutationFn: (next: string) =>
+      apiFetch<InvestingSnapshotRow>(
+        `/investments/snapshots/rows/${row.id}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ native_amount: next }),
+        },
+      ),
+    onSuccess: () => {
+      setEditing(false);
+      onChanged();
+    },
+  });
+
+  const del = useMutation({
+    mutationFn: () =>
+      apiFetch<void>(`/investments/snapshots/rows/${row.id}`, {
+        method: "DELETE",
+      }),
+    onSuccess: onChanged,
+  });
+
+  function commit() {
+    const trimmed = draft.trim();
+    if (!trimmed || trimmed === String(row.native_amount)) {
+      setEditing(false);
+      setDraft(String(row.native_amount));
+      return;
+    }
+    save.mutate(trimmed);
+  }
+
+  function confirmAndDelete() {
+    if (window.confirm(`Delete the "${row.label}" row from this snapshot?`)) {
+      del.mutate();
+    }
+  }
+
+  return (
+    <tr className="border-t">
+      <td className="py-2 pr-2">
+        <div className="font-medium">{row.label}</div>
+        <div className="text-xs text-muted-foreground">
+          {row.source_kind === "manual_fund"
+            ? "Manual fund"
+            : row.source_kind === "ynab_fund"
+              ? "YNAB"
+              : "Stocks aggregate"}
+        </div>
+      </td>
+      <td className="py-2 text-right">
+        {editing ? (
+          <div className="flex items-center justify-end gap-1.5">
+            <Input
+              type="number"
+              step="0.01"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={commit}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commit();
+                if (e.key === "Escape") {
+                  setEditing(false);
+                  setDraft(String(row.native_amount));
+                }
+              }}
+              autoFocus
+              className="h-8 w-32 text-right tabular-nums"
+            />
+            <span className="text-xs text-muted-foreground">
+              {row.native_currency}
+            </span>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary/5 px-2 py-1",
+              "tabular-nums hover:border-primary hover:bg-primary/10",
+            )}
+            disabled={save.isPending}
+          >
+            <span>{fmtNative(row.native_amount, row.native_currency)}</span>
+            <i
+              className="ti ti-pencil text-sm text-primary/80"
+              aria-hidden
+            />
+          </button>
+        )}
+      </td>
+      <td className="py-2 text-right tabular-nums text-muted-foreground">
+        {save.isPending ? "saving…" : fmtCAD(row.cad_amount)}
+      </td>
+      <td className="py-2 pl-2 text-right">
+        <button
+          type="button"
+          onClick={confirmAndDelete}
+          disabled={del.isPending || save.isPending}
+          className={cn(
+            "rounded-md p-1.5 text-muted-foreground",
+            "hover:bg-destructive/10 hover:text-destructive",
+            "disabled:opacity-50",
+          )}
+          aria-label={`Delete ${row.label} row`}
+          title="Delete this row"
+        >
+          <i className="ti ti-trash text-base" aria-hidden />
+        </button>
+      </td>
+    </tr>
   );
 }

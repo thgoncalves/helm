@@ -868,9 +868,12 @@ export interface ResearchRow {
 // Investing Dashboard snapshots (services/api/app/routers/investments_snapshots.py)
 // ---------------------------------------------------------------------------
 
-export type InvestingSnapshotSource = "manual_fund" | "stocks";
+export type InvestingSnapshotSource = "manual_fund" | "ynab_fund" | "stocks";
 
 export interface InvestingSnapshotRow {
+  /** Row PK. Null only on a freshly composed POST response before the
+   *  upsert settles; always set on GETs and PATCH responses. */
+  id: number | null;
   snapshot_date: string;
   source_kind: InvestingSnapshotSource;
   /** UUID of the manual_account for funds; null for the stocks aggregate. */

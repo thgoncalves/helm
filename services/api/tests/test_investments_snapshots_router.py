@@ -111,6 +111,9 @@ def snapshots_db(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
                 r for r in snapshots if r["snapshot_date"] == params["on"]
             ]
 
+        if "FROM investing_snapshots" in sql and "WHERE id = :id" in sql:
+            return [r for r in snapshots if r.get("id") == params["id"]]
+
         raise NotImplementedError(f"snapshots_db.fetch_all: {sql[:160]}")
 
     def fetch_one(
@@ -119,47 +122,71 @@ def snapshots_db(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         rows = fetch_all(sql, params)
         return rows[0] if rows else None
 
+    next_id = {"v": 1}
+
     def execute(
         sql: str, params: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         sql = " ".join(sql.split())
         params = params or {}
-        if "INSERT INTO investing_snapshots" not in sql:
-            raise NotImplementedError(f"snapshots_db.execute: {sql[:160]}")
-        # Emulate the partial-unique-index UPSERT.
-        existing = next(
-            (
-                r
-                for r in snapshots
-                if r["snapshot_date"] == params["snapshot_date"]
-                and r["source_kind"] == params["source_kind"]
-                and r.get("source_id") == params["source_id"]
-            ),
-            None,
-        )
-        if existing is not None:
-            existing.update(
-                label=params["label"],
-                native_currency=params["native_currency"],
-                native_amount=params["native_amount"],
-                cad_amount=params["cad_amount"],
-                fx_rate=params["fx_rate"],
+        if "INSERT INTO investing_snapshots" in sql:
+            # Emulate the partial-unique-index UPSERT.
+            existing = next(
+                (
+                    r
+                    for r in snapshots
+                    if r["snapshot_date"] == params["snapshot_date"]
+                    and r["source_kind"] == params["source_kind"]
+                    and r.get("source_id") == params["source_id"]
+                ),
+                None,
             )
-        else:
-            snapshots.append(
-                {
-                    "snapshot_date": params["snapshot_date"],
-                    "source_kind": params["source_kind"],
-                    "source_id": params["source_id"],
-                    "label": params["label"],
-                    "native_currency": params["native_currency"],
-                    "native_amount": params["native_amount"],
-                    "cad_amount": params["cad_amount"],
-                    "fx_rate": params["fx_rate"],
-                    "created_at": datetime.now(timezone.utc),
-                }
-            )
-        return {}
+            if existing is not None:
+                existing.update(
+                    label=params["label"],
+                    native_currency=params["native_currency"],
+                    native_amount=params["native_amount"],
+                    cad_amount=params["cad_amount"],
+                    fx_rate=params["fx_rate"],
+                )
+            else:
+                snapshots.append(
+                    {
+                        "id": next_id["v"],
+                        "snapshot_date": params["snapshot_date"],
+                        "source_kind": params["source_kind"],
+                        "source_id": params["source_id"],
+                        "label": params["label"],
+                        "native_currency": params["native_currency"],
+                        "native_amount": params["native_amount"],
+                        "cad_amount": params["cad_amount"],
+                        "fx_rate": params["fx_rate"],
+                        "created_at": datetime.now(timezone.utc),
+                    }
+                )
+                next_id["v"] += 1
+            return {}
+        if "UPDATE investing_snapshots" in sql and "WHERE id = :id" in sql:
+            for r in snapshots:
+                if r.get("id") == params["id"]:
+                    r["native_amount"] = params["native"]
+                    r["cad_amount"] = params["cad"]
+                    break
+            return {}
+        if "DELETE FROM investing_snapshots" in sql and "WHERE id = :id" in sql:
+            snapshots[:] = [
+                r for r in snapshots if r.get("id") != params["id"]
+            ]
+            return {}
+        if (
+            "DELETE FROM investing_snapshots" in sql
+            and "WHERE snapshot_date = :on" in sql
+        ):
+            snapshots[:] = [
+                r for r in snapshots if r["snapshot_date"] != params["on"]
+            ]
+            return {}
+        raise NotImplementedError(f"snapshots_db.execute: {sql[:160]}")
 
     monkeypatch.setattr(db_module, "fetch_all", fetch_all)
     monkeypatch.setattr(db_module, "fetch_one", fetch_one)
@@ -457,3 +484,110 @@ class TestGetSnapshot:
         assert body["snapshot_date"] == "2026-05-23"
         assert len(body["rows"]) == 1
         assert Decimal(body["total_cad"]) == Decimal("135000.00")
+
+
+# ---------------------------------------------------------------------------
+# PATCH /investments/snapshots/rows/{id}
+# ---------------------------------------------------------------------------
+
+
+def _seed_one_row(stores: dict[str, Any], **overrides: Any) -> int:
+    """Insert one snapshot row directly with an auto-id and return it."""
+    snap = {
+        "id": (
+            max((r.get("id") or 0) for r in stores["investing_snapshots"] or [{"id": 0}])
+            + 1
+        ),
+        "snapshot_date": date(2026, 5, 23),
+        "source_kind": "manual_fund",
+        "source_id": str(XP_ID),
+        "label": "XP",
+        "native_currency": "BRL",
+        "native_amount": Decimal("100000.00"),
+        "cad_amount": Decimal("27000.00"),
+        "fx_rate": Decimal("0.27"),
+    }
+    snap.update(overrides)
+    stores["investing_snapshots"].append(snap)
+    return snap["id"]
+
+
+class TestPatchSnapshotRow:
+    def test_updates_native_and_recomputes_cad(
+        self, client: TestClient, snapshots_db: dict[str, Any]
+    ) -> None:
+        row_id = _seed_one_row(snapshots_db)
+        resp = client.patch(
+            f"/investments/snapshots/rows/{row_id}",
+            json={"native_amount": "200000"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert Decimal(body["native_amount"]) == Decimal("200000.00")
+        # Stored fx_rate (0.27) reused — no BoC refetch.
+        assert Decimal(body["cad_amount"]) == Decimal("54000.00")
+
+    def test_404_when_row_missing(
+        self, client: TestClient, snapshots_db: dict[str, Any]
+    ) -> None:
+        resp = client.patch(
+            "/investments/snapshots/rows/9999",
+            json={"native_amount": "1"},
+        )
+        assert resp.status_code == 404
+        assert resp.json()["detail"]["code"] == "SNAPSHOT_ROW_NOT_FOUND"
+
+
+# ---------------------------------------------------------------------------
+# DELETE /investments/snapshots/rows/{id}
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteSnapshotRow:
+    def test_drops_single_row(
+        self, client: TestClient, snapshots_db: dict[str, Any]
+    ) -> None:
+        row_id = _seed_one_row(snapshots_db)
+        _seed_one_row(snapshots_db, source_id=str(SANTANDER_ID), label="Santander")
+        resp = client.delete(f"/investments/snapshots/rows/{row_id}")
+        assert resp.status_code == 204
+        # The sibling row survives.
+        remaining = snapshots_db["investing_snapshots"]
+        assert len(remaining) == 1
+        assert remaining[0]["label"] == "Santander"
+
+    def test_404_when_row_missing(
+        self, client: TestClient, snapshots_db: dict[str, Any]
+    ) -> None:
+        resp = client.delete("/investments/snapshots/rows/9999")
+        assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# DELETE /investments/snapshots/{date}
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteSnapshotDate:
+    def test_drops_all_rows_for_date(
+        self, client: TestClient, snapshots_db: dict[str, Any]
+    ) -> None:
+        _seed_one_row(snapshots_db)
+        _seed_one_row(snapshots_db, source_id=str(SANTANDER_ID), label="Santander")
+        _seed_one_row(
+            snapshots_db,
+            snapshot_date=date(2026, 5, 24),
+            source_id=str(SANTANDER_ID),
+            label="Santander",
+        )
+        resp = client.delete("/investments/snapshots/2026-05-23")
+        assert resp.status_code == 204
+        remaining = snapshots_db["investing_snapshots"]
+        assert len(remaining) == 1
+        assert remaining[0]["snapshot_date"] == date(2026, 5, 24)
+
+    def test_404_when_date_missing(
+        self, client: TestClient, snapshots_db: dict[str, Any]
+    ) -> None:
+        resp = client.delete("/investments/snapshots/2026-01-01")
+        assert resp.status_code == 404
