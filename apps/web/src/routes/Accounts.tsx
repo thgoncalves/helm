@@ -1,16 +1,25 @@
 /**
- * Accounts — unified management page across YNAB-synced and manual
- * sources.
+ * Accounts — Atlas layout (master-detail with a portfolio treemap rail).
  *
- * Reads GET /accounts (a union of ynab_accounts and manual_accounts).
- * The visual language mirrors the Money + Business dashboards: top bar
- * with a context action, a KPI strip with totals, then a grouped list.
+ * Spec: docs/specs/accounts-categories-v1.md.
  *
- * Source-specific behaviour:
- *   - YNAB rows are read-only except for the kind/owner tags. The
- *     global "Sync YNAB" button at the top refreshes them in bulk.
- *   - Manual rows expand into an inline editor where the user can edit
- *     name, bank, balance, currency, kind, owner, notes.
+ * Layout:
+ *   ┌───────────────┬───────────────────────────┐
+ *   │ Top bar       │                           │
+ *   ├───────────────┼───────────────────────────┤
+ *   │ TREEMAP       │                           │
+ *   │ (320px)       │   Right pane (detail)     │
+ *   ├───────────────┤                           │
+ *   │ OUTLINE       │                           │
+ *   │ buckets +     │                           │
+ *   │ accounts      │                           │
+ *   │ (drag handle) │                           │
+ *   └───────────────┴───────────────────────────┘
+ *
+ * Drag scope (V1): reorder accounts within their current bucket.
+ * Reparenting (move to another category) is done via the right-pane
+ * category dropdown, not drag — keeps the dnd surface simple and the
+ * affordance unambiguous.
  */
 import { useMemo, useState } from "react";
 import {
@@ -19,19 +28,36 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 import { apiFetch, ApiError } from "@/lib/api";
 import type {
+  AccountBucket,
+  AccountBucketCreate,
+  AccountBucketUpdate,
   AccountKind,
   AccountListResponse,
   AccountOwner,
+  AccountPlacementUpdate,
   AccountRow,
-  AccountSource,
   AccountTagsUpdate,
-  ManualAccountCreate,
   ManualAccountKind,
-  ManualAccountOwner,
-  ManualAccountRead,
   ManualAccountUpdate,
   YnabRefreshResponse,
 } from "@/types/api";
@@ -40,6 +66,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { LoadingBox } from "@/components/LoadingScreen";
+import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
 // Constants / helpers
@@ -68,10 +95,35 @@ const MANUAL_KIND_OPTIONS: { value: ManualAccountKind; label: string }[] = [
   { value: "line_of_credit", label: "Line of credit / mortgage" },
 ];
 
+const BUCKET_COLORS: { value: string; tw: string; hex: string }[] = [
+  { value: "amber", tw: "bg-amber-500", hex: "#fab387" },
+  { value: "emerald", tw: "bg-emerald-500", hex: "#a6e3a1" },
+  { value: "sky", tw: "bg-sky-500", hex: "#74c7ec" },
+  { value: "mauve", tw: "bg-purple-500", hex: "#cba6f7" },
+  { value: "pink", tw: "bg-pink-500", hex: "#f5c2e7" },
+  { value: "red", tw: "bg-rose-500", hex: "#f38ba8" },
+  { value: "teal", tw: "bg-teal-500", hex: "#94e2d5" },
+];
+const UNCATEGORIZED_COLOR = "#7f849c";
+
+function colorFor(color: string | null | undefined): string {
+  return (
+    BUCKET_COLORS.find((c) => c.value === color)?.hex || UNCATEGORIZED_COLOR
+  );
+}
+
 function num(v: number | string | null | undefined): number {
   if (v === null || v === undefined || v === "") return 0;
   const n = typeof v === "string" ? Number(v) : v;
   return Number.isNaN(n) ? 0 : n;
+}
+
+function fmtCAD(v: number): string {
+  return new Intl.NumberFormat("en-CA", {
+    style: "currency",
+    currency: "CAD",
+    maximumFractionDigits: 0,
+  }).format(v);
 }
 
 function fmtMoney(v: number | string | null, currency: string): string {
@@ -94,39 +146,1062 @@ function fmtRelative(iso: string | null): string {
   const diff = Date.now() - d.getTime();
   const mins = Math.round(diff / 60_000);
   if (mins < 1) return "just now";
-  if (mins < 60) return `${mins} min ago`;
+  if (mins < 60) return `${mins}m ago`;
   const hrs = Math.round(mins / 60);
-  if (hrs < 24) return `${hrs} h ago`;
+  if (hrs < 24) return `${hrs}h ago`;
   const days = Math.round(hrs / 24);
-  return `${days} d ago`;
+  return `${days}d ago`;
 }
 
-function fmtAsOf(s: string | null): string {
-  if (!s) return "never";
-  // YYYY-MM-DD → relative
-  return fmtRelative(`${s}T00:00:00`);
-}
-
-function sourceBadge(source: AccountSource): string {
-  return source === "ynab" ? "YNAB" : "Manual";
-}
-
-function labelForKind(kind: AccountKind): string {
-  return (
-    KIND_OPTIONS.find((o) => o.value === kind)?.label ?? "Unassigned"
-  );
-}
-
-function labelForOwner(owner: AccountOwner): string {
-  return (
-    OWNER_OPTIONS.find((o) => o.value === owner)?.label ?? "Unassigned"
-  );
-}
-
-/** Strip the namespacing prefix so we can pass the raw id to the API. */
 function unwrapId(rowId: string): string {
   const colon = rowId.indexOf(":");
   return colon === -1 ? rowId : rowId.slice(colon + 1);
+}
+
+function extractError(e: unknown): string {
+  if (e instanceof ApiError) return e.message;
+  if (e instanceof Error) return e.message;
+  return "Unknown error";
+}
+
+// ---------------------------------------------------------------------------
+// Treemap — squarified layout
+// ---------------------------------------------------------------------------
+
+type TreemapRect = { x: number; y: number; w: number; h: number };
+type TreemapInput = { id: string; value: number };
+
+/** Squarified treemap. Splits the rectangle into rows/columns that
+ *  approach square aspect ratios for each cell. ~50 LOC; good enough
+ *  for ≤20 categories without pulling in d3-hierarchy. */
+function layoutTreemap(
+  items: TreemapInput[],
+  rect: TreemapRect,
+): Map<string, TreemapRect> {
+  const out = new Map<string, TreemapRect>();
+  const filtered = items.filter((i) => i.value > 0);
+  if (filtered.length === 0) return out;
+  const sorted = [...filtered].sort((a, b) => b.value - a.value);
+  let total = sorted.reduce((s, i) => s + i.value, 0);
+  let remaining = sorted;
+  let current = { ...rect };
+
+  while (remaining.length > 0) {
+    const shortSide = Math.min(current.w, current.h);
+    const area = current.w * current.h;
+    let bestK = 1;
+    let bestAspect = worstAspect(remaining.slice(0, 1), shortSide, total, area);
+    for (let k = 2; k <= remaining.length; k++) {
+      const next = worstAspect(remaining.slice(0, k), shortSide, total, area);
+      if (next < bestAspect) {
+        bestK = k;
+        bestAspect = next;
+      } else {
+        break;
+      }
+    }
+
+    const row = remaining.slice(0, bestK);
+    const rowTotal = row.reduce((s, i) => s + i.value, 0);
+    const rowAreaFrac = rowTotal / total;
+    const rowArea = rowAreaFrac * area;
+
+    if (current.w >= current.h) {
+      // Lay out as a column on the left.
+      const colW = rowArea / current.h;
+      let y = current.y;
+      for (const item of row) {
+        const h = (item.value / rowTotal) * current.h;
+        out.set(item.id, { x: current.x, y, w: colW, h });
+        y += h;
+      }
+      current = {
+        x: current.x + colW,
+        y: current.y,
+        w: current.w - colW,
+        h: current.h,
+      };
+    } else {
+      const rowH = rowArea / current.w;
+      let x = current.x;
+      for (const item of row) {
+        const w = (item.value / rowTotal) * current.w;
+        out.set(item.id, { x, y: current.y, w, h: rowH });
+        x += w;
+      }
+      current = {
+        x: current.x,
+        y: current.y + rowH,
+        w: current.w,
+        h: current.h - rowH,
+      };
+    }
+
+    total -= rowTotal;
+    remaining = remaining.slice(bestK);
+  }
+  return out;
+}
+
+function worstAspect(
+  items: TreemapInput[],
+  shortSide: number,
+  totalRemaining: number,
+  area: number,
+): number {
+  if (items.length === 0) return Infinity;
+  const sum = items.reduce((s, i) => s + i.value, 0);
+  if (sum === 0) return Infinity;
+  const max = Math.max(...items.map((i) => i.value));
+  const min = Math.min(...items.map((i) => i.value));
+  const w2 = shortSide * shortSide;
+  // Classic worst-aspect formula adjusted for partial layout area.
+  const s2 = (sum * sum * area) / (totalRemaining * totalRemaining * w2);
+  return Math.max(
+    (w2 * max * totalRemaining) / (sum * sum * area / totalRemaining * area / area), // simplified guard
+    Math.max(
+      (max / (sum * sum)) * w2 * sum / totalRemaining,
+      (sum * sum * totalRemaining) / (min * w2 * area),
+    ),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Treemap component
+// ---------------------------------------------------------------------------
+
+function Treemap({
+  buckets,
+  bucketTotals,
+  uncategorizedTotal,
+  selectedBucketId,
+  onSelect,
+}: {
+  buckets: AccountBucket[];
+  bucketTotals: Map<string, number>;
+  uncategorizedTotal: number;
+  selectedBucketId: string | null;
+  onSelect: (bucketId: string | null) => void;
+}) {
+  const W = 296;
+  const H = 170;
+  const items: TreemapInput[] = useMemo(() => {
+    const arr: TreemapInput[] = [];
+    for (const b of buckets) {
+      const v = bucketTotals.get(b.id) ?? 0;
+      if (v > 0) arr.push({ id: b.id, value: v });
+    }
+    if (uncategorizedTotal > 0) {
+      arr.push({ id: "__uncat__", value: uncategorizedTotal });
+    }
+    return arr;
+  }, [buckets, bucketTotals, uncategorizedTotal]);
+
+  const layout = useMemo(
+    () => layoutTreemap(items, { x: 0, y: 0, w: W, h: H }),
+    [items],
+  );
+
+  if (items.length === 0) {
+    return (
+      <div className="rounded-md border border-dashed border-border bg-muted/20 p-3 text-center text-xs text-muted-foreground">
+        Categorize some accounts to populate the treemap.
+      </div>
+    );
+  }
+
+  const total = items.reduce((s, i) => s + i.value, 0);
+
+  return (
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      width="100%"
+      height={H}
+      className="block rounded"
+      aria-label="Portfolio composition"
+    >
+      {items.map((item) => {
+        const r = layout.get(item.id);
+        if (!r) return null;
+        const isUncat = item.id === "__uncat__";
+        const bucket = isUncat ? null : buckets.find((b) => b.id === item.id);
+        const fill = isUncat ? UNCATEGORIZED_COLOR : colorFor(bucket?.color);
+        const pct = (item.value / total) * 100;
+        const label = isUncat ? "Uncategorized" : bucket?.name || "—";
+        const showLabel = r.w >= 60 && r.h >= 28;
+        const selected =
+          (isUncat && selectedBucketId === "__uncat__") ||
+          (!isUncat && selectedBucketId === item.id);
+        return (
+          <g
+            key={item.id}
+            onClick={() => onSelect(isUncat ? "__uncat__" : item.id)}
+            className="cursor-pointer"
+          >
+            <rect
+              x={r.x}
+              y={r.y}
+              width={r.w - 1}
+              height={r.h - 1}
+              fill={fill}
+              opacity={selected ? 1 : 0.85}
+              rx={2}
+              stroke={selected ? "#fff" : "transparent"}
+              strokeWidth={selected ? 1.5 : 0}
+            />
+            {showLabel && (
+              <>
+                <text
+                  x={r.x + 6}
+                  y={r.y + 14}
+                  fill="#11111b"
+                  fontWeight={700}
+                  fontSize={11}
+                >
+                  {label}
+                </text>
+                <text
+                  x={r.x + 6}
+                  y={r.y + 26}
+                  fill="rgba(17,17,27,.75)"
+                  fontWeight={600}
+                  fontSize={9}
+                >
+                  {fmtCAD(item.value)} · {pct.toFixed(0)}%
+                </text>
+              </>
+            )}
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Outline — buckets + accounts (drag handles)
+// ---------------------------------------------------------------------------
+
+function OutlineRail({
+  buckets,
+  accountsByBucket,
+  uncategorized,
+  selection,
+  bucketTotals,
+  uncategorizedTotal,
+  onSelectAccount,
+  onSelectBucket,
+  onReorderAccounts,
+  onCreateBucket,
+}: {
+  buckets: AccountBucket[];
+  accountsByBucket: Map<string, AccountRow[]>;
+  uncategorized: AccountRow[];
+  selection: Selection;
+  bucketTotals: Map<string, number>;
+  uncategorizedTotal: number;
+  onSelectAccount: (id: string) => void;
+  onSelectBucket: (id: string | null) => void;
+  onReorderAccounts: (bucketId: string | null, newOrder: AccountRow[]) => void;
+  onCreateBucket: (name: string) => void;
+}) {
+  const [newBucketOpen, setNewBucketOpen] = useState(false);
+  return (
+    <div className="space-y-1.5 px-2 pb-3">
+      <div className="flex items-center justify-between px-2 pb-1 pt-3">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Categories
+        </span>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-6 px-2 text-xs"
+          onClick={() => setNewBucketOpen(true)}
+        >
+          <i className="ti ti-folder-plus mr-1" aria-hidden /> New
+        </Button>
+      </div>
+
+      {newBucketOpen && (
+        <NewBucketInput
+          onSubmit={(name) => {
+            onCreateBucket(name);
+            setNewBucketOpen(false);
+          }}
+          onCancel={() => setNewBucketOpen(false)}
+        />
+      )}
+
+      {buckets.map((b) => (
+        <BucketSection
+          key={b.id}
+          bucket={b}
+          accounts={accountsByBucket.get(b.id) ?? []}
+          total={bucketTotals.get(b.id) ?? 0}
+          selection={selection}
+          onSelectBucket={() => onSelectBucket(b.id)}
+          onSelectAccount={onSelectAccount}
+          onReorderAccounts={(next) => onReorderAccounts(b.id, next)}
+        />
+      ))}
+
+      {uncategorized.length > 0 && (
+        <BucketSection
+          bucket={null}
+          accounts={uncategorized}
+          total={uncategorizedTotal}
+          selection={selection}
+          onSelectBucket={() => onSelectBucket("__uncat__")}
+          onSelectAccount={onSelectAccount}
+          onReorderAccounts={(next) => onReorderAccounts(null, next)}
+        />
+      )}
+    </div>
+  );
+}
+
+function NewBucketInput({
+  onSubmit,
+  onCancel,
+}: {
+  onSubmit: (name: string) => void;
+  onCancel: () => void;
+}) {
+  const [value, setValue] = useState("");
+  return (
+    <div className="px-2 py-1">
+      <Input
+        autoFocus
+        placeholder="Category name…"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && value.trim()) onSubmit(value.trim());
+          if (e.key === "Escape") onCancel();
+        }}
+        onBlur={() => {
+          if (value.trim()) onSubmit(value.trim());
+          else onCancel();
+        }}
+        className="h-7 text-xs"
+      />
+    </div>
+  );
+}
+
+function BucketSection({
+  bucket,
+  accounts,
+  total,
+  selection,
+  onSelectBucket,
+  onSelectAccount,
+  onReorderAccounts,
+}: {
+  bucket: AccountBucket | null;
+  accounts: AccountRow[];
+  total: number;
+  selection: Selection;
+  onSelectBucket: () => void;
+  onSelectAccount: (id: string) => void;
+  onReorderAccounts: (next: AccountRow[]) => void;
+}) {
+  const [expanded, setExpanded] = useState(true);
+  const isUncat = bucket === null;
+  const color = isUncat ? UNCATEGORIZED_COLOR : colorFor(bucket?.color);
+  const name = isUncat ? "Uncategorized" : bucket!.name;
+  const bucketSelected =
+    (isUncat && selection?.kind === "bucket" && selection.bucketId === "__uncat__") ||
+    (!isUncat &&
+      selection?.kind === "bucket" &&
+      selection.bucketId === bucket!.id);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  function handleDragEnd(e: DragEndEvent) {
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
+    const oldIdx = accounts.findIndex((a) => a.id === active.id);
+    const newIdx = accounts.findIndex((a) => a.id === over.id);
+    if (oldIdx === -1 || newIdx === -1) return;
+    onReorderAccounts(arrayMove(accounts, oldIdx, newIdx));
+  }
+
+  return (
+    <div className="rounded-md">
+      <div
+        className={cn(
+          "group flex items-center gap-1.5 rounded-md px-2 py-1.5 cursor-pointer",
+          bucketSelected ? "bg-primary/10" : "hover:bg-muted/30",
+        )}
+      >
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setExpanded((v) => !v);
+          }}
+          aria-label={expanded ? "Collapse" : "Expand"}
+          className="text-muted-foreground"
+        >
+          <i
+            className={cn(
+              "ti text-xs",
+              expanded ? "ti-chevron-down" : "ti-chevron-right",
+            )}
+            aria-hidden
+          />
+        </button>
+        <span
+          className="inline-block h-3 w-1 rounded-sm"
+          style={{ backgroundColor: color }}
+          aria-hidden
+        />
+        <button
+          type="button"
+          onClick={onSelectBucket}
+          className="flex-1 text-left text-sm font-medium"
+        >
+          {name}
+        </button>
+        <span className="text-[10px] tabular-nums text-muted-foreground">
+          {fmtCAD(total)}
+        </span>
+      </div>
+
+      {expanded && accounts.length > 0 && (
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext
+            items={accounts.map((a) => a.id)}
+            strategy={verticalListSortingStrategy}
+          >
+            <ul className="ml-6 mt-0.5 space-y-0.5">
+              {accounts.map((a) => (
+                <OutlineAccount
+                  key={a.id}
+                  account={a}
+                  selected={
+                    selection?.kind === "account" && selection.rowId === a.id
+                  }
+                  onSelect={() => onSelectAccount(a.id)}
+                />
+              ))}
+            </ul>
+          </SortableContext>
+        </DndContext>
+      )}
+    </div>
+  );
+}
+
+function OutlineAccount({
+  account,
+  selected,
+  onSelect,
+}: {
+  account: AccountRow;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: account.id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+  const cad = num(account.balance_cad);
+  return (
+    <li
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        "flex items-center gap-1.5 rounded px-2 py-1 text-[13px]",
+        selected ? "bg-primary/15" : "hover:bg-muted/30",
+      )}
+    >
+      <button
+        type="button"
+        className="cursor-grab text-muted-foreground touch-none"
+        aria-label={`Drag ${account.name}`}
+        {...attributes}
+        {...listeners}
+      >
+        <i className="ti ti-grip-vertical text-xs" aria-hidden />
+      </button>
+      <button
+        type="button"
+        onClick={onSelect}
+        className="flex flex-1 items-center justify-between gap-2 text-left"
+      >
+        <span className="truncate">{account.name}</span>
+        <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
+          {account.balance_cad === null ? "—" : fmtCAD(cad)}
+        </span>
+      </button>
+    </li>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Right pane
+// ---------------------------------------------------------------------------
+
+type Selection =
+  | { kind: "account"; rowId: string }
+  | { kind: "bucket"; bucketId: string }
+  | null;
+
+function DetailPane({
+  selection,
+  accounts,
+  buckets,
+  onClearSelection,
+}: {
+  selection: Selection;
+  accounts: AccountRow[];
+  buckets: AccountBucket[];
+  onClearSelection: () => void;
+}) {
+  if (!selection) {
+    return (
+      <div className="flex h-full items-center justify-center p-12 text-center text-sm text-muted-foreground">
+        <div>
+          <i
+            className="ti ti-hand-click mb-2 text-3xl"
+            style={{ display: "block" }}
+            aria-hidden
+          />
+          Pick an account or category from the rail.
+        </div>
+      </div>
+    );
+  }
+  if (selection.kind === "account") {
+    const row = accounts.find((a) => a.id === selection.rowId);
+    if (!row) {
+      return (
+        <div className="p-6 text-sm text-muted-foreground">
+          That account no longer exists.{" "}
+          <button className="underline" onClick={onClearSelection}>
+            Clear selection
+          </button>
+        </div>
+      );
+    }
+    return <AccountDetail account={row} buckets={buckets} />;
+  }
+  // bucket
+  if (selection.bucketId === "__uncat__") {
+    const inBucket = accounts.filter((a) => a.bucket_id === null);
+    return (
+      <BucketOverview
+        bucket={null}
+        accounts={inBucket}
+        onClearSelection={onClearSelection}
+      />
+    );
+  }
+  const bucket = buckets.find((b) => b.id === selection.bucketId);
+  if (!bucket) {
+    return (
+      <div className="p-6 text-sm text-muted-foreground">
+        That category no longer exists.{" "}
+        <button className="underline" onClick={onClearSelection}>
+          Clear selection
+        </button>
+      </div>
+    );
+  }
+  const inBucket = accounts.filter((a) => a.bucket_id === bucket.id);
+  return (
+    <BucketOverview
+      bucket={bucket}
+      accounts={inBucket}
+      onClearSelection={onClearSelection}
+    />
+  );
+}
+
+// ---- Account detail ------------------------------------------------------
+
+function AccountDetail({
+  account,
+  buckets,
+}: {
+  account: AccountRow;
+  buckets: AccountBucket[];
+}) {
+  const qc = useQueryClient();
+  const invalidate = () =>
+    qc.invalidateQueries({ queryKey: ["accounts"] });
+
+  const tagsMutation = useMutation({
+    mutationFn: (tags: AccountTagsUpdate) =>
+      apiFetch(
+        `/accounts/${account.source}/${unwrapId(account.id)}/tags`,
+        { method: "PATCH", body: JSON.stringify(tags) },
+      ),
+    onSuccess: invalidate,
+  });
+
+  const placementMutation = useMutation({
+    mutationFn: (body: AccountPlacementUpdate) =>
+      apiFetch(
+        `/accounts/${account.source}/${unwrapId(account.id)}/placement`,
+        { method: "PATCH", body: JSON.stringify(body) },
+      ),
+    onSuccess: invalidate,
+  });
+
+  const manualPatchMutation = useMutation({
+    mutationFn: (body: ManualAccountUpdate) =>
+      apiFetch(`/accounts/manual/${unwrapId(account.id)}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: invalidate,
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () =>
+      apiFetch(`/accounts/manual/${unwrapId(account.id)}`, {
+        method: "DELETE",
+      }),
+    onSuccess: invalidate,
+  });
+
+  const [balanceDraft, setBalanceDraft] = useState<string | null>(null);
+  const editing = balanceDraft !== null;
+  const cad = num(account.balance_cad);
+  const isYnab = account.source === "ynab";
+
+  function commitBalance() {
+    if (balanceDraft === null) return;
+    const trimmed = balanceDraft.trim();
+    if (trimmed && trimmed !== String(account.balance)) {
+      manualPatchMutation.mutate({ balance: trimmed });
+    }
+    setBalanceDraft(null);
+  }
+
+  return (
+    <div className="p-6">
+      <div className="mb-1 flex items-baseline justify-between gap-2">
+        <h3 className="text-lg font-semibold">{account.name}</h3>
+        <div className="flex items-center gap-2">
+          {isYnab ? (
+            <span className="rounded bg-purple-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-purple-300">
+              YNAB · Read-only
+            </span>
+          ) : (
+            <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Manual
+            </span>
+          )}
+          {!isYnab && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                if (confirm(`Delete "${account.name}"?`))
+                  deleteMutation.mutate();
+              }}
+              disabled={deleteMutation.isPending}
+              className="h-7 text-destructive"
+            >
+              <i className="ti ti-trash" aria-hidden />
+            </Button>
+          )}
+        </div>
+      </div>
+      <p className="mb-5 text-xs text-muted-foreground">
+        {account.bank ? `${account.bank} · ` : ""}
+        {isYnab
+          ? `Synced ${fmtRelative(account.last_synced_at)}`
+          : `Updated ${fmtRelative(account.balance_as_of)}`}
+      </p>
+
+      <div className="mb-6 rounded-md border bg-muted/30 p-4">
+        <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+          Balance · CAD
+        </div>
+        <div className="mt-1 flex items-baseline justify-between gap-3">
+          <div className="text-2xl font-bold tabular-nums">
+            {account.balance_cad === null ? "—" : fmtCAD(cad)}
+          </div>
+          {account.currency !== "CAD" && (
+            <div className="text-sm tabular-nums text-muted-foreground">
+              {fmtMoney(account.balance, account.currency)}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
+        <div>
+          <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            Native amount
+          </Label>
+          {!isYnab && editing ? (
+            <Input
+              autoFocus
+              type="number"
+              step="0.01"
+              value={balanceDraft ?? ""}
+              onChange={(e) => setBalanceDraft(e.target.value)}
+              onBlur={commitBalance}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitBalance();
+                if (e.key === "Escape") setBalanceDraft(null);
+              }}
+              className="mt-1"
+            />
+          ) : (
+            <button
+              type="button"
+              disabled={isYnab}
+              onClick={() => setBalanceDraft(String(account.balance))}
+              className={cn(
+                "mt-1 flex w-full items-center justify-between rounded-md border bg-card px-3 py-2 text-left text-sm tabular-nums",
+                !isYnab && "hover:border-primary",
+              )}
+            >
+              <span>{fmtMoney(account.balance, account.currency)}</span>
+              {!isYnab && (
+                <i className="ti ti-pencil text-xs text-primary/70" aria-hidden />
+              )}
+            </button>
+          )}
+        </div>
+
+        <SelectField
+          label="Category"
+          value={account.bucket_id ?? "__none__"}
+          options={[
+            { value: "__none__", label: "Uncategorized" },
+            ...buckets.map((b) => ({ value: b.id, label: b.name })),
+          ]}
+          onChange={(v) =>
+            placementMutation.mutate({
+              bucket_id: v === "__none__" ? null : v,
+              sort_index: account.sort_index,
+            })
+          }
+        />
+
+        <SelectField
+          label="Kind"
+          value={account.kind}
+          options={KIND_OPTIONS}
+          onChange={(v) => tagsMutation.mutate({ kind: v as AccountKind })}
+          disabled={isYnab && false}
+        />
+
+        <SelectField
+          label="Owner"
+          value={account.owner}
+          options={OWNER_OPTIONS}
+          onChange={(v) => tagsMutation.mutate({ owner: v as AccountOwner })}
+        />
+
+        {!isYnab && (
+          <ManualBankField
+            account={account}
+            onSave={(bank) => manualPatchMutation.mutate({ bank })}
+          />
+        )}
+
+        <SourceField account={account} />
+      </div>
+
+      {tagsMutation.isError && (
+        <p className="mt-4 text-xs text-destructive">
+          Save failed: {extractError(tagsMutation.error)}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function SelectField({
+  label,
+  value,
+  options,
+  onChange,
+  disabled = false,
+}: {
+  label: string;
+  value: string;
+  options: { value: string; label: string }[];
+  onChange: (v: string) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div>
+      <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+        {label}
+      </Label>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        className={cn(
+          "mt-1 block w-full rounded-md border bg-card px-3 py-2 text-sm",
+          "focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
+          disabled && "opacity-60",
+        )}
+      >
+        {options.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function ManualBankField({
+  account,
+  onSave,
+}: {
+  account: AccountRow;
+  onSave: (bank: string | null) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const editing = draft !== null;
+  return (
+    <div>
+      <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+        Bank
+      </Label>
+      {editing ? (
+        <Input
+          autoFocus
+          value={draft ?? ""}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => {
+            const v = (draft ?? "").trim();
+            if (v !== (account.bank ?? "")) onSave(v || null);
+            setDraft(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setDraft(null);
+            if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+          }}
+          className="mt-1"
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={() => setDraft(account.bank ?? "")}
+          className="mt-1 flex w-full items-center justify-between rounded-md border bg-card px-3 py-2 text-left text-sm hover:border-primary"
+        >
+          <span className={account.bank ? "" : "text-muted-foreground"}>
+            {account.bank || "—"}
+          </span>
+          <i className="ti ti-pencil text-xs text-primary/70" aria-hidden />
+        </button>
+      )}
+    </div>
+  );
+}
+
+function SourceField({ account }: { account: AccountRow }) {
+  return (
+    <div>
+      <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+        Source
+      </Label>
+      <div className="mt-1 flex items-center justify-between rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+        <span>{account.source === "ynab" ? "YNAB" : "Manual"}</span>
+        <span className="text-xs">{account.currency}</span>
+      </div>
+    </div>
+  );
+}
+
+// ---- Bucket overview ----------------------------------------------------
+
+function BucketOverview({
+  bucket,
+  accounts,
+  onClearSelection,
+}: {
+  bucket: AccountBucket | null;
+  accounts: AccountRow[];
+  onClearSelection: () => void;
+}) {
+  const qc = useQueryClient();
+  const invalidate = () =>
+    qc.invalidateQueries({ queryKey: ["accounts"] });
+  const isUncat = bucket === null;
+
+  const [nameDraft, setNameDraft] = useState<string | null>(null);
+  const renameMutation = useMutation({
+    mutationFn: (body: AccountBucketUpdate) =>
+      apiFetch<AccountBucket>(`/accounts/buckets/${bucket!.id}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: invalidate,
+  });
+  const deleteMutation = useMutation({
+    mutationFn: () =>
+      apiFetch<void>(`/accounts/buckets/${bucket!.id}`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => {
+      invalidate();
+      onClearSelection();
+    },
+  });
+
+  const total = accounts.reduce((s, a) => s + num(a.balance_cad), 0);
+
+  return (
+    <div className="p-6">
+      <div className="mb-5 flex items-baseline justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span
+            className="inline-block h-4 w-1 rounded-sm"
+            style={{ backgroundColor: isUncat ? UNCATEGORIZED_COLOR : colorFor(bucket?.color) }}
+            aria-hidden
+          />
+          {!isUncat && nameDraft !== null ? (
+            <Input
+              autoFocus
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+              onBlur={() => {
+                const v = nameDraft.trim();
+                if (v && v !== bucket!.name) renameMutation.mutate({ name: v });
+                setNameDraft(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setNameDraft(null);
+                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+              }}
+              className="h-8 max-w-xs"
+            />
+          ) : (
+            <h3
+              className={cn(
+                "text-lg font-semibold",
+                !isUncat && "cursor-pointer hover:underline",
+              )}
+              onClick={() => {
+                if (!isUncat) setNameDraft(bucket!.name);
+              }}
+            >
+              {isUncat ? "Uncategorized" : bucket!.name}
+            </h3>
+          )}
+        </div>
+        {!isUncat && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 text-destructive"
+            disabled={deleteMutation.isPending}
+            onClick={() => {
+              if (
+                confirm(
+                  `Delete "${bucket!.name}"? Accounts move to Uncategorized.`,
+                )
+              )
+                deleteMutation.mutate();
+            }}
+          >
+            <i className="ti ti-trash mr-1" aria-hidden /> Delete category
+          </Button>
+        )}
+      </div>
+
+      <div className="mb-6 rounded-md border bg-muted/30 p-4">
+        <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+          Total · CAD
+        </div>
+        <div className="mt-1 text-2xl font-bold tabular-nums">
+          {fmtCAD(total)}
+        </div>
+        <div className="text-xs text-muted-foreground">
+          {accounts.length} account{accounts.length === 1 ? "" : "s"}
+        </div>
+      </div>
+
+      {!isUncat && (
+        <ColorPicker
+          current={bucket?.color ?? null}
+          onPick={(c) => renameMutation.mutate({ color: c })}
+        />
+      )}
+
+      <div className="mt-6">
+        <div className="mb-2 text-[10px] uppercase tracking-wider text-muted-foreground">
+          Accounts
+        </div>
+        {accounts.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No accounts yet.</p>
+        ) : (
+          <ul className="space-y-1">
+            {accounts.map((a) => (
+              <li
+                key={a.id}
+                className="flex items-center justify-between rounded-md border bg-card px-3 py-2 text-sm"
+              >
+                <span>{a.name}</span>
+                <span className="tabular-nums text-muted-foreground">
+                  {a.balance_cad === null ? "—" : fmtCAD(num(a.balance_cad))}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ColorPicker({
+  current,
+  onPick,
+}: {
+  current: string | null;
+  onPick: (color: string) => void;
+}) {
+  return (
+    <div>
+      <div className="mb-2 text-[10px] uppercase tracking-wider text-muted-foreground">
+        Color
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {BUCKET_COLORS.map((c) => (
+          <button
+            key={c.value}
+            type="button"
+            onClick={() => onPick(c.value)}
+            aria-label={`Set color to ${c.value}`}
+            className={cn(
+              "h-6 w-6 rounded border-2",
+              current === c.value
+                ? "border-foreground"
+                : "border-transparent hover:border-muted-foreground",
+            )}
+            style={{ backgroundColor: c.hex }}
+          />
+        ))}
+      </div>
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -134,8 +1209,8 @@ function unwrapId(rowId: string): string {
 // ---------------------------------------------------------------------------
 
 export function Accounts() {
-  const queryClient = useQueryClient();
-  const accountsQuery = useQuery<AccountListResponse>({
+  const qc = useQueryClient();
+  const accountsQ = useQuery<AccountListResponse>({
     queryKey: ["accounts"],
     queryFn: () => apiFetch<AccountListResponse>("/accounts"),
   });
@@ -145,589 +1220,206 @@ export function Accounts() {
       apiFetch<YnabRefreshResponse>("/accounts/ynab/sync", {
         method: "POST",
       }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["accounts"] });
-    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["accounts"] }),
   });
 
-  const tagsMutation = useMutation<
-    AccountRow,
-    ApiError,
-    { row: AccountRow; tags: AccountTagsUpdate }
-  >({
-    mutationFn: ({ row, tags }) =>
-      apiFetch<AccountRow>(
-        `/accounts/${row.source}/${unwrapId(row.id)}/tags`,
-        { method: "PATCH", body: JSON.stringify(tags) },
-      ),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["accounts"] });
-    },
+  const createBucketMutation = useMutation({
+    mutationFn: (body: AccountBucketCreate) =>
+      apiFetch<AccountBucket>("/accounts/buckets", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["accounts"] }),
   });
 
-  const deleteMutation = useMutation<void, ApiError, AccountRow>({
-    mutationFn: (row) => {
-      // YNAB rows are unrouted here — the button is hidden for them.
-      const path =
-        row.source === "manual"
-          ? `/accounts/manual/${unwrapId(row.id)}`
-          : `/investments/accounts/${unwrapId(row.id)}`;
-      return apiFetch<void>(path, { method: "DELETE" });
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["accounts"] });
-    },
+  const placementMutation = useMutation({
+    mutationFn: (vars: {
+      source: string;
+      id: string;
+      body: AccountPlacementUpdate;
+    }) =>
+      apiFetch(`/accounts/${vars.source}/${vars.id}/placement`, {
+        method: "PATCH",
+        body: JSON.stringify(vars.body),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["accounts"] }),
   });
 
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [showAddManual, setShowAddManual] = useState(false);
+  const [selection, setSelection] = useState<Selection>(null);
 
-  const rows = accountsQuery.data?.accounts ?? [];
-  const groups = useMemo(() => groupByOwner(rows), [rows]);
+  const data = accountsQ.data;
+  const accounts = data?.accounts ?? [];
+  const buckets = useMemo(
+    () => (data?.buckets ?? []).slice().sort((a, b) => a.sort_order - b.sort_order),
+    [data],
+  );
 
-  const totalCadByOwner = useMemo(() => {
-    const t: Record<AccountOwner, number> = {
-      personal: 0,
-      business: 0,
-      unassigned: 0,
-    };
-    for (const r of rows) {
-      if (r.balance_cad !== null && r.balance_cad !== undefined) {
-        t[r.owner] += num(r.balance_cad);
+  // Group + sort accounts by (bucket, sort_index).
+  const { accountsByBucket, uncategorized, bucketTotals, uncategorizedTotal } =
+    useMemo(() => {
+      const byBucket = new Map<string, AccountRow[]>();
+      const uncat: AccountRow[] = [];
+      for (const a of accounts) {
+        if (a.bucket_id) {
+          const list = byBucket.get(a.bucket_id) ?? [];
+          list.push(a);
+          byBucket.set(a.bucket_id, list);
+        } else {
+          uncat.push(a);
+        }
+      }
+      for (const [k, list] of byBucket) {
+        list.sort((a, b) => a.sort_index - b.sort_index || a.name.localeCompare(b.name));
+        byBucket.set(k, list);
+      }
+      uncat.sort((a, b) => a.sort_index - b.sort_index || a.name.localeCompare(b.name));
+      const totals = new Map<string, number>();
+      for (const [bid, list] of byBucket) {
+        totals.set(
+          bid,
+          list.reduce((s, a) => s + num(a.balance_cad), 0),
+        );
+      }
+      const uncatTotal = uncat.reduce((s, a) => s + num(a.balance_cad), 0);
+      return {
+        accountsByBucket: byBucket,
+        uncategorized: uncat,
+        bucketTotals: totals,
+        uncategorizedTotal: uncatTotal,
+      };
+    }, [accounts]);
+
+  const netWorth = useMemo(
+    () => accounts.reduce((s, a) => s + num(a.balance_cad), 0),
+    [accounts],
+  );
+
+  const lastSync = useMemo(() => {
+    const stamps = accounts
+      .filter((a) => a.source === "ynab" && a.last_synced_at)
+      .map((a) => a.last_synced_at!);
+    return stamps.length ? stamps.sort().slice(-1)[0] : null;
+  }, [accounts]);
+
+  function handleReorder(bucketId: string | null, newOrder: AccountRow[]) {
+    // Issue one PATCH per row whose index changed. Optimistic: the
+    // invalidate at the end of each mutation will re-fetch and re-render.
+    for (let i = 0; i < newOrder.length; i++) {
+      const a = newOrder[i];
+      if (a.sort_index !== i) {
+        placementMutation.mutate({
+          source: a.source,
+          id: unwrapId(a.id),
+          body: { bucket_id: bucketId, sort_index: i },
+        });
       }
     }
-    return t;
-  }, [rows]);
-
-  const lastSyncedAt = useMemo(() => {
-    const ynabRows = rows.filter((r) => r.source === "ynab");
-    if (ynabRows.length === 0) return null;
-    return ynabRows.reduce<string | null>((latest, r) => {
-      if (!r.last_synced_at) return latest;
-      if (!latest || r.last_synced_at > latest) return r.last_synced_at;
-      return latest;
-    }, null);
-  }, [rows]);
+  }
 
   return (
-    <main className="mx-auto max-w-6xl px-4 py-6">
-      <header className="mb-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-2xl font-bold">Accounts</h2>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="mr-1 text-xs text-muted-foreground">
-              YNAB synced{" "}
-              <span className="font-medium text-foreground">
-                {fmtRelative(lastSyncedAt)}
-              </span>
-            </span>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => syncMutation.mutate()}
-              disabled={syncMutation.isPending}
-            >
-              {syncMutation.isPending ? "Syncing…" : "Sync YNAB"}
-            </Button>
-            <Button asChild type="button" variant="outline" size="sm">
-              <Link to="/investments/accounts">Add brokerage</Link>
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => setShowAddManual((s) => !s)}
-            >
-              {showAddManual ? "Cancel" : "Add cash account"}
-            </Button>
-          </div>
+    <main className="mx-auto max-w-7xl px-4 py-4">
+      {/* Top bar */}
+      <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-bold">Accounts</h2>
+          <p className="text-xs text-muted-foreground">
+            Net worth ·{" "}
+            <span className="font-medium text-foreground tabular-nums">
+              {fmtCAD(netWorth)}
+            </span>{" "}
+            · YNAB synced {fmtRelative(lastSync)}
+          </p>
         </div>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Every cash and investment account, across YNAB, manual
-          entries, and your brokerage rows.
-        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => syncMutation.mutate()}
+            disabled={syncMutation.isPending}
+          >
+            <i className="ti ti-refresh mr-1" aria-hidden />
+            {syncMutation.isPending ? "Syncing…" : "Sync YNAB"}
+          </Button>
+          <Button asChild type="button" variant="outline" size="sm">
+            <Link to="/investments/accounts">
+              <i className="ti ti-plus mr-1" aria-hidden /> Brokerage
+            </Link>
+          </Button>
+          <Button asChild type="button" size="sm">
+            <Link to="/accounts/manual/new">
+              <i className="ti ti-plus mr-1" aria-hidden /> Cash account
+            </Link>
+          </Button>
+        </div>
       </header>
 
-      {syncMutation.isError && (
-        <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          Sync failed: {extractError(syncMutation.error)}
-        </div>
+      {accountsQ.isLoading && <LoadingBox />}
+      {accountsQ.isError && (
+        <p className="text-sm text-destructive">
+          Failed to load: {extractError(accountsQ.error)}
+        </p>
       )}
 
-      {/* Totals strip */}
-      <section className="mb-6">
-        <h3 className="mb-3 text-sm font-semibold">Totals (CAD)</h3>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <TotalCard
-            label="Personal"
-            amount={totalCadByOwner.personal}
-            detail={`${groups.personal?.length ?? 0} account${
-              (groups.personal?.length ?? 0) === 1 ? "" : "s"
-            }`}
-            valueClass="text-emerald-600 dark:text-emerald-400"
-          />
-          <TotalCard
-            label="Business"
-            amount={totalCadByOwner.business}
-            detail={`${groups.business?.length ?? 0} account${
-              (groups.business?.length ?? 0) === 1 ? "" : "s"
-            }`}
-            valueClass="text-foreground"
-          />
-          <TotalCard
-            label="Unassigned"
-            amount={totalCadByOwner.unassigned}
-            detail={`${groups.unassigned?.length ?? 0} account${
-              (groups.unassigned?.length ?? 0) === 1 ? "" : "s"
-            }`}
-            muted
-          />
-        </div>
-      </section>
+      {data && (
+        <Card className="overflow-hidden">
+          <CardContent className="p-0">
+            <div
+              className="grid"
+              style={{ gridTemplateColumns: "320px 1fr", minHeight: "70vh" }}
+            >
+              <aside className="border-r">
+                <div className="p-3">
+                  <div className="mb-2 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Portfolio map
+                  </div>
+                  <Treemap
+                    buckets={buckets}
+                    bucketTotals={bucketTotals}
+                    uncategorizedTotal={uncategorizedTotal}
+                    selectedBucketId={
+                      selection?.kind === "bucket" ? selection.bucketId : null
+                    }
+                    onSelect={(id) => {
+                      if (id === null) setSelection(null);
+                      else setSelection({ kind: "bucket", bucketId: id });
+                    }}
+                  />
+                </div>
+                <OutlineRail
+                  buckets={buckets}
+                  accountsByBucket={accountsByBucket}
+                  uncategorized={uncategorized}
+                  selection={selection}
+                  bucketTotals={bucketTotals}
+                  uncategorizedTotal={uncategorizedTotal}
+                  onSelectAccount={(id) =>
+                    setSelection({ kind: "account", rowId: id })
+                  }
+                  onSelectBucket={(id) =>
+                    setSelection(
+                      id === null ? null : { kind: "bucket", bucketId: id },
+                    )
+                  }
+                  onReorderAccounts={handleReorder}
+                  onCreateBucket={(name) =>
+                    createBucketMutation.mutate({ name })
+                  }
+                />
+              </aside>
 
-      {showAddManual && (
-        <Card className="mb-6 border-primary/40">
-          <CardContent className="pt-6">
-            <ManualAccountForm
-              onCancel={() => setShowAddManual(false)}
-              onSaved={() => {
-                setShowAddManual(false);
-                void queryClient.invalidateQueries({
-                  queryKey: ["accounts"],
-                });
-              }}
-            />
+              <section className="min-h-[70vh]">
+                <DetailPane
+                  selection={selection}
+                  accounts={accounts}
+                  buckets={buckets}
+                  onClearSelection={() => setSelection(null)}
+                />
+              </section>
+            </div>
           </CardContent>
         </Card>
       )}
-
-      {accountsQuery.isLoading && (
-        <LoadingBox />
-      )}
-      {accountsQuery.isError && (
-        <p className="text-sm text-destructive">
-          Failed to load: {extractError(accountsQuery.error)}
-        </p>
-      )}
-
-      {(["personal", "business", "unassigned"] as AccountOwner[]).map(
-        (owner) => {
-          const ownerRows = groups[owner];
-          if (!ownerRows || ownerRows.length === 0) return null;
-          const ownerCount = ownerRows.length;
-          return (
-            <section key={owner} className="mb-6">
-              <div className="mb-3 flex items-baseline justify-between">
-                <h3 className="text-sm font-semibold">
-                  {labelForOwner(owner)}
-                </h3>
-                <span className="text-xs text-muted-foreground">
-                  {ownerCount} account{ownerCount === 1 ? "" : "s"}
-                </span>
-              </div>
-              <Card>
-                <CardContent className="p-0">
-                  <ul className="divide-y">
-                    {ownerRows.map((row) => (
-                      <AccountRowItem
-                        key={row.id}
-                        row={row}
-                        isEditing={editingId === row.id}
-                        isDeleting={
-                          deleteMutation.isPending &&
-                          deleteMutation.variables?.id === row.id
-                        }
-                        onToggleEdit={() =>
-                          setEditingId((cur) =>
-                            cur === row.id ? null : row.id,
-                          )
-                        }
-                        onChangeTag={(tags) =>
-                          tagsMutation.mutate({ row, tags })
-                        }
-                        onDelete={() => {
-                          if (
-                            confirm(
-                              `Delete "${row.name}"? This cannot be undone.`,
-                            )
-                          ) {
-                            deleteMutation.mutate(row);
-                          }
-                        }}
-                        onSaved={() => {
-                          setEditingId(null);
-                          void queryClient.invalidateQueries({
-                            queryKey: ["accounts"],
-                          });
-                        }}
-                      />
-                    ))}
-                  </ul>
-                </CardContent>
-              </Card>
-            </section>
-          );
-        },
-      )}
     </main>
-
   );
-}
-
-// ---------------------------------------------------------------------------
-// Pieces
-// ---------------------------------------------------------------------------
-
-function TotalCard({
-  label,
-  amount,
-  detail,
-  valueClass,
-  muted,
-}: {
-  label: string;
-  amount: number;
-  detail?: string;
-  valueClass?: string;
-  muted?: boolean;
-}) {
-  return (
-    <Card className={"h-full " + (muted ? "opacity-70" : "")}>
-      <CardContent className="space-y-1 p-4">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          {label}
-        </p>
-        <p
-          className={
-            "text-2xl font-bold " +
-            (muted
-              ? "text-muted-foreground"
-              : (valueClass ?? "text-foreground"))
-          }
-        >
-          {fmtMoney(amount, "CAD")}
-        </p>
-        {detail && (
-          <p className="text-xs text-muted-foreground">{detail}</p>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function AccountRowItem({
-  row,
-  isEditing,
-  isDeleting,
-  onToggleEdit,
-  onChangeTag,
-  onDelete,
-  onSaved,
-}: {
-  row: AccountRow;
-  isEditing: boolean;
-  isDeleting: boolean;
-  onToggleEdit: () => void;
-  onChangeTag: (tags: AccountTagsUpdate) => void;
-  onDelete: () => void;
-  onSaved: () => void;
-}) {
-  const balanceCad =
-    row.balance_cad === null
-      ? null
-      : fmtMoney(row.balance_cad, "CAD");
-  return (
-    <li className="px-4 py-3">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:gap-4">
-        {/* Identity */}
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="truncate font-medium">{row.name}</span>
-            <span className="rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-              {sourceBadge(row.source)}
-            </span>
-            {row.bank && (
-              <span className="truncate text-xs text-muted-foreground">
-                {row.bank}
-              </span>
-            )}
-          </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {row.source === "ynab"
-              ? `Synced ${fmtRelative(row.last_synced_at)}`
-              : `As of ${fmtAsOf(row.balance_as_of)}`}
-          </p>
-        </div>
-
-        {/* Balance */}
-        <div className="flex flex-col items-start lg:w-32 lg:items-end">
-          <span className="font-mono text-sm font-medium">
-            {fmtMoney(row.balance, row.currency)}
-          </span>
-          {row.currency !== "CAD" && (
-            <span className="text-xs text-muted-foreground">
-              {balanceCad ?? "FX unavailable"}
-            </span>
-          )}
-        </div>
-
-        {/* Tag controls + edit */}
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            aria-label="Kind"
-            className="h-9 rounded-md border bg-background px-2 text-xs"
-            value={row.kind}
-            onChange={(e) =>
-              onChangeTag({ kind: e.target.value as AccountKind })
-            }
-          >
-            {KIND_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-          <select
-            aria-label="Owner"
-            className="h-9 rounded-md border bg-background px-2 text-xs"
-            value={row.owner}
-            onChange={(e) =>
-              onChangeTag({ owner: e.target.value as AccountOwner })
-            }
-          >
-            {OWNER_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-          {row.is_editable && (
-            <>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={onToggleEdit}
-              >
-                {isEditing ? "Close" : "Edit"}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                onClick={onDelete}
-                disabled={isDeleting}
-                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                aria-label={`Delete ${row.name}`}
-              >
-                {isDeleting ? "Deleting…" : "Delete"}
-              </Button>
-            </>
-          )}
-        </div>
-      </div>
-
-      {isEditing && row.source === "manual" && (
-        <div className="mt-4 rounded-md border bg-muted/30 p-4">
-          <ManualAccountForm
-            existingId={unwrapId(row.id)}
-            initial={row}
-            onCancel={onToggleEdit}
-            onSaved={onSaved}
-          />
-        </div>
-      )}
-    </li>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Manual account form (create + edit)
-// ---------------------------------------------------------------------------
-
-function ManualAccountForm({
-  existingId,
-  initial,
-  onCancel,
-  onSaved,
-}: {
-  existingId?: string;
-  initial?: AccountRow;
-  onCancel: () => void;
-  onSaved: () => void;
-}) {
-  const [name, setName] = useState(initial?.name ?? "");
-  const [bank, setBank] = useState(initial?.bank ?? "");
-  const [currency, setCurrency] = useState(initial?.currency ?? "BRL");
-  const [balance, setBalance] = useState(
-    initial ? String(initial.balance) : "0",
-  );
-  const [kind, setKind] = useState<ManualAccountKind>(
-    (initial?.kind as ManualAccountKind) ?? "checking",
-  );
-  const [owner, setOwner] = useState<ManualAccountOwner>(
-    (initial?.owner as ManualAccountOwner) ?? "personal",
-  );
-  const [notes, setNotes] = useState("");
-  const [serverError, setServerError] = useState<string | null>(null);
-
-  const isEdit = Boolean(existingId);
-
-  const mutation = useMutation<ManualAccountRead, ApiError, void>({
-    mutationFn: () => {
-      const body: ManualAccountCreate | ManualAccountUpdate = {
-        name,
-        bank: bank || null,
-        currency: currency.toUpperCase(),
-        balance,
-        kind,
-        owner,
-        notes: notes || null,
-      };
-      return apiFetch<ManualAccountRead>(
-        isEdit
-          ? `/accounts/manual/${existingId}`
-          : "/accounts/manual",
-        {
-          method: isEdit ? "PATCH" : "POST",
-          body: JSON.stringify(body),
-        },
-      );
-    },
-    onSuccess: () => {
-      setServerError(null);
-      onSaved();
-    },
-    onError: (err) => setServerError(extractError(err)),
-  });
-
-  return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        mutation.mutate();
-      }}
-      className="grid gap-3 sm:grid-cols-2"
-    >
-      <div>
-        <Label htmlFor="ma-name">Name</Label>
-        <Input
-          id="ma-name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          required
-        />
-      </div>
-      <div>
-        <Label htmlFor="ma-bank">Bank</Label>
-        <Input
-          id="ma-bank"
-          value={bank ?? ""}
-          onChange={(e) => setBank(e.target.value)}
-          placeholder="Itaú, Bradesco, …"
-        />
-      </div>
-      <div>
-        <Label htmlFor="ma-balance">Balance</Label>
-        <Input
-          id="ma-balance"
-          type="number"
-          step="0.01"
-          value={balance}
-          onChange={(e) => setBalance(e.target.value)}
-        />
-      </div>
-      <div>
-        <Label htmlFor="ma-currency">Currency</Label>
-        <Input
-          id="ma-currency"
-          value={currency}
-          maxLength={3}
-          onChange={(e) => setCurrency(e.target.value.toUpperCase())}
-        />
-      </div>
-      <div>
-        <Label htmlFor="ma-kind">Kind</Label>
-        <select
-          id="ma-kind"
-          className="block h-10 w-full rounded-md border bg-background px-3 text-sm"
-          value={kind}
-          onChange={(e) =>
-            setKind(e.target.value as ManualAccountKind)
-          }
-        >
-          {MANUAL_KIND_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div>
-        <Label htmlFor="ma-owner">Owner</Label>
-        <select
-          id="ma-owner"
-          className="block h-10 w-full rounded-md border bg-background px-3 text-sm"
-          value={owner}
-          onChange={(e) =>
-            setOwner(e.target.value as ManualAccountOwner)
-          }
-        >
-          <option value="personal">Personal</option>
-          <option value="business">Business</option>
-        </select>
-      </div>
-      <div className="sm:col-span-2">
-        <Label htmlFor="ma-notes">Notes</Label>
-        <Input
-          id="ma-notes"
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-        />
-      </div>
-      {serverError && (
-        <p className="sm:col-span-2 text-sm text-destructive">
-          {serverError}
-        </p>
-      )}
-      <div className="sm:col-span-2 flex justify-end gap-2">
-        <Button type="button" variant="outline" onClick={onCancel}>
-          Cancel
-        </Button>
-        <Button type="submit" disabled={mutation.isPending}>
-          {mutation.isPending ? "Saving…" : isEdit ? "Save" : "Create"}
-        </Button>
-      </div>
-    </form>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Pure helpers
-// ---------------------------------------------------------------------------
-
-function groupByOwner(
-  rows: AccountRow[],
-): Record<AccountOwner, AccountRow[]> {
-  const out: Record<AccountOwner, AccountRow[]> = {
-    personal: [],
-    business: [],
-    unassigned: [],
-  };
-  for (const r of rows) out[r.owner].push(r);
-  return out;
-}
-
-function extractError(err: unknown): string {
-  if (err instanceof ApiError) {
-    const body = err.body as { detail?: unknown } | null;
-    const d = body && typeof body === "object" ? body.detail : null;
-    if (typeof d === "string") return d;
-    if (d && typeof d === "object" && "message" in d) {
-      return String((d as { message: unknown }).message);
-    }
-    return err.message;
-  }
-  if (err instanceof Error) return err.message;
-  return String(err);
 }
