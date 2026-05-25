@@ -4,7 +4,7 @@ Mounts under ``/investments/stocks``.
 
 Routes:
 
-* ``GET    /search?q=…``         Twelve Data symbol autocomplete proxy.
+* ``GET    /search?q=…``         Yahoo Finance symbol autocomplete proxy.
 * ``GET    /accounts``           Unified list of accounts tagged
                                  ``helm_kind='investing_stock'`` across
                                  manual_accounts and ynab_accounts. The
@@ -39,7 +39,6 @@ from app import db
 from app.deps import get_current_user
 from app.investments.fx import get_rate as fx_rate
 from app.investments.stocks_quotes import (
-    QuoteApiKeyMissing,
     QuoteRateLimited,
     QuoteUpstreamError,
     TickerNotFound,
@@ -82,11 +81,6 @@ def _quote_http(exc: QuoteUpstreamError) -> HTTPException:
                     "and try again, or enter the price manually on the buy form."
                 ),
             },
-        )
-    if isinstance(exc, QuoteApiKeyMissing):
-        return HTTPException(
-            status_code=503,
-            detail={"code": "QUOTE_API_KEY_MISSING", "message": str(exc)},
         )
     return HTTPException(
         status_code=502,

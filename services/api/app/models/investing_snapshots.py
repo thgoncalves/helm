@@ -23,6 +23,10 @@ class SnapshotRow(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+    # ``id`` is None on freshly composed-but-not-yet-persisted rows
+    # (the POST handler builds the response before each UPSERT settles).
+    # PATCH / DELETE endpoints use this as the row key.
+    id: int | None = None
     snapshot_date: date
     source_kind: SourceKind
     # Text so it can hold either a manual-account UUID or a YNAB string
@@ -34,6 +38,17 @@ class SnapshotRow(BaseModel):
     cad_amount: Decimal
     fx_rate: Decimal
     created_at: datetime | None = None
+
+
+class SnapshotRowUpdate(BaseModel):
+    """PATCH body — update one snapshot row's native amount.
+
+    The server recomputes ``cad_amount`` using the stored ``fx_rate``
+    so the snapshot remains a faithful point-in-time capture (we don't
+    silently re-fetch BoC).
+    """
+
+    native_amount: Decimal
 
 
 class SnapshotDay(BaseModel):

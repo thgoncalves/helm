@@ -42,13 +42,6 @@ class Settings(BaseSettings):
     # rather than silently no-op.
     ynab_secret_arn: str | None = None
 
-    # Twelve Data API key — either inline (HELM_TWELVEDATA_API_KEY) for
-    # local dev or via Secrets Manager (HELM_TWELVEDATA_SECRET_ARN) in
-    # deployed environments. Reads the inline value first so local dev
-    # works without provisioning a secret.
-    twelvedata_api_key: str | None = None
-    twelvedata_secret_arn: str | None = None
-
     model_config = SettingsConfigDict(
         env_prefix="HELM_",
         env_file=".env",

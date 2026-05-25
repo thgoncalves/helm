@@ -33,6 +33,7 @@ from app.models.investing_snapshots import (
     SnapshotDay,
     SnapshotHistoryItem,
     SnapshotRow,
+    SnapshotRowUpdate,
 )
 
 router = APIRouter(tags=["investments"], dependencies=[Depends(get_current_user)])
@@ -134,7 +135,8 @@ def get_snapshot(snapshot_date: date_t) -> SnapshotDay:
     """Per-source breakdown for one specific day."""
     rows = db.fetch_all(
         """
-        SELECT snapshot_date,
+        SELECT id,
+               snapshot_date,
                source_kind,
                source_id,
                label,
@@ -162,6 +164,112 @@ def get_snapshot(snapshot_date: date_t) -> SnapshotDay:
     total = sum((r.cad_amount for r in snapshot_rows), Decimal(0))
     return SnapshotDay(
         snapshot_date=snapshot_date, rows=snapshot_rows, total_cad=total
+    )
+
+
+# ---------------------------------------------------------------------------
+# PATCH /rows/{row_id} — correct a single row's native_amount
+# ---------------------------------------------------------------------------
+
+
+@router.patch("/rows/{row_id}", response_model=SnapshotRow)
+def update_snapshot_row(row_id: int, body: SnapshotRowUpdate) -> SnapshotRow:
+    """Correct one snapshot row's native_amount.
+
+    Recomputes ``cad_amount`` using the row's stored ``fx_rate`` so the
+    snapshot remains a faithful point-in-time capture — we don't
+    silently re-fetch BoC mid-edit. The user-typed value is rounded to
+    2dp to match the column's numeric(18, 2) precision.
+    """
+    existing = db.fetch_one(
+        "SELECT fx_rate FROM investing_snapshots WHERE id = :id",
+        {"id": row_id},
+    )
+    if existing is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "SNAPSHOT_ROW_NOT_FOUND", "id": row_id},
+        )
+    native = body.native_amount.quantize(Decimal("0.01"))
+    fx_rate = Decimal(existing["fx_rate"])
+    cad = (native * fx_rate).quantize(Decimal("0.01"))
+    db.execute(
+        """
+        UPDATE investing_snapshots
+        SET native_amount = :native, cad_amount = :cad
+        WHERE id = :id
+        """,
+        {"native": native, "cad": cad, "id": row_id},
+    )
+    row = db.fetch_one(
+        """
+        SELECT id, snapshot_date, source_kind, source_id, label,
+               native_currency, native_amount, cad_amount, fx_rate, created_at
+        FROM investing_snapshots
+        WHERE id = :id
+        """,
+        {"id": row_id},
+    )
+    assert row is not None  # we just updated it
+    return SnapshotRow(**row)
+
+
+# ---------------------------------------------------------------------------
+# DELETE /rows/{row_id} — drop a single bad row
+# ---------------------------------------------------------------------------
+
+
+@router.delete("/rows/{row_id}", status_code=204)
+def delete_snapshot_row(row_id: int) -> None:
+    """Delete one snapshot row.
+
+    Use when a single source's value is wrong and you'd rather drop it
+    than correct it. The rest of the snapshot for that date stays
+    intact. Idempotent — a missing row 404s.
+    """
+    existing = db.fetch_one(
+        "SELECT id FROM investing_snapshots WHERE id = :id",
+        {"id": row_id},
+    )
+    if existing is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "SNAPSHOT_ROW_NOT_FOUND", "id": row_id},
+        )
+    db.execute(
+        "DELETE FROM investing_snapshots WHERE id = :id",
+        {"id": row_id},
+    )
+
+
+# ---------------------------------------------------------------------------
+# DELETE /{snapshot_date} — drop a whole day's snapshot
+# ---------------------------------------------------------------------------
+
+
+@router.delete("/{snapshot_date}", status_code=204)
+def delete_snapshot(snapshot_date: date_t) -> None:
+    """Delete every row for a snapshot date.
+
+    The user takes a new snapshot if they need one again. Idempotent —
+    a date with no rows 404s so the UI can confirm it actually removed
+    something.
+    """
+    existing = db.fetch_one(
+        "SELECT 1 AS one FROM investing_snapshots WHERE snapshot_date = :on LIMIT 1",
+        {"on": snapshot_date},
+    )
+    if existing is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "SNAPSHOT_NOT_FOUND",
+                "snapshot_date": snapshot_date.isoformat(),
+            },
+        )
+    db.execute(
+        "DELETE FROM investing_snapshots WHERE snapshot_date = :on",
+        {"on": snapshot_date},
     )
 
 
