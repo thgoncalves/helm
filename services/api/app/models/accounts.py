@@ -16,8 +16,11 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from app.models.account_buckets import AccountBucketRead
 
 AccountSource = Literal["ynab", "manual"]
 AccountKind = Literal[
@@ -62,6 +65,13 @@ class AccountRow(BaseModel):
 
     is_active: bool = True
 
+    bucket_id: UUID | None = None
+    """User-assigned category id; ``None`` → Uncategorized."""
+
+    sort_index: int = 0
+    """Position within the bucket. 0-indexed; smaller = higher in the
+    list. Written on drag-and-drop reorder."""
+
     extra: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -69,6 +79,7 @@ class AccountListResponse(BaseModel):
     """Response shape for ``GET /accounts``."""
 
     accounts: list[AccountRow]
+    buckets: list[AccountBucketRead] = Field(default_factory=list)
 
 
 class AccountTagsUpdate(BaseModel):

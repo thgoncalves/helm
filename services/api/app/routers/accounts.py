@@ -27,6 +27,10 @@ from app import db
 from app.deps import get_current_user
 from app.investments.fx import FxRateUnavailable, get_rate
 from app.money.snapshots import record_snapshot
+from app.models.account_buckets import (
+    AccountBucketRead,
+    AccountPlacementUpdate,
+)
 from app.models.accounts import (
     AccountListResponse,
     AccountRow,
@@ -68,11 +72,27 @@ _YNAB_TYPE_TO_KIND: dict[str, str] = {
 
 @router.get("", response_model=AccountListResponse)
 def list_accounts() -> AccountListResponse:
-    """Union of both account sources, normalised for the page."""
+    """Union of both account sources, normalised for the page.
+
+    Also returns the user's categories so the Atlas page can render the
+    treemap + outline from a single query.
+    """
     rows: list[AccountRow] = []
     rows.extend(_load_ynab_rows())
     rows.extend(_load_manual_rows())
-    return AccountListResponse(accounts=rows)
+    buckets = _load_buckets()
+    return AccountListResponse(accounts=rows, buckets=buckets)
+
+
+def _load_buckets() -> list[AccountBucketRead]:
+    rows = db.fetch_all(
+        """
+        SELECT id, name, color, sort_order, created_at, updated_at
+        FROM account_buckets
+        ORDER BY sort_order ASC, name ASC
+        """
+    )
+    return [AccountBucketRead(**r) for r in rows]
 
 
 # ---------------------------------------------------------------------------
@@ -156,6 +176,85 @@ def update_tags(
                 status_code=404, detail="Manual account not found."
             )
         record_snapshot()
+        return _manual_row_to_account(row)
+
+    raise HTTPException(
+        status_code=404, detail=f"Unknown account source: {source!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# PATCH /{source}/{id}/placement — move an account between buckets / reorder
+# ---------------------------------------------------------------------------
+
+
+@router.patch("/{source}/{account_id}/placement", response_model=AccountRow)
+def update_placement(
+    source: str, account_id: str, payload: AccountPlacementUpdate
+) -> AccountRow:
+    """Set ``bucket_id`` + ``sort_index`` on one account row.
+
+    Used by the drag-to-reorder UI: every drop fires one PATCH with the
+    final (bucket, position) for the moved row. Sibling positions are
+    rewritten with separate PATCHes by the client when needed.
+    """
+    bucket_id = payload.bucket_id
+    if bucket_id is not None:
+        bucket_exists = db.fetch_one(
+            "SELECT id FROM account_buckets WHERE id = :id",
+            {"id": bucket_id},
+        )
+        if bucket_exists is None:
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "BUCKET_NOT_FOUND", "id": str(bucket_id)},
+            )
+
+    now = datetime.now(timezone.utc)
+    if source == "ynab":
+        row = db.fetch_one(
+            """
+            UPDATE ynab_accounts
+            SET bucket_id = :bucket_id,
+                sort_index = :sort_index,
+                last_synced_at = :now
+            WHERE id = :id
+            RETURNING *
+            """,
+            {
+                "bucket_id": bucket_id,
+                "sort_index": payload.sort_index,
+                "now": now,
+                "id": account_id,
+            },
+        )
+        if row is None:
+            raise HTTPException(
+                status_code=404, detail="YNAB account not cached."
+            )
+        return _ynab_row_to_account(row)
+
+    if source == "manual":
+        row = db.fetch_one(
+            """
+            UPDATE manual_accounts
+            SET bucket_id = :bucket_id,
+                sort_index = :sort_index,
+                updated_at = :now
+            WHERE id = :id
+            RETURNING *
+            """,
+            {
+                "bucket_id": bucket_id,
+                "sort_index": payload.sort_index,
+                "now": now,
+                "id": _parse_uuid(account_id),
+            },
+        )
+        if row is None:
+            raise HTTPException(
+                status_code=404, detail="Manual account not found."
+            )
         return _manual_row_to_account(row)
 
     raise HTTPException(
@@ -251,6 +350,14 @@ def _load_manual_rows() -> list[AccountRow]:
 # ---------------------------------------------------------------------------
 
 
+def _coerce_uuid(v: Any) -> UUID | None:
+    if v is None:
+        return None
+    if isinstance(v, UUID):
+        return v
+    return UUID(str(v))
+
+
 def _ynab_row_to_account(
     row: dict[str, Any],
     ccy_by_budget: dict[str, str] | None = None,
@@ -279,6 +386,8 @@ def _ynab_row_to_account(
         owner=row.get("helm_owner") or "unassigned",
         is_editable=False,
         is_active=True,
+        bucket_id=_coerce_uuid(row.get("bucket_id")),
+        sort_index=int(row.get("sort_index") or 0),
         extra={
             "ynab_type": row.get("type"),
             "on_budget": bool(row.get("on_budget")),
@@ -304,6 +413,8 @@ def _manual_row_to_account(row: dict[str, Any]) -> AccountRow:
         owner=row.get("owner") or "unassigned",
         is_editable=True,
         is_active=bool(row.get("is_active", True)),
+        bucket_id=_coerce_uuid(row.get("bucket_id")),
+        sort_index=int(row.get("sort_index") or 0),
         extra={},
     )
 

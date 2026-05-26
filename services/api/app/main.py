@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from mangum import Mangum
 
+from app.routers import account_buckets as account_buckets_router
 from app.routers import accounts as accounts_router
 from app.routers import accounts_manual as accounts_manual_router
 from app.routers import clients as clients_router
@@ -78,9 +79,12 @@ app.include_router(
 )
 
 # Accounts — cross-cutting management page. Manual-accounts CRUD lives
-# at /accounts/manual; the aggregator + tagging + YNAB sync alias mount
-# at /accounts root.
+# at /accounts/manual; user-defined category CRUD at /accounts/buckets;
+# the aggregator + tagging + placement + YNAB sync alias mount at root.
+# Mount the more-specific prefixes BEFORE the root router so FastAPI's
+# path-resolver doesn't shadow them.
 app.include_router(accounts_manual_router.router)
+app.include_router(account_buckets_router.router)
 app.include_router(accounts_router.router)
 
 # ---------------------------------------------------------------------------

@@ -640,18 +640,51 @@ export interface AccountRow {
   /** `false` for YNAB rows — the only mutable Helm field is kind/owner. */
   is_editable: boolean;
   is_active: boolean;
+  /** User-assigned category id; `null` → Uncategorized. */
+  bucket_id: string | null;
+  /** Position within the bucket. 0-indexed; smaller = higher. */
+  sort_index: number;
   /** Source-specific extras. Shape varies by `source`. */
   extra: Record<string, unknown>;
 }
 
+/** User-defined account category. Internally "bucket"; the UI calls
+ *  them Categories. */
+export interface AccountBucket {
+  id: string;
+  name: string;
+  color: string | null;
+  sort_order: number;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
 export interface AccountListResponse {
   accounts: AccountRow[];
+  buckets: AccountBucket[];
 }
 
 /** Body for `PATCH /accounts/{source}/{id}/tags`. */
 export interface AccountTagsUpdate {
   kind?: AccountKind;
   owner?: AccountOwner;
+}
+
+/** Body for `PATCH /accounts/{source}/{id}/placement`. */
+export interface AccountPlacementUpdate {
+  bucket_id: string | null;
+  sort_index: number;
+}
+
+export interface AccountBucketCreate {
+  name: string;
+  color?: string | null;
+}
+
+export interface AccountBucketUpdate {
+  name?: string;
+  color?: string | null;
+  sort_order?: number;
 }
 
 // ---------------------------------------------------------------------------
