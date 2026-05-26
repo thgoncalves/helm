@@ -174,9 +174,19 @@ def accounts_db(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         # account step.
         return {}
 
+    def execute_many(
+        sql: str, param_sets: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        # The fake doesn't need to mimic Data API batching — it just
+        # replays the per-row dispatch in execute() for each set.
+        for p in param_sets:
+            execute(sql, p)
+        return {}
+
     monkeypatch.setattr(db_module, "fetch_all", fetch_all)
     monkeypatch.setattr(db_module, "fetch_one", fetch_one)
     monkeypatch.setattr(db_module, "execute", execute)
+    monkeypatch.setattr(db_module, "execute_many", execute_many)
     # Mock FX so the aggregator's CAD conversion is deterministic. BRL→CAD
     # at 0.27 (close to real value). USD→CAD at 1.36. CAD→CAD short-circuits
     # in get_rate without hitting the cache.
