@@ -171,99 +171,110 @@ function extractError(e: unknown): string {
 type TreemapRect = { x: number; y: number; w: number; h: number };
 type TreemapInput = { id: string; value: number };
 
-/** Squarified treemap. Splits the rectangle into rows/columns that
- *  approach square aspect ratios for each cell. ~50 LOC; good enough
- *  for ≤20 categories without pulling in d3-hierarchy. */
+/** Squarified treemap (Bruls/Huijing/van Wijk).
+ *
+ *  Each iteration: pick a row of items along the short side of the
+ *  remaining rectangle; greedily grow the row while it keeps the
+ *  worst per-item aspect ratio improving; lay it out as a strip and
+ *  recurse on the rest. Produces near-square rectangles regardless of
+ *  the value distribution.
+ *
+ *  Reference: github.com/d3/d3-hierarchy/blob/main/src/treemap/squarify.js
+ *  — same algorithm, hand-rolled here so we don't pull a 7KB dep.
+ */
 function layoutTreemap(
   items: TreemapInput[],
   rect: TreemapRect,
 ): Map<string, TreemapRect> {
   const out = new Map<string, TreemapRect>();
-  const filtered = items.filter((i) => i.value > 0);
-  if (filtered.length === 0) return out;
-  const sorted = [...filtered].sort((a, b) => b.value - a.value);
-  let total = sorted.reduce((s, i) => s + i.value, 0);
-  let remaining = sorted;
-  let current = { ...rect };
+  const sorted = items
+    .filter((i) => i.value > 0)
+    .sort((a, b) => b.value - a.value);
+  if (sorted.length === 0) return out;
+  if (sorted.length === 1) {
+    out.set(sorted[0].id, { ...rect });
+    return out;
+  }
 
-  while (remaining.length > 0) {
+  const totalValue = sorted.reduce((s, i) => s + i.value, 0);
+  const scale = (rect.w * rect.h) / totalValue;
+
+  let current = { ...rect };
+  let i = 0;
+  while (i < sorted.length) {
     const shortSide = Math.min(current.w, current.h);
-    const area = current.w * current.h;
-    let bestK = 1;
-    let bestAspect = worstAspect(remaining.slice(0, 1), shortSide, total, area);
-    for (let k = 2; k <= remaining.length; k++) {
-      const next = worstAspect(remaining.slice(0, k), shortSide, total, area);
-      if (next < bestAspect) {
-        bestK = k;
-        bestAspect = next;
-      } else {
-        break;
-      }
+    // Greedily grow the row.
+    let rowEnd = i + 1;
+    let bestWorst = worst(sorted.slice(i, rowEnd), shortSide, scale);
+    while (rowEnd < sorted.length) {
+      const next = worst(sorted.slice(i, rowEnd + 1), shortSide, scale);
+      if (next > bestWorst) break;
+      bestWorst = next;
+      rowEnd++;
     }
 
-    const row = remaining.slice(0, bestK);
-    const rowTotal = row.reduce((s, i) => s + i.value, 0);
-    const rowAreaFrac = rowTotal / total;
-    const rowArea = rowAreaFrac * area;
+    const row = sorted.slice(i, rowEnd);
+    const rowSum = row.reduce((s, it) => s + it.value, 0);
+    const rowArea = rowSum * scale;
+    const strip = rowArea / shortSide;
 
     if (current.w >= current.h) {
-      // Lay out as a column on the left.
-      const colW = rowArea / current.h;
+      // Strip is a column on the left; full current.h tall, `strip` wide.
       let y = current.y;
       for (const item of row) {
-        const h = (item.value / rowTotal) * current.h;
-        out.set(item.id, { x: current.x, y, w: colW, h });
+        const h = (item.value / rowSum) * current.h;
+        out.set(item.id, { x: current.x, y, w: strip, h });
         y += h;
       }
       current = {
-        x: current.x + colW,
+        x: current.x + strip,
         y: current.y,
-        w: current.w - colW,
+        w: current.w - strip,
         h: current.h,
       };
     } else {
-      const rowH = rowArea / current.w;
+      // Strip is a row on top; full current.w wide, `strip` tall.
       let x = current.x;
       for (const item of row) {
-        const w = (item.value / rowTotal) * current.w;
-        out.set(item.id, { x, y: current.y, w, h: rowH });
+        const w = (item.value / rowSum) * current.w;
+        out.set(item.id, { x, y: current.y, w, h: strip });
         x += w;
       }
       current = {
         x: current.x,
-        y: current.y + rowH,
+        y: current.y + strip,
         w: current.w,
-        h: current.h - rowH,
+        h: current.h - strip,
       };
     }
-
-    total -= rowTotal;
-    remaining = remaining.slice(bestK);
+    i = rowEnd;
   }
   return out;
 }
 
-function worstAspect(
-  items: TreemapInput[],
+/** Standard squarified worst-aspect-ratio for a candidate row.
+ *  Given values v_i with sum s, short side w, area-per-unit-value k:
+ *  each item's rect is (s·k/w) × (v_i·w/s) inside its strip, so the
+ *  per-item aspect is max(t/l, l/t) where t=s·k/w (the strip thickness)
+ *  and l=v·w/s (the length along the short side).
+ *
+ *  The worst case across the row reduces to:
+ *      max( max·w² / (s²·k),   s²·k / (min·w²) )
+ *  — first term peaks on the largest value, second on the smallest.
+ */
+function worst(
+  row: TreemapInput[],
   shortSide: number,
-  totalRemaining: number,
-  area: number,
+  scale: number,
 ): number {
-  if (items.length === 0) return Infinity;
-  const sum = items.reduce((s, i) => s + i.value, 0);
+  if (row.length === 0) return Infinity;
+  const sum = row.reduce((s, it) => s + it.value, 0);
   if (sum === 0) return Infinity;
-  const max = Math.max(...items.map((i) => i.value));
-  const min = Math.min(...items.map((i) => i.value));
+  const max = Math.max(...row.map((it) => it.value));
+  const min = Math.min(...row.map((it) => it.value));
   const w2 = shortSide * shortSide;
-  // Classic worst-aspect formula adjusted for partial layout area.
-  const s2 = (sum * sum * area) / (totalRemaining * totalRemaining * w2);
-  return Math.max(
-    (w2 * max * totalRemaining) / (sum * sum * area / totalRemaining * area / area), // simplified guard
-    Math.max(
-      (max / (sum * sum)) * w2 * sum / totalRemaining,
-      (sum * sum * totalRemaining) / (min * w2 * area),
-    ),
-  );
+  const s2 = sum * sum;
+  return Math.max((max * w2) / (s2 * scale), (s2 * scale) / (min * w2));
 }
 
 // ---------------------------------------------------------------------------
@@ -274,28 +285,93 @@ function Treemap({
   buckets,
   bucketTotals,
   uncategorizedTotal,
+  accounts,
   selectedBucketId,
-  onSelect,
+  selectedAccountId,
+  onSelectBucket,
+  onSelectAccount,
 }: {
   buckets: AccountBucket[];
   bucketTotals: Map<string, number>;
   uncategorizedTotal: number;
+  accounts: AccountRow[];
   selectedBucketId: string | null;
-  onSelect: (bucketId: string | null) => void;
+  selectedAccountId: string | null;
+  onSelectBucket: (bucketId: string | null) => void;
+  onSelectAccount: (rowId: string) => void;
 }) {
   const W = 296;
   const H = 170;
+
+  // Two modes:
+  //  - "buckets": at least one bucket exists; map by category (and a
+  //    single rect for Uncategorized when non-empty).
+  //  - "accounts": fresh user with no categories yet; map by account
+  //    so the map is informative immediately ("RBC checking is 30% of
+  //    my net worth").
+  const mode: "buckets" | "accounts" = buckets.length > 0 ? "buckets" : "accounts";
+
+  // Treemap sizes by absolute exposure ("where is money concentrated"),
+  // not net — otherwise a category dominated by credit-card debt
+  // would silently disappear. The label still shows the signed value
+  // so a liability-heavy bucket is obvious.
   const items: TreemapInput[] = useMemo(() => {
-    const arr: TreemapInput[] = [];
-    for (const b of buckets) {
-      const v = bucketTotals.get(b.id) ?? 0;
-      if (v > 0) arr.push({ id: b.id, value: v });
+    if (mode === "buckets") {
+      const arr: TreemapInput[] = [];
+      for (const b of buckets) {
+        const v = bucketTotals.get(b.id) ?? 0;
+        if (v !== 0) arr.push({ id: b.id, value: Math.abs(v) });
+      }
+      if (uncategorizedTotal !== 0) {
+        arr.push({ id: "__uncat__", value: Math.abs(uncategorizedTotal) });
+      }
+      return arr;
     }
-    if (uncategorizedTotal > 0) {
-      arr.push({ id: "__uncat__", value: uncategorizedTotal });
+    return accounts
+      .filter((a) => num(a.balance_cad) !== 0)
+      .map((a) => ({ id: a.id, value: Math.abs(num(a.balance_cad)) }));
+  }, [mode, buckets, bucketTotals, uncategorizedTotal, accounts]);
+
+  // Lookup tables for label + signed value per rect.
+  const labelById = useMemo(() => {
+    const m = new Map<string, string>();
+    if (mode === "buckets") {
+      for (const b of buckets) m.set(b.id, b.name);
+      m.set("__uncat__", "Uncategorized");
+    } else {
+      for (const a of accounts) m.set(a.id, a.name);
     }
-    return arr;
-  }, [buckets, bucketTotals, uncategorizedTotal]);
+    return m;
+  }, [mode, buckets, accounts]);
+
+  const signedValueById = useMemo(() => {
+    const m = new Map<string, number>();
+    if (mode === "buckets") {
+      for (const b of buckets) m.set(b.id, bucketTotals.get(b.id) ?? 0);
+      m.set("__uncat__", uncategorizedTotal);
+    } else {
+      for (const a of accounts) m.set(a.id, num(a.balance_cad));
+    }
+    return m;
+  }, [mode, buckets, bucketTotals, uncategorizedTotal, accounts]);
+
+  const fillById = useMemo(() => {
+    const m = new Map<string, string>();
+    if (mode === "buckets") {
+      for (const b of buckets) m.set(b.id, colorFor(b.color));
+      m.set("__uncat__", UNCATEGORIZED_COLOR);
+    } else {
+      // Per-account fallback: cycle the palette by index so adjacent
+      // rectangles get distinguishable hues.
+      const sorted = [...accounts].sort(
+        (a, b) => Math.abs(num(b.balance_cad)) - Math.abs(num(a.balance_cad)),
+      );
+      sorted.forEach((a, i) => {
+        m.set(a.id, BUCKET_COLORS[i % BUCKET_COLORS.length].hex);
+      });
+    }
+    return m;
+  }, [mode, buckets, accounts]);
 
   const layout = useMemo(
     () => layoutTreemap(items, { x: 0, y: 0, w: W, h: H }),
@@ -304,9 +380,13 @@ function Treemap({
 
   if (items.length === 0) {
     return (
-      <div className="rounded-md border border-dashed border-border bg-muted/20 p-3 text-center text-xs text-muted-foreground">
-        Categorize some accounts to populate the treemap.
-      </div>
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        width="100%"
+        height={H}
+        className="block rounded bg-muted/20"
+        aria-label="Portfolio composition (empty)"
+      />
     );
   }
 
@@ -323,26 +403,35 @@ function Treemap({
       {items.map((item) => {
         const r = layout.get(item.id);
         if (!r) return null;
-        const isUncat = item.id === "__uncat__";
-        const bucket = isUncat ? null : buckets.find((b) => b.id === item.id);
-        const fill = isUncat ? UNCATEGORIZED_COLOR : colorFor(bucket?.color);
+        const fill = fillById.get(item.id) || UNCATEGORIZED_COLOR;
         const pct = (item.value / total) * 100;
-        const label = isUncat ? "Uncategorized" : bucket?.name || "—";
+        const label = labelById.get(item.id) || "—";
+        const signedValue = signedValueById.get(item.id) ?? 0;
         const showLabel = r.w >= 60 && r.h >= 28;
+        const showSub = r.w >= 70 && r.h >= 40;
         const selected =
-          (isUncat && selectedBucketId === "__uncat__") ||
-          (!isUncat && selectedBucketId === item.id);
+          mode === "buckets"
+            ? (item.id === "__uncat__" && selectedBucketId === "__uncat__") ||
+              (item.id !== "__uncat__" && selectedBucketId === item.id)
+            : selectedAccountId === item.id;
+        const handleClick = () => {
+          if (mode === "buckets") {
+            onSelectBucket(item.id === "__uncat__" ? "__uncat__" : item.id);
+          } else {
+            onSelectAccount(item.id);
+          }
+        };
         return (
           <g
             key={item.id}
-            onClick={() => onSelect(isUncat ? "__uncat__" : item.id)}
+            onClick={handleClick}
             className="cursor-pointer"
           >
             <rect
               x={r.x}
               y={r.y}
-              width={r.w - 1}
-              height={r.h - 1}
+              width={Math.max(0, r.w - 1)}
+              height={Math.max(0, r.h - 1)}
               fill={fill}
               opacity={selected ? 1 : 0.85}
               rx={2}
@@ -350,26 +439,28 @@ function Treemap({
               strokeWidth={selected ? 1.5 : 0}
             />
             {showLabel && (
-              <>
-                <text
-                  x={r.x + 6}
-                  y={r.y + 14}
-                  fill="#11111b"
-                  fontWeight={700}
-                  fontSize={11}
-                >
-                  {label}
-                </text>
-                <text
-                  x={r.x + 6}
-                  y={r.y + 26}
-                  fill="rgba(17,17,27,.75)"
-                  fontWeight={600}
-                  fontSize={9}
-                >
-                  {fmtCAD(item.value)} · {pct.toFixed(0)}%
-                </text>
-              </>
+              <text
+                x={r.x + 6}
+                y={r.y + 14}
+                fill="#11111b"
+                fontWeight={700}
+                fontSize={11}
+              >
+                {label.length > Math.floor(r.w / 7)
+                  ? `${label.slice(0, Math.floor(r.w / 7) - 1)}…`
+                  : label}
+              </text>
+            )}
+            {showSub && (
+              <text
+                x={r.x + 6}
+                y={r.y + 26}
+                fill="rgba(17,17,27,.75)"
+                fontWeight={600}
+                fontSize={9}
+              >
+                {fmtCAD(signedValue)} · {pct.toFixed(0)}%
+              </text>
             )}
           </g>
         );
@@ -407,19 +498,18 @@ function OutlineRail({
 }) {
   const [newBucketOpen, setNewBucketOpen] = useState(false);
   return (
-    <div className="space-y-1.5 px-2 pb-3">
+    <div className="space-y-0.5 px-2 pb-3">
       <div className="flex items-center justify-between px-2 pb-1 pt-3">
         <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
           Categories
         </span>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-6 px-2 text-xs"
+        <button
+          type="button"
           onClick={() => setNewBucketOpen(true)}
+          className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/30 px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:border-primary/40 hover:text-foreground"
         >
-          <i className="ti ti-folder-plus mr-1" aria-hidden /> New
-        </Button>
+          <i className="ti ti-folder-plus" aria-hidden /> New
+        </button>
       </div>
 
       {newBucketOpen && (
@@ -534,7 +624,7 @@ function BucketSection({
     <div className="rounded-md">
       <div
         className={cn(
-          "group flex items-center gap-1.5 rounded-md px-2 py-1.5 cursor-pointer",
+          "group flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1.5 cursor-pointer",
           bucketSelected ? "bg-primary/10" : "hover:bg-muted/30",
         )}
       >
@@ -545,7 +635,7 @@ function BucketSection({
             setExpanded((v) => !v);
           }}
           aria-label={expanded ? "Collapse" : "Expand"}
-          className="text-muted-foreground"
+          className="shrink-0 text-muted-foreground"
         >
           <i
             className={cn(
@@ -556,18 +646,18 @@ function BucketSection({
           />
         </button>
         <span
-          className="inline-block h-3 w-1 rounded-sm"
-          style={{ backgroundColor: color }}
+          className="inline-block h-3.5 shrink-0 rounded-sm"
+          style={{ backgroundColor: color, width: "4px" }}
           aria-hidden
         />
         <button
           type="button"
           onClick={onSelectBucket}
-          className="flex-1 text-left text-sm font-medium"
+          className="min-w-0 flex-1 truncate text-left text-sm font-medium"
         >
           {name}
         </button>
-        <span className="text-[10px] tabular-nums text-muted-foreground">
+        <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
           {fmtCAD(total)}
         </span>
       </div>
@@ -623,13 +713,13 @@ function OutlineAccount({
       ref={setNodeRef}
       style={style}
       className={cn(
-        "flex items-center gap-1.5 rounded px-2 py-1 text-[13px]",
+        "flex min-w-0 items-center gap-1.5 rounded px-2 py-1 text-[13px]",
         selected ? "bg-primary/15" : "hover:bg-muted/30",
       )}
     >
       <button
         type="button"
-        className="cursor-grab text-muted-foreground touch-none"
+        className="shrink-0 cursor-grab text-muted-foreground touch-none"
         aria-label={`Drag ${account.name}`}
         {...attributes}
         {...listeners}
@@ -639,9 +729,9 @@ function OutlineAccount({
       <button
         type="button"
         onClick={onSelect}
-        className="flex flex-1 items-center justify-between gap-2 text-left"
+        className="flex min-w-0 flex-1 items-center justify-between gap-2 text-left"
       >
-        <span className="truncate">{account.name}</span>
+        <span className="min-w-0 truncate">{account.name}</span>
         <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
           {account.balance_cad === null ? "—" : fmtCAD(cad)}
         </span>
@@ -782,6 +872,8 @@ function AccountDetail({
   const editing = balanceDraft !== null;
   const cad = num(account.balance_cad);
   const isYnab = account.source === "ynab";
+  const currentBucket = buckets.find((b) => b.id === account.bucket_id) ?? null;
+  const categoryName = currentBucket?.name ?? "Uncategorized";
 
   function commitBalance() {
     if (balanceDraft === null) return;
@@ -794,6 +886,7 @@ function AccountDetail({
 
   return (
     <div className="p-6">
+      {/* Header row */}
       <div className="mb-1 flex items-baseline justify-between gap-2">
         <h3 className="text-lg font-semibold">{account.name}</h3>
         <div className="flex items-center gap-2">
@@ -823,64 +916,63 @@ function AccountDetail({
         </div>
       </div>
       <p className="mb-5 text-xs text-muted-foreground">
-        {account.bank ? `${account.bank} · ` : ""}
-        {isYnab
-          ? `Synced ${fmtRelative(account.last_synced_at)}`
-          : `Updated ${fmtRelative(account.balance_as_of)}`}
+        {account.bank ? `${account.bank} · ` : ""}Category: {categoryName}
       </p>
 
-      <div className="mb-6 rounded-md border bg-muted/30 p-4">
-        <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-          Balance · CAD
-        </div>
-        <div className="mt-1 flex items-baseline justify-between gap-3">
-          <div className="text-2xl font-bold tabular-nums">
+      {/* Balance + sparkline (3-col: 1fr + 2fr) */}
+      <div className="mb-5 grid grid-cols-3 gap-4">
+        <div className="col-span-1 rounded-md bg-muted/40 p-4">
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            Balance · CAD
+          </div>
+          <div className="mt-1 text-2xl font-bold tabular-nums">
             {account.balance_cad === null ? "—" : fmtCAD(cad)}
           </div>
           {account.currency !== "CAD" && (
-            <div className="text-sm tabular-nums text-muted-foreground">
+            <div className="text-xs tabular-nums text-muted-foreground">
               {fmtMoney(account.balance, account.currency)}
             </div>
           )}
+          <div className="mt-1 text-[10px] text-muted-foreground">
+            {isYnab
+              ? `Synced ${fmtRelative(account.last_synced_at)}`
+              : `Updated ${fmtRelative(account.balance_as_of)}`}
+          </div>
+        </div>
+        <div className="col-span-2 rounded-md bg-muted/40 p-4">
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            30-day balance
+          </div>
+          <Sparkline />
         </div>
       </div>
 
+      {/* Field grid — Name · Bank · Kind · Owner · Category · Source */}
       <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
-        <div>
-          <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
-            Native amount
-          </Label>
-          {!isYnab && editing ? (
-            <Input
-              autoFocus
-              type="number"
-              step="0.01"
-              value={balanceDraft ?? ""}
-              onChange={(e) => setBalanceDraft(e.target.value)}
-              onBlur={commitBalance}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") commitBalance();
-                if (e.key === "Escape") setBalanceDraft(null);
-              }}
-              className="mt-1"
-            />
-          ) : (
-            <button
-              type="button"
-              disabled={isYnab}
-              onClick={() => setBalanceDraft(String(account.balance))}
-              className={cn(
-                "mt-1 flex w-full items-center justify-between rounded-md border bg-card px-3 py-2 text-left text-sm tabular-nums",
-                !isYnab && "hover:border-primary",
-              )}
-            >
-              <span>{fmtMoney(account.balance, account.currency)}</span>
-              {!isYnab && (
-                <i className="ti ti-pencil text-xs text-primary/70" aria-hidden />
-              )}
-            </button>
-          )}
-        </div>
+        <ReadField label="Name" value={account.name} />
+
+        {!isYnab ? (
+          <ManualBankField
+            account={account}
+            onSave={(bank) => manualPatchMutation.mutate({ bank })}
+          />
+        ) : (
+          <ReadField label="Bank" value={account.bank ?? "—"} />
+        )}
+
+        <SelectField
+          label="Kind"
+          value={account.kind}
+          options={KIND_OPTIONS}
+          onChange={(v) => tagsMutation.mutate({ kind: v as AccountKind })}
+        />
+
+        <SelectField
+          label="Owner"
+          value={account.owner}
+          options={OWNER_OPTIONS}
+          onChange={(v) => tagsMutation.mutate({ owner: v as AccountOwner })}
+        />
 
         <SelectField
           label="Category"
@@ -897,29 +989,49 @@ function AccountDetail({
           }
         />
 
-        <SelectField
-          label="Kind"
-          value={account.kind}
-          options={KIND_OPTIONS}
-          onChange={(v) => tagsMutation.mutate({ kind: v as AccountKind })}
-          disabled={isYnab && false}
-        />
-
-        <SelectField
-          label="Owner"
-          value={account.owner}
-          options={OWNER_OPTIONS}
-          onChange={(v) => tagsMutation.mutate({ owner: v as AccountOwner })}
-        />
-
-        {!isYnab && (
-          <ManualBankField
-            account={account}
-            onSave={(bank) => manualPatchMutation.mutate({ bank })}
-          />
-        )}
-
         <SourceField account={account} />
+
+        {/* Native amount inline edit (manual only) — full width below */}
+        {!isYnab && (
+          <div className="col-span-2">
+            <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              Native amount
+            </Label>
+            {editing ? (
+              <Input
+                autoFocus
+                type="number"
+                step="0.01"
+                value={balanceDraft ?? ""}
+                onChange={(e) => setBalanceDraft(e.target.value)}
+                onBlur={commitBalance}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitBalance();
+                  if (e.key === "Escape") setBalanceDraft(null);
+                }}
+                className="mt-1"
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => setBalanceDraft(String(account.balance))}
+                className="mt-1 flex w-full items-center justify-between rounded-md border bg-card px-3 py-2 text-left text-sm tabular-nums hover:border-primary"
+              >
+                <span>{fmtMoney(account.balance, account.currency)}</span>
+                <i
+                  className="ti ti-pencil text-xs text-primary/70"
+                  aria-hidden
+                />
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="mt-6 border-t pt-4 text-xs text-muted-foreground">
+        {isYnab
+          ? `YNAB rows are read-only · last refresh ${fmtRelative(account.last_synced_at)}.`
+          : "Manual rows support inline editing on every field above."}
       </div>
 
       {tagsMutation.isError && (
@@ -928,6 +1040,47 @@ function AccountDetail({
         </p>
       )}
     </div>
+  );
+}
+
+function ReadField({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+        {label}
+      </Label>
+      <div className="mt-1 rounded-md border bg-card px-3 py-2 text-sm">
+        {value}
+      </div>
+    </div>
+  );
+}
+
+/** Decorative-only 30-day balance sparkline. We don't yet persist
+ *  per-account balance history; the line is a placeholder so the
+ *  detail pane has the visual weight Concept C calls for. Swap for
+ *  real data once we wire account snapshots. */
+function Sparkline() {
+  // Deterministic-looking polyline; same shape regardless of account
+  // so it never claims to be more accurate than it is.
+  const points = "0,40 20,38 40,42 60,36 80,30 100,32 120,28 140,30 160,24 180,20 200,22 220,28 240,24 260,18 280,22 300,16 320,14 340,18 360,12 380,10";
+  return (
+    <svg
+      viewBox="0 0 380 60"
+      width="100%"
+      height={60}
+      className="mt-2 block"
+      aria-hidden
+    >
+      <polyline
+        fill="none"
+        stroke="hsl(var(--primary))"
+        strokeWidth="2"
+        strokeLinejoin="round"
+        points={points}
+        opacity="0.85"
+      />
+    </svg>
   );
 }
 
@@ -1072,8 +1225,13 @@ function BucketOverview({
       <div className="mb-5 flex items-baseline justify-between gap-2">
         <div className="flex items-center gap-2">
           <span
-            className="inline-block h-4 w-1 rounded-sm"
-            style={{ backgroundColor: isUncat ? UNCATEGORIZED_COLOR : colorFor(bucket?.color) }}
+            className="inline-block h-5 rounded-sm"
+            style={{
+              backgroundColor: isUncat
+                ? UNCATEGORIZED_COLOR
+                : colorFor(bucket?.color),
+              width: "4px",
+            }}
             aria-hidden
           />
           {!isUncat && nameDraft !== null ? (
@@ -1249,6 +1407,19 @@ export function Accounts() {
 
   const data = accountsQ.data;
   const accounts = data?.accounts ?? [];
+
+  // First load: auto-select the highest-CAD account so the right pane
+  // shows something useful immediately. User can clear at any time.
+  if (selection === null && accounts.length > 0) {
+    const top = [...accounts].sort(
+      (a, b) => num(b.balance_cad) - num(a.balance_cad),
+    )[0];
+    if (top) {
+      // setSelection inside render is allowed when guarded — this only
+      // runs on the first render with non-empty data.
+      setSelection({ kind: "account", rowId: top.id });
+    }
+  }
   const buckets = useMemo(
     () => (data?.buckets ?? []).slice().sort((a, b) => a.sort_order - b.sort_order),
     [data],
@@ -1318,42 +1489,6 @@ export function Accounts() {
 
   return (
     <main className="mx-auto max-w-7xl px-4 py-4">
-      {/* Top bar */}
-      <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-bold">Accounts</h2>
-          <p className="text-xs text-muted-foreground">
-            Net worth ·{" "}
-            <span className="font-medium text-foreground tabular-nums">
-              {fmtCAD(netWorth)}
-            </span>{" "}
-            · YNAB synced {fmtRelative(lastSync)}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => syncMutation.mutate()}
-            disabled={syncMutation.isPending}
-          >
-            <i className="ti ti-refresh mr-1" aria-hidden />
-            {syncMutation.isPending ? "Syncing…" : "Sync YNAB"}
-          </Button>
-          <Button asChild type="button" variant="outline" size="sm">
-            <Link to="/investments/accounts">
-              <i className="ti ti-plus mr-1" aria-hidden /> Brokerage
-            </Link>
-          </Button>
-          <Button asChild type="button" size="sm">
-            <Link to="/accounts/manual/new">
-              <i className="ti ti-plus mr-1" aria-hidden /> Cash account
-            </Link>
-          </Button>
-        </div>
-      </header>
-
       {accountsQ.isLoading && <LoadingBox />}
       {accountsQ.isError && (
         <p className="text-sm text-destructive">
@@ -1364,6 +1499,54 @@ export function Accounts() {
       {data && (
         <Card className="overflow-hidden">
           <CardContent className="p-0">
+            {/* Top bar — lives inside the card so the whole page reads
+             *  as one bordered surface (matches Concept C mockup). */}
+            <div className="flex flex-wrap items-center gap-3 border-b px-4 py-3">
+              <h2 className="text-base font-semibold">Accounts</h2>
+              <span className="text-xs text-muted-foreground tabular-nums">
+                Net worth ·{" "}
+                <span className="font-medium text-foreground">
+                  {fmtCAD(netWorth)}
+                </span>
+              </span>
+              <div className="flex-1" />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => syncMutation.mutate()}
+                disabled={syncMutation.isPending}
+                className="h-7 text-xs"
+              >
+                <i className="ti ti-refresh mr-1" aria-hidden />
+                {syncMutation.isPending
+                  ? "Syncing…"
+                  : `Sync YNAB · ${fmtRelative(lastSync)}`}
+              </Button>
+              <Button
+                asChild
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs"
+              >
+                <Link to="/accounts/manual/new">
+                  <i className="ti ti-plus mr-1" aria-hidden /> Cash
+                </Link>
+              </Button>
+              <Button
+                asChild
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs"
+              >
+                <Link to="/investments/accounts">
+                  <i className="ti ti-plus mr-1" aria-hidden /> Brokerage
+                </Link>
+              </Button>
+            </div>
+
             <div
               className="grid"
               style={{ gridTemplateColumns: "320px 1fr", minHeight: "70vh" }}
@@ -1377,13 +1560,21 @@ export function Accounts() {
                     buckets={buckets}
                     bucketTotals={bucketTotals}
                     uncategorizedTotal={uncategorizedTotal}
+                    accounts={accounts}
                     selectedBucketId={
                       selection?.kind === "bucket" ? selection.bucketId : null
                     }
-                    onSelect={(id) => {
-                      if (id === null) setSelection(null);
-                      else setSelection({ kind: "bucket", bucketId: id });
-                    }}
+                    selectedAccountId={
+                      selection?.kind === "account" ? selection.rowId : null
+                    }
+                    onSelectBucket={(id) =>
+                      setSelection(
+                        id === null ? null : { kind: "bucket", bucketId: id },
+                      )
+                    }
+                    onSelectAccount={(id) =>
+                      setSelection({ kind: "account", rowId: id })
+                    }
                   />
                 </div>
                 <OutlineRail
