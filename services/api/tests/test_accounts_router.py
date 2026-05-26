@@ -58,11 +58,13 @@ def accounts_db(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     }
     ynab_accounts: dict[str, dict[str, Any]] = {}
     manual_accounts: dict[UUID, dict[str, Any]] = {}
+    account_buckets: dict[UUID, dict[str, Any]] = {}
 
     stores = {
         "ynab_budgets": ynab_budgets,
         "ynab_accounts": ynab_accounts,
         "manual_accounts": manual_accounts,
+        "account_buckets": account_buckets,
     }
 
     def fetch_all(
@@ -88,6 +90,11 @@ def accounts_db(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
             )
         if "FROM manual_accounts" in sql:
             return sorted(manual_accounts.values(), key=lambda r: r["name"])
+        if "FROM account_buckets" in sql:
+            return sorted(
+                account_buckets.values(),
+                key=lambda r: (int(r.get("sort_order") or 0), r["name"]),
+            )
         raise NotImplementedError(f"accounts_db.fetch_all: {sql[:120]}")
 
     def fetch_one(
@@ -98,6 +105,10 @@ def accounts_db(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         # ---- ynab_budgets currency lookup ---------------------------------
         if "FROM ynab_budgets WHERE id = :id" in sql:
             return ynab_budgets.get(params["id"])
+        # ---- bucket existence check (placement endpoint) ------------------
+        if "FROM account_buckets WHERE id = :id" in sql:
+            b = account_buckets.get(params["id"])
+            return {"id": b["id"]} if b else None
         # ---- existence checks before UPDATE ------------------------------
         if "FROM manual_accounts WHERE id = :id" in sql:
             return manual_accounts.get(params["id"])
@@ -467,3 +478,124 @@ class TestYnabSyncPreservesHelmTags:
         # Helm-side tags survived.
         assert row["helm_kind"] == "savings"
         assert row["helm_owner"] == "personal"
+
+
+# ---------------------------------------------------------------------------
+# PATCH /accounts/{source}/{id}/placement
+# ---------------------------------------------------------------------------
+
+
+class TestPlacement:
+    def _seed_bucket(self, accounts_db: dict[str, Any]) -> UUID:
+        bid = uuid4()
+        accounts_db["account_buckets"][bid] = {
+            "id": bid,
+            "name": "Daily",
+            "color": "amber",
+            "sort_order": 0,
+            "created_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc),
+        }
+        return bid
+
+    def _seed_manual(self, accounts_db: dict[str, Any]) -> UUID:
+        manual_id = uuid4()
+        accounts_db["manual_accounts"][manual_id] = {
+            "id": manual_id,
+            "name": "Itaú",
+            "bank": "Itaú",
+            "currency": "BRL",
+            "balance": Decimal("100.00"),
+            "balance_as_of": date(2026, 4, 30),
+            "kind": "checking",
+            "owner": "personal",
+            "notes": None,
+            "is_active": True,
+            "bucket_id": None,
+            "sort_index": 0,
+            "created_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc),
+        }
+        return manual_id
+
+    def _seed_ynab(self, accounts_db: dict[str, Any]) -> str:
+        accounts_db["ynab_accounts"][_YNAB_ROW_ID] = {
+            "id": _YNAB_ROW_ID,
+            "budget_id": _BUDGET_ID,
+            "name": "TD Checking",
+            "type": "checking",
+            "on_budget": True,
+            "closed": False,
+            "deleted": False,
+            "balance": 1_000_000,
+            "cleared_balance": 1_000_000,
+            "uncleared_balance": 0,
+            "helm_kind": None,
+            "helm_owner": None,
+            "bucket_id": None,
+            "sort_index": 0,
+            "last_synced_at": datetime(2026, 5, 18, tzinfo=timezone.utc),
+        }
+        return _YNAB_ROW_ID
+
+    def test_assigns_manual_to_bucket(
+        self, client: TestClient, accounts_db: dict[str, Any]
+    ) -> None:
+        bid = self._seed_bucket(accounts_db)
+        manual_id = self._seed_manual(accounts_db)
+        resp = client.patch(
+            f"/accounts/manual/{manual_id}/placement",
+            json={"bucket_id": str(bid), "sort_index": 2},
+        )
+        assert resp.status_code == 200, resp.text
+        row = resp.json()
+        assert row["bucket_id"] == str(bid)
+        assert row["sort_index"] == 2
+        assert accounts_db["manual_accounts"][manual_id]["bucket_id"] == bid
+
+    def test_uncategorizes_manual_with_null_bucket(
+        self, client: TestClient, accounts_db: dict[str, Any]
+    ) -> None:
+        bid = self._seed_bucket(accounts_db)
+        manual_id = self._seed_manual(accounts_db)
+        accounts_db["manual_accounts"][manual_id]["bucket_id"] = bid
+        resp = client.patch(
+            f"/accounts/manual/{manual_id}/placement",
+            json={"bucket_id": None, "sort_index": 0},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["bucket_id"] is None
+
+    def test_assigns_ynab_to_bucket(
+        self, client: TestClient, accounts_db: dict[str, Any]
+    ) -> None:
+        bid = self._seed_bucket(accounts_db)
+        yid = self._seed_ynab(accounts_db)
+        resp = client.patch(
+            f"/accounts/ynab/{yid}/placement",
+            json={"bucket_id": str(bid), "sort_index": 3},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["bucket_id"] == str(bid)
+        assert resp.json()["sort_index"] == 3
+
+    def test_404_when_bucket_missing(
+        self, client: TestClient, accounts_db: dict[str, Any]
+    ) -> None:
+        manual_id = self._seed_manual(accounts_db)
+        resp = client.patch(
+            f"/accounts/manual/{manual_id}/placement",
+            json={"bucket_id": str(uuid4()), "sort_index": 0},
+        )
+        assert resp.status_code == 404
+        assert resp.json()["detail"]["code"] == "BUCKET_NOT_FOUND"
+
+    def test_404_when_manual_account_missing(
+        self, client: TestClient, accounts_db: dict[str, Any]
+    ) -> None:
+        bid = self._seed_bucket(accounts_db)
+        resp = client.patch(
+            f"/accounts/manual/{uuid4()}/placement",
+            json={"bucket_id": str(bid), "sort_index": 0},
+        )
+        assert resp.status_code == 404

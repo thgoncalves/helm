@@ -1,0 +1,797 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Accounts — redesign mockups</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.0.0/dist/tabler-icons.min.css" />
+<style>
+  :root {
+    /* Catppuccin Mocha-ish palette tuned for parity with Helm dark theme */
+    --bg: #1e1e2e;
+    --surface: #313244;
+    --surface2: #45475a;
+    --overlay: #585b70;
+    --text: #cdd6f4;
+    --subtext: #a6adc8;
+    --muted: #7f849c;
+    --border: #45475a;
+    --primary: #89b4fa;
+    --primary-fg: #11111b;
+    --emerald: #a6e3a1;
+    --sky: #74c7ec;
+    --amber: #fab387;
+    --pink: #f5c2e7;
+    --mauve: #cba6f7;
+    --red: #f38ba8;
+    --teal: #94e2d5;
+  }
+  html, body { background: var(--bg); color: var(--text); font-family: ui-sans-serif, system-ui, sans-serif; }
+  .surface { background: var(--surface); border-color: var(--border); }
+  .surface2 { background: var(--surface2); }
+  .muted { color: var(--muted); }
+  .sub { color: var(--subtext); }
+  .tabnum { font-variant-numeric: tabular-nums; }
+  .chip { display:inline-flex; align-items:center; gap:.25rem; padding:.125rem .5rem; border-radius:.375rem; font-size:.7rem; font-weight:500; border:1px solid var(--border); background:rgba(255,255,255,.02); color: var(--subtext); }
+  .pill { display:inline-flex; align-items:center; padding:.125rem .5rem; border-radius:9999px; font-size:.65rem; font-weight:600; letter-spacing:.025em; text-transform:uppercase; }
+  .ribbon { width:4px; border-radius:9999px; }
+  .grip { color: var(--muted); cursor:grab; }
+  .accent-emerald { color: var(--emerald); background: rgba(166,227,161,.08); border-color: rgba(166,227,161,.25); }
+  .accent-sky { color: var(--sky); background: rgba(116,199,236,.08); border-color: rgba(116,199,236,.25); }
+  .accent-amber { color: var(--amber); background: rgba(250,179,135,.08); border-color: rgba(250,179,135,.25); }
+  .accent-pink { color: var(--pink); background: rgba(245,194,231,.08); border-color: rgba(245,194,231,.25); }
+  .accent-mauve { color: var(--mauve); background: rgba(203,166,247,.08); border-color: rgba(203,166,247,.25); }
+  .ring-soft { box-shadow: 0 1px 0 rgba(255,255,255,.03), 0 6px 24px -8px rgba(0,0,0,.4); }
+  .h-divider { border-top:1px dashed var(--border); }
+  details>summary { list-style: none; cursor: pointer; }
+  details>summary::-webkit-details-marker { display:none; }
+  .anchor { color: var(--primary); text-decoration: underline; text-underline-offset: 3px; }
+  .anchor:hover { color: var(--sky); }
+  .scroll-x { overflow-x: auto; }
+  .scroll-x::-webkit-scrollbar { height: 8px; }
+  .scroll-x::-webkit-scrollbar-thumb { background: var(--overlay); border-radius: 4px; }
+  .kanban-col { min-width: 280px; }
+  /* table */
+  .ledger { width:100%; border-collapse: separate; border-spacing: 0; font-size: .8125rem; }
+  .ledger thead th { font-size:.65rem; text-transform:uppercase; letter-spacing:.08em; color: var(--muted); padding:.5rem .75rem; text-align:left; border-bottom:1px solid var(--border); position:sticky; top:0; background: var(--surface); }
+  .ledger thead th.num { text-align:right; }
+  .ledger tbody td { padding:.5rem .75rem; border-bottom:1px solid var(--border); }
+  .ledger tbody td.num { text-align:right; }
+  .ledger tr.band td { padding: .35rem .75rem; background: rgba(255,255,255,.02); }
+  .ledger tr.acct:hover { background: rgba(255,255,255,.025); }
+  .badge-ynab { color: var(--mauve); background: rgba(203,166,247,.08); padding:.05rem .375rem; border-radius:.25rem; font-size:.65rem; font-weight:600; }
+  .badge-manual { color: var(--subtext); background: rgba(255,255,255,.04); padding:.05rem .375rem; border-radius:.25rem; font-size:.65rem; font-weight:600; }
+  /* drawer mock */
+  .drawer-mock { width: 380px; }
+  /* treemap rect text */
+  .tm-label { fill: #11111b; font-weight: 700; font-size: 11px; }
+  .tm-label-sub { fill: rgba(17,17,27,.7); font-weight: 600; font-size: 9px; }
+</style>
+</head>
+<body class="min-h-screen">
+
+<header class="border-b" style="border-color: var(--border); background: rgba(17,17,27,.6); backdrop-filter: blur(8px); position: sticky; top: 0; z-index: 40;">
+  <div class="mx-auto max-w-7xl px-6 py-3 flex items-center justify-between">
+    <div>
+      <h1 class="text-base font-semibold">Accounts — redesign mockups</h1>
+      <p class="text-xs muted">Static comparison · no JS · pick your favourite</p>
+    </div>
+    <nav class="flex items-center gap-3 text-xs">
+      <a class="anchor" href="#a">A · Ledger</a>
+      <a class="anchor" href="#b">B · Pinboard</a>
+      <a class="anchor" href="#c">C · Atlas</a>
+    </nav>
+  </div>
+</header>
+
+<!-- ============================================================= -->
+<!-- CONCEPT A — THE LEDGER                                         -->
+<!-- ============================================================= -->
+<section id="a" class="mx-auto max-w-7xl px-6 pt-10 pb-6">
+  <div class="flex items-baseline justify-between mb-4">
+    <h2 class="text-xl font-bold">Concept A · The Ledger</h2>
+    <span class="text-xs muted">spreadsheet · keyboard-first · highest density</span>
+  </div>
+  <p class="text-sm sub max-w-3xl mb-5">
+    Full-width sortable table with category bands. Arrow keys move the selection, <kbd class="px-1.5 py-.5 rounded text-[10px] surface2">Enter</kbd> opens
+    a right drawer to edit. Drag the grip handle to reorder; drop a row onto a category band to reparent.
+    KPI strip is demoted to a sticky footer ribbon.
+  </p>
+
+  <div class="surface border rounded-lg ring-soft overflow-hidden">
+
+    <!-- top bar -->
+    <div class="px-3 py-2 flex items-center gap-3 border-b" style="border-color: var(--border);">
+      <div class="flex items-center gap-2 surface2 rounded-md px-2 py-1 text-xs flex-1 max-w-sm">
+        <i class="ti ti-search muted"></i>
+        <span class="muted">Search accounts…</span>
+      </div>
+      <button class="chip"><i class="ti ti-arrows-sort"></i> Sort · Manual</button>
+      <button class="chip"><i class="ti ti-filter"></i> All owners</button>
+      <div class="flex-1"></div>
+      <button class="chip accent-sky"><i class="ti ti-refresh"></i> Sync YNAB · 2m ago</button>
+      <button class="chip"><i class="ti ti-plus"></i> Cash</button>
+      <button class="chip"><i class="ti ti-plus"></i> Brokerage</button>
+      <button class="chip accent-mauve"><i class="ti ti-folder-plus"></i> New category</button>
+    </div>
+
+    <div class="grid" style="grid-template-columns: 1fr auto;">
+      <!-- ledger table -->
+      <div class="scroll-x">
+        <table class="ledger">
+          <thead>
+            <tr>
+              <th style="width: 18px;"></th>
+              <th>Account</th>
+              <th>Bank</th>
+              <th>Kind</th>
+              <th>Owner</th>
+              <th>Source</th>
+              <th class="num">Native</th>
+              <th class="num">CAD</th>
+              <th>Synced</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- Daily spending -->
+            <tr class="band">
+              <td><i class="ti ti-grip-vertical grip"></i></td>
+              <td colspan="9">
+                <div class="flex items-center gap-3">
+                  <i class="ti ti-chevron-down sub"></i>
+                  <span class="ribbon" style="background: var(--amber); align-self: stretch;"></span>
+                  <span class="font-semibold text-sm">Daily spending</span>
+                  <span class="chip">3 accounts</span>
+                  <span class="text-xs sub">·</span>
+                  <span class="text-xs tabnum">C$ 4,167</span>
+                  <span class="flex-1"></span>
+                  <button class="chip"><i class="ti ti-plus"></i> Add</button>
+                  <button class="chip"><i class="ti ti-pencil"></i> Rename</button>
+                  <button class="chip"><i class="ti ti-trash"></i></button>
+                </div>
+              </td>
+            </tr>
+            <tr class="acct">
+              <td><i class="ti ti-grip-vertical grip"></i></td>
+              <td><span class="font-medium">RBC Chequing</span></td>
+              <td class="sub">RBC Royal Bank</td>
+              <td><span class="chip">Checking</span></td>
+              <td><span class="chip accent-sky">Personal</span></td>
+              <td><span class="badge-ynab">YNAB</span></td>
+              <td class="num tabnum">$2,184.10</td>
+              <td class="num tabnum font-medium">C$ 2,184</td>
+              <td class="sub text-xs">2m ago</td>
+              <td><button class="muted hover:text-white"><i class="ti ti-dots"></i></button></td>
+            </tr>
+            <tr class="acct">
+              <td><i class="ti ti-grip-vertical grip"></i></td>
+              <td><span class="font-medium">Wealthsimple Cash</span></td>
+              <td class="sub">Wealthsimple</td>
+              <td><span class="chip">Checking</span></td>
+              <td><span class="chip accent-sky">Personal</span></td>
+              <td><span class="badge-ynab">YNAB</span></td>
+              <td class="num tabnum">$932.55</td>
+              <td class="num tabnum font-medium">C$ 933</td>
+              <td class="sub text-xs">2m ago</td>
+              <td><button class="muted hover:text-white"><i class="ti ti-dots"></i></button></td>
+            </tr>
+            <tr class="acct">
+              <td><i class="ti ti-grip-vertical grip"></i></td>
+              <td><span class="font-medium">Itaú Conta Corrente</span></td>
+              <td class="sub">Itaú Unibanco</td>
+              <td><span class="chip">Checking</span></td>
+              <td><span class="chip accent-sky">Personal</span></td>
+              <td><span class="badge-manual">Manual</span></td>
+              <td class="num tabnum">R$ 4,210.00</td>
+              <td class="num tabnum font-medium">C$ 1,051</td>
+              <td class="sub text-xs">3d ago</td>
+              <td><button class="muted hover:text-white"><i class="ti ti-dots"></i></button></td>
+            </tr>
+
+            <!-- Emergency fund -->
+            <tr class="band">
+              <td><i class="ti ti-grip-vertical grip"></i></td>
+              <td colspan="9">
+                <div class="flex items-center gap-3">
+                  <i class="ti ti-chevron-down sub"></i>
+                  <span class="ribbon" style="background: var(--emerald); align-self: stretch;"></span>
+                  <span class="font-semibold text-sm">Emergency fund</span>
+                  <span class="chip">1 account</span>
+                  <span class="text-xs sub">·</span>
+                  <span class="text-xs tabnum">C$ 24,000</span>
+                </div>
+              </td>
+            </tr>
+            <tr class="acct">
+              <td><i class="ti ti-grip-vertical grip"></i></td>
+              <td><span class="font-medium">EQ Bank HISA</span></td>
+              <td class="sub">EQ Bank</td>
+              <td><span class="chip">Savings</span></td>
+              <td><span class="chip accent-sky">Personal</span></td>
+              <td><span class="badge-ynab">YNAB</span></td>
+              <td class="num tabnum">$24,000.00</td>
+              <td class="num tabnum font-medium">C$ 24,000</td>
+              <td class="sub text-xs">2m ago</td>
+              <td><button class="muted hover:text-white"><i class="ti ti-dots"></i></button></td>
+            </tr>
+
+            <!-- Brazil savings -->
+            <tr class="band">
+              <td><i class="ti ti-grip-vertical grip"></i></td>
+              <td colspan="9">
+                <div class="flex items-center gap-3">
+                  <i class="ti ti-chevron-down sub"></i>
+                  <span class="ribbon" style="background: var(--pink); align-self: stretch;"></span>
+                  <span class="font-semibold text-sm">Brazil savings</span>
+                  <span class="chip">1 account</span>
+                  <span class="text-xs sub">·</span>
+                  <span class="text-xs tabnum">C$ 3,096</span>
+                </div>
+              </td>
+            </tr>
+            <tr class="acct">
+              <td><i class="ti ti-grip-vertical grip"></i></td>
+              <td><span class="font-medium">Nubank Caixinha</span></td>
+              <td class="sub">Nubank</td>
+              <td><span class="chip">Savings</span></td>
+              <td><span class="chip accent-sky">Personal</span></td>
+              <td><span class="badge-manual">Manual</span></td>
+              <td class="num tabnum">R$ 12,400.00</td>
+              <td class="num tabnum font-medium">C$ 3,096</td>
+              <td class="sub text-xs">today</td>
+              <td><button class="muted hover:text-white"><i class="ti ti-dots"></i></button></td>
+            </tr>
+
+            <!-- Business ops -->
+            <tr class="band">
+              <td><i class="ti ti-grip-vertical grip"></i></td>
+              <td colspan="9">
+                <div class="flex items-center gap-3">
+                  <i class="ti ti-chevron-right sub"></i>
+                  <span class="ribbon" style="background: var(--mauve); align-self: stretch;"></span>
+                  <span class="font-semibold text-sm">Business ops</span>
+                  <span class="chip">3 accounts</span>
+                  <span class="text-xs sub">·</span>
+                  <span class="text-xs tabnum">C$ 18,402</span>
+                </div>
+              </td>
+            </tr>
+
+            <!-- Uncategorized -->
+            <tr class="band">
+              <td><i class="ti ti-grip-vertical grip"></i></td>
+              <td colspan="9">
+                <div class="flex items-center gap-3">
+                  <i class="ti ti-chevron-right sub"></i>
+                  <span class="ribbon" style="background: var(--muted); align-self: stretch;"></span>
+                  <span class="font-semibold text-sm">Uncategorized</span>
+                  <span class="chip">2 accounts</span>
+                  <span class="text-xs sub">·</span>
+                  <span class="text-xs tabnum">C$ 430</span>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- drawer (always-visible mock) -->
+      <aside class="drawer-mock surface2 border-l text-sm p-4 space-y-3" style="border-color: var(--border);">
+        <div class="flex items-center justify-between">
+          <span class="text-xs uppercase muted tracking-wider">Edit · Itaú Conta Corrente</span>
+          <i class="ti ti-x muted"></i>
+        </div>
+        <div class="space-y-2">
+          <div>
+            <div class="text-[10px] muted uppercase tracking-wider">Name</div>
+            <div class="surface rounded px-2 py-1.5">Itaú Conta Corrente</div>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <div class="text-[10px] muted uppercase tracking-wider">Bank</div>
+              <div class="surface rounded px-2 py-1.5">Itaú Unibanco</div>
+            </div>
+            <div>
+              <div class="text-[10px] muted uppercase tracking-wider">Currency</div>
+              <div class="surface rounded px-2 py-1.5 tabnum">BRL</div>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <div class="text-[10px] muted uppercase tracking-wider">Kind</div>
+              <div class="surface rounded px-2 py-1.5">Checking</div>
+            </div>
+            <div>
+              <div class="text-[10px] muted uppercase tracking-wider">Owner</div>
+              <div class="surface rounded px-2 py-1.5">Personal</div>
+            </div>
+          </div>
+          <div>
+            <div class="text-[10px] muted uppercase tracking-wider">Category</div>
+            <div class="surface rounded px-2 py-1.5">Daily spending</div>
+          </div>
+          <div>
+            <div class="text-[10px] muted uppercase tracking-wider">Balance (native)</div>
+            <div class="surface rounded px-2 py-1.5 tabnum">R$ 4,210.00</div>
+          </div>
+          <div class="pt-2 flex items-center gap-2">
+            <button class="chip accent-mauve" style="background: var(--primary); color: var(--primary-fg); border-color: transparent;">Save</button>
+            <button class="chip">Cancel</button>
+            <span class="flex-1"></span>
+            <button class="chip" style="color: var(--red); border-color: rgba(243,139,168,.3);"><i class="ti ti-trash"></i> Delete</button>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <!-- sticky footer ribbon -->
+    <div class="px-4 py-2 border-t flex items-center gap-4 text-xs tabnum" style="border-color: var(--border); background: rgba(0,0,0,.15);">
+      <span class="muted">12 accounts</span>
+      <span><span class="muted">Personal</span> C$ 31,295</span>
+      <span><span class="muted">Business</span> C$ 18,402</span>
+      <span><span class="muted">Unassigned</span> C$ 430</span>
+      <span class="flex-1"></span>
+      <span class="font-semibold">Net worth · C$ 50,127</span>
+    </div>
+  </div>
+
+  <details class="mt-4 text-sm">
+    <summary class="muted hover:text-white text-xs uppercase tracking-wider">Trade-offs ▾</summary>
+    <ul class="mt-2 space-y-1 sub list-disc list-inside">
+      <li><strong>Great at:</strong> seeing all 7 columns of metadata at once; keyboard navigation; sorting by any column.</li>
+      <li><strong>Sacrifices:</strong> visual breathing room; on mobile the table needs horizontal scroll under ~900px; less "ambient" than B or C.</li>
+    </ul>
+  </details>
+</section>
+
+<!-- ============================================================= -->
+<!-- CONCEPT B — THE PINBOARD                                        -->
+<!-- ============================================================= -->
+<section id="b" class="mx-auto max-w-7xl px-6 pt-10 pb-6">
+  <div class="flex items-baseline justify-between mb-4">
+    <h2 class="text-xl font-bold">Concept B · The Pinboard</h2>
+    <span class="text-xs muted">kanban · card-based · drag-heavy</span>
+  </div>
+  <p class="text-sm sub max-w-3xl mb-5">
+    Categories are vertical stacks; accounts are draggable cards. Card colour comes from the category, not the
+    kind, so the board reads at a glance. Owner becomes a small pill, not a grouping axis.
+    Click any card → side drawer (same as concept A).
+  </p>
+
+  <div class="surface border rounded-lg ring-soft overflow-hidden">
+    <!-- top bar -->
+    <div class="px-4 py-3 flex items-center gap-3 border-b" style="border-color: var(--border);">
+      <div>
+        <div class="text-[10px] uppercase muted tracking-wider">Net worth</div>
+        <div class="text-lg font-semibold tabnum">C$ 50,127 <span class="text-xs" style="color: var(--emerald);">▲ +1.2% / 30d</span></div>
+      </div>
+      <div class="flex-1"></div>
+      <button class="chip accent-sky"><i class="ti ti-refresh"></i> Sync YNAB · 2m ago</button>
+      <button class="chip"><i class="ti ti-plus"></i> Cash</button>
+      <button class="chip"><i class="ti ti-plus"></i> Brokerage</button>
+    </div>
+
+    <!-- columns -->
+    <div class="scroll-x p-4">
+      <div class="flex gap-3 items-start">
+
+        <!-- Daily spending -->
+        <div class="kanban-col surface2 rounded-md p-3 space-y-2 border-t-4" style="border-top-color: var(--amber);">
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="text-sm font-semibold">Daily spending</div>
+              <div class="text-[11px] muted tabnum">C$ 4,167 · 3 accounts</div>
+            </div>
+            <button class="muted hover:text-white"><i class="ti ti-dots"></i></button>
+          </div>
+          <!-- card -->
+          <div class="surface rounded-md p-3 flex gap-2 cursor-grab">
+            <div class="ribbon" style="background: var(--amber);"></div>
+            <div class="flex-1">
+              <div class="font-medium text-sm">RBC Chequing</div>
+              <div class="text-[11px] muted">RBC Royal Bank · Checking</div>
+              <div class="mt-1 text-base font-semibold tabnum">C$ 2,184.10</div>
+              <div class="mt-1 flex items-center gap-1">
+                <span class="pill accent-sky">Personal</span>
+                <span class="pill accent-mauve">YNAB</span>
+              </div>
+            </div>
+          </div>
+          <div class="surface rounded-md p-3 flex gap-2 cursor-grab">
+            <div class="ribbon" style="background: var(--amber);"></div>
+            <div class="flex-1">
+              <div class="font-medium text-sm">Wealthsimple Cash</div>
+              <div class="text-[11px] muted">Wealthsimple · Checking</div>
+              <div class="mt-1 text-base font-semibold tabnum">C$ 932.55</div>
+              <div class="mt-1 flex items-center gap-1">
+                <span class="pill accent-sky">Personal</span>
+                <span class="pill accent-mauve">YNAB</span>
+              </div>
+            </div>
+          </div>
+          <div class="surface rounded-md p-3 flex gap-2 cursor-grab">
+            <div class="ribbon" style="background: var(--amber);"></div>
+            <div class="flex-1">
+              <div class="font-medium text-sm">Itaú Conta Corrente</div>
+              <div class="text-[11px] muted">Itaú Unibanco · Checking</div>
+              <div class="mt-1 text-base font-semibold tabnum">R$ 4,210.00</div>
+              <div class="text-[10px] muted tabnum">≈ C$ 1,051</div>
+              <div class="mt-1 flex items-center gap-1">
+                <span class="pill accent-sky">Personal</span>
+                <span class="pill">Manual</span>
+              </div>
+            </div>
+          </div>
+          <button class="w-full text-xs muted py-2 rounded border border-dashed" style="border-color: var(--overlay);"><i class="ti ti-plus"></i> Add account</button>
+        </div>
+
+        <!-- Emergency fund -->
+        <div class="kanban-col surface2 rounded-md p-3 space-y-2 border-t-4" style="border-top-color: var(--emerald);">
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="text-sm font-semibold">Emergency fund</div>
+              <div class="text-[11px] muted tabnum">C$ 24,000 · 1 account</div>
+            </div>
+            <button class="muted hover:text-white"><i class="ti ti-dots"></i></button>
+          </div>
+          <div class="surface rounded-md p-3 flex gap-2 cursor-grab">
+            <div class="ribbon" style="background: var(--emerald);"></div>
+            <div class="flex-1">
+              <div class="font-medium text-sm">EQ Bank HISA</div>
+              <div class="text-[11px] muted">EQ Bank · Savings</div>
+              <div class="mt-1 text-base font-semibold tabnum">C$ 24,000.00</div>
+              <div class="mt-1 flex items-center gap-1">
+                <span class="pill accent-sky">Personal</span>
+                <span class="pill accent-mauve">YNAB</span>
+              </div>
+            </div>
+          </div>
+          <button class="w-full text-xs muted py-2 rounded border border-dashed" style="border-color: var(--overlay);"><i class="ti ti-plus"></i> Add account</button>
+        </div>
+
+        <!-- Brazil savings -->
+        <div class="kanban-col surface2 rounded-md p-3 space-y-2 border-t-4" style="border-top-color: var(--pink);">
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="text-sm font-semibold">Brazil savings</div>
+              <div class="text-[11px] muted tabnum">C$ 3,096 · 1 account</div>
+            </div>
+            <button class="muted hover:text-white"><i class="ti ti-dots"></i></button>
+          </div>
+          <div class="surface rounded-md p-3 flex gap-2 cursor-grab">
+            <div class="ribbon" style="background: var(--pink);"></div>
+            <div class="flex-1">
+              <div class="font-medium text-sm">Nubank Caixinha</div>
+              <div class="text-[11px] muted">Nubank · Savings</div>
+              <div class="mt-1 text-base font-semibold tabnum">R$ 12,400.00</div>
+              <div class="text-[10px] muted tabnum">≈ C$ 3,096</div>
+              <div class="mt-1 flex items-center gap-1">
+                <span class="pill accent-sky">Personal</span>
+                <span class="pill">Manual</span>
+              </div>
+            </div>
+          </div>
+          <button class="w-full text-xs muted py-2 rounded border border-dashed" style="border-color: var(--overlay);"><i class="ti ti-plus"></i> Add account</button>
+        </div>
+
+        <!-- Business ops -->
+        <div class="kanban-col surface2 rounded-md p-3 space-y-2 border-t-4" style="border-top-color: var(--mauve);">
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="text-sm font-semibold">Business ops</div>
+              <div class="text-[11px] muted tabnum">C$ 18,402 · 3 accounts</div>
+            </div>
+            <button class="muted hover:text-white"><i class="ti ti-dots"></i></button>
+          </div>
+          <div class="surface rounded-md p-3 flex gap-2 cursor-grab">
+            <div class="ribbon" style="background: var(--mauve);"></div>
+            <div class="flex-1">
+              <div class="font-medium text-sm">RBC Business Chequing</div>
+              <div class="text-[11px] muted">RBC Royal Bank · Checking</div>
+              <div class="mt-1 text-base font-semibold tabnum">C$ 12,400.00</div>
+              <div class="mt-1 flex items-center gap-1">
+                <span class="pill" style="color: var(--amber); background: rgba(250,179,135,.1);">Business</span>
+                <span class="pill accent-mauve">YNAB</span>
+              </div>
+            </div>
+          </div>
+          <div class="surface rounded-md p-3 flex gap-2 cursor-grab">
+            <div class="ribbon" style="background: var(--mauve);"></div>
+            <div class="flex-1">
+              <div class="font-medium text-sm">Stripe Balance</div>
+              <div class="text-[11px] muted">Stripe · Other</div>
+              <div class="mt-1 text-base font-semibold tabnum">C$ 6,002.00</div>
+              <div class="mt-1 flex items-center gap-1">
+                <span class="pill" style="color: var(--amber); background: rgba(250,179,135,.1);">Business</span>
+                <span class="pill">Manual</span>
+              </div>
+            </div>
+          </div>
+          <button class="w-full text-xs muted py-2 rounded border border-dashed" style="border-color: var(--overlay);"><i class="ti ti-plus"></i> Add account</button>
+        </div>
+
+        <!-- + New category -->
+        <div class="kanban-col border-2 border-dashed rounded-md p-4 flex items-center justify-center text-sm muted hover:text-white" style="border-color: var(--overlay); height: 90px;">
+          <i class="ti ti-folder-plus mr-1"></i> New category
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <details class="mt-4 text-sm">
+    <summary class="muted hover:text-white text-xs uppercase tracking-wider">Trade-offs ▾</summary>
+    <ul class="mt-2 space-y-1 sub list-disc list-inside">
+      <li><strong>Great at:</strong> obvious drag-and-drop affordance; immediately legible "where is my money sorted into?"; works well for ≤ 6 categories.</li>
+      <li><strong>Sacrifices:</strong> horizontal scroll past 6 columns; less metadata visible per card; mobile collapses to stacked accordion (= today's layout, basically).</li>
+    </ul>
+  </details>
+</section>
+
+<!-- ============================================================= -->
+<!-- CONCEPT C — THE ATLAS                                           -->
+<!-- ============================================================= -->
+<section id="c" class="mx-auto max-w-7xl px-6 pt-10 pb-16">
+  <div class="flex items-baseline justify-between mb-4">
+    <h2 class="text-xl font-bold">Concept C · The Atlas <span class="ml-2 chip accent-emerald">recommended</span></h2>
+    <span class="text-xs muted">master-detail · treemap · scales to 20+ categories</span>
+  </div>
+  <p class="text-sm sub max-w-3xl mb-5">
+    Two-pane layout. Left rail = portfolio treemap (rectangle area = % of net worth) plus a draggable outline
+    of categories and accounts. Right pane = roomy edit surface for whichever row/category you select. The treemap
+    turns "where's my money concentrated?" into a 0.5-second glance instead of mental arithmetic on totals.
+  </p>
+
+  <div class="surface border rounded-lg ring-soft overflow-hidden">
+    <!-- top bar -->
+    <div class="px-4 py-3 flex items-center gap-3 border-b" style="border-color: var(--border);">
+      <h3 class="text-base font-semibold">Accounts</h3>
+      <span class="text-xs sub tabnum">Net worth · C$ 50,127</span>
+      <div class="flex-1"></div>
+      <button class="chip accent-sky"><i class="ti ti-refresh"></i> Sync YNAB · 2m</button>
+      <button class="chip"><i class="ti ti-plus"></i> Cash</button>
+      <button class="chip"><i class="ti ti-plus"></i> Brokerage</button>
+    </div>
+
+    <div class="grid" style="grid-template-columns: 320px 1fr;">
+      <!-- LEFT RAIL -->
+      <aside class="border-r" style="border-color: var(--border);">
+        <!-- TREEMAP -->
+        <div class="p-3">
+          <div class="text-[10px] uppercase muted tracking-wider mb-2">Portfolio map</div>
+          <svg viewBox="0 0 296 180" width="100%" height="180" class="block rounded">
+            <!-- Emergency: 47.9% → big rectangle left-half -->
+            <rect x="0" y="0" width="146" height="180" fill="var(--emerald)" rx="2"/>
+            <text x="8" y="20" class="tm-label">Emergency fund</text>
+            <text x="8" y="34" class="tm-label-sub">C$ 24,000 · 47.9%</text>
+
+            <!-- Business: 36.7% → right top -->
+            <rect x="148" y="0" width="148" height="115" fill="var(--mauve)" rx="2"/>
+            <text x="156" y="20" class="tm-label">Business ops</text>
+            <text x="156" y="34" class="tm-label-sub">C$ 18,402 · 36.7%</text>
+
+            <!-- Daily: 8.3% → right bottom left -->
+            <rect x="148" y="117" width="78" height="63" fill="var(--amber)" rx="2"/>
+            <text x="154" y="135" class="tm-label" style="font-size:9px;">Daily</text>
+            <text x="154" y="146" class="tm-label-sub">C$ 4,167</text>
+
+            <!-- Brazil: 6.2% -->
+            <rect x="228" y="117" width="68" height="42" fill="var(--pink)" rx="2"/>
+            <text x="234" y="135" class="tm-label" style="font-size:9px;">Brazil</text>
+            <text x="234" y="146" class="tm-label-sub">C$ 3,096</text>
+
+            <!-- Uncategorized: 0.9% -->
+            <rect x="228" y="161" width="68" height="19" fill="var(--muted)" rx="2" opacity=".7"/>
+            <text x="234" y="174" class="tm-label-sub" style="fill:#fff;">Uncat · C$ 430</text>
+          </svg>
+        </div>
+
+        <!-- OUTLINE -->
+        <div class="px-2 pb-3 space-y-0.5">
+          <div class="flex items-center justify-between px-2 pt-2 pb-1">
+            <span class="text-[10px] uppercase muted tracking-wider">Categories</span>
+            <button class="chip" style="font-size:.65rem;"><i class="ti ti-folder-plus"></i> New</button>
+          </div>
+
+          <!-- Daily spending -->
+          <div>
+            <div class="flex items-center gap-1 px-2 py-1 rounded hover:surface2">
+              <i class="ti ti-grip-vertical grip text-xs"></i>
+              <i class="ti ti-chevron-down sub text-xs"></i>
+              <span class="ribbon" style="background: var(--amber); height: 12px;"></span>
+              <span class="text-sm font-medium">Daily spending</span>
+              <span class="flex-1"></span>
+              <span class="text-[10px] sub tabnum">C$ 4,167</span>
+            </div>
+            <div class="ml-7 space-y-0.5">
+              <div class="flex items-center gap-1.5 px-2 py-1 rounded" style="background: rgba(137,180,250,.08);">
+                <i class="ti ti-grip-vertical grip text-xs"></i>
+                <span class="text-[13px]">RBC Chequing</span>
+                <span class="flex-1"></span>
+                <span class="text-[10px] sub tabnum">C$ 2,184</span>
+              </div>
+              <div class="flex items-center gap-1.5 px-2 py-1 rounded hover:surface2">
+                <i class="ti ti-grip-vertical grip text-xs"></i>
+                <span class="text-[13px]">Wealthsimple Cash</span>
+                <span class="flex-1"></span>
+                <span class="text-[10px] sub tabnum">C$ 933</span>
+              </div>
+              <div class="flex items-center gap-1.5 px-2 py-1 rounded hover:surface2">
+                <i class="ti ti-grip-vertical grip text-xs"></i>
+                <span class="text-[13px]">Itaú Corrente</span>
+                <span class="flex-1"></span>
+                <span class="text-[10px] sub tabnum">C$ 1,051</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Emergency fund -->
+          <div>
+            <div class="flex items-center gap-1 px-2 py-1 rounded hover:surface2">
+              <i class="ti ti-grip-vertical grip text-xs"></i>
+              <i class="ti ti-chevron-down sub text-xs"></i>
+              <span class="ribbon" style="background: var(--emerald); height: 12px;"></span>
+              <span class="text-sm font-medium">Emergency fund</span>
+              <span class="flex-1"></span>
+              <span class="text-[10px] sub tabnum">C$ 24,000</span>
+            </div>
+            <div class="ml-7 space-y-0.5">
+              <div class="flex items-center gap-1.5 px-2 py-1 rounded hover:surface2">
+                <i class="ti ti-grip-vertical grip text-xs"></i>
+                <span class="text-[13px]">EQ Bank HISA</span>
+                <span class="flex-1"></span>
+                <span class="text-[10px] sub tabnum">C$ 24,000</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Brazil savings -->
+          <div>
+            <div class="flex items-center gap-1 px-2 py-1 rounded hover:surface2">
+              <i class="ti ti-grip-vertical grip text-xs"></i>
+              <i class="ti ti-chevron-down sub text-xs"></i>
+              <span class="ribbon" style="background: var(--pink); height: 12px;"></span>
+              <span class="text-sm font-medium">Brazil savings</span>
+              <span class="flex-1"></span>
+              <span class="text-[10px] sub tabnum">C$ 3,096</span>
+            </div>
+            <div class="ml-7 space-y-0.5">
+              <div class="flex items-center gap-1.5 px-2 py-1 rounded hover:surface2">
+                <i class="ti ti-grip-vertical grip text-xs"></i>
+                <span class="text-[13px]">Nubank Caixinha</span>
+                <span class="flex-1"></span>
+                <span class="text-[10px] sub tabnum">C$ 3,096</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Business ops -->
+          <div>
+            <div class="flex items-center gap-1 px-2 py-1 rounded hover:surface2">
+              <i class="ti ti-grip-vertical grip text-xs"></i>
+              <i class="ti ti-chevron-right sub text-xs"></i>
+              <span class="ribbon" style="background: var(--mauve); height: 12px;"></span>
+              <span class="text-sm font-medium">Business ops</span>
+              <span class="flex-1"></span>
+              <span class="text-[10px] sub tabnum">C$ 18,402</span>
+            </div>
+          </div>
+
+          <!-- Uncategorized -->
+          <div>
+            <div class="flex items-center gap-1 px-2 py-1 rounded hover:surface2">
+              <i class="ti ti-grip-vertical grip text-xs"></i>
+              <i class="ti ti-chevron-right sub text-xs"></i>
+              <span class="ribbon" style="background: var(--muted); height: 12px;"></span>
+              <span class="text-sm font-medium muted">Uncategorized</span>
+              <span class="flex-1"></span>
+              <span class="text-[10px] sub tabnum">C$ 430</span>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- RIGHT PANE — detail -->
+      <section class="p-6">
+        <div class="flex items-baseline justify-between mb-1">
+          <h3 class="text-lg font-semibold">RBC Chequing</h3>
+          <div class="flex items-center gap-2">
+            <span class="badge-ynab">YNAB · Read-only</span>
+            <button class="chip"><i class="ti ti-trash"></i></button>
+          </div>
+        </div>
+        <p class="text-xs muted mb-5">RBC Royal Bank · Category: Daily spending</p>
+
+        <!-- balance + spark -->
+        <div class="grid grid-cols-3 gap-4 mb-5">
+          <div class="col-span-1 surface2 rounded-md p-4">
+            <div class="text-[10px] uppercase muted tracking-wider">Balance · CAD</div>
+            <div class="text-2xl font-bold tabnum mt-1">C$ 2,184.10</div>
+            <div class="text-xs mt-1" style="color: var(--emerald);">▲ +$48 / 30d</div>
+            <div class="text-[10px] muted mt-1">Synced 2 minutes ago</div>
+          </div>
+          <div class="col-span-2 surface2 rounded-md p-4">
+            <div class="text-[10px] uppercase muted tracking-wider mb-2">30-day balance</div>
+            <svg viewBox="0 0 300 60" width="100%" height="60">
+              <polyline fill="none" stroke="var(--emerald)" stroke-width="2"
+                points="0,40 15,38 30,42 45,36 60,32 75,30 90,34 105,28 120,30 135,24 150,20 165,22 180,28 195,24 210,18 225,22 240,18 255,14 270,16 285,12 300,10"/>
+              <line x1="0" y1="60" x2="300" y2="60" stroke="var(--border)" />
+            </svg>
+          </div>
+        </div>
+
+        <!-- fields -->
+        <div class="grid grid-cols-2 gap-x-6 gap-y-4 text-sm">
+          <div>
+            <div class="text-[10px] uppercase muted tracking-wider mb-1">Name</div>
+            <div class="surface rounded px-3 py-2">RBC Chequing</div>
+          </div>
+          <div>
+            <div class="text-[10px] uppercase muted tracking-wider mb-1">Bank</div>
+            <div class="surface rounded px-3 py-2">RBC Royal Bank</div>
+          </div>
+          <div>
+            <div class="text-[10px] uppercase muted tracking-wider mb-1">Kind</div>
+            <div class="surface rounded px-3 py-2 flex items-center justify-between">
+              Checking <i class="ti ti-chevron-down muted"></i>
+            </div>
+          </div>
+          <div>
+            <div class="text-[10px] uppercase muted tracking-wider mb-1">Owner</div>
+            <div class="surface rounded px-3 py-2 flex items-center justify-between">
+              <span class="flex items-center gap-1.5"><span class="pill accent-sky">Personal</span></span>
+              <i class="ti ti-chevron-down muted"></i>
+            </div>
+          </div>
+          <div>
+            <div class="text-[10px] uppercase muted tracking-wider mb-1">Category</div>
+            <div class="surface rounded px-3 py-2 flex items-center justify-between">
+              <span class="flex items-center gap-1.5">
+                <span class="ribbon" style="background: var(--amber); height: 10px;"></span>
+                Daily spending
+              </span>
+              <i class="ti ti-chevron-down muted"></i>
+            </div>
+          </div>
+          <div>
+            <div class="text-[10px] uppercase muted tracking-wider mb-1">Source</div>
+            <div class="surface rounded px-3 py-2 muted">YNAB (read-only)</div>
+          </div>
+          <div class="col-span-2">
+            <div class="text-[10px] uppercase muted tracking-wider mb-1">Tags</div>
+            <div class="flex items-center gap-1.5">
+              <span class="chip">#liquid</span>
+              <span class="chip">#joint</span>
+              <button class="chip"><i class="ti ti-plus"></i></button>
+            </div>
+          </div>
+        </div>
+
+        <div class="h-divider my-6"></div>
+        <div class="text-xs muted">
+          YNAB rows are read-only · last refresh 2 min ago.
+          Manual rows would get inline editing of every field above.
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <details class="mt-4 text-sm" open>
+    <summary class="muted hover:text-white text-xs uppercase tracking-wider">Trade-offs ▾</summary>
+    <ul class="mt-2 space-y-1 sub list-disc list-inside">
+      <li><strong>Great at:</strong> understanding portfolio shape at a glance (treemap), calm drag-and-drop in an outline rail, roomy edit surface, scales past 20 categories.</li>
+      <li><strong>Sacrifices:</strong> mobile collapses to "list → drill into detail", losing the treemap above the fold; treemap implementation is ~half a day extra work.</li>
+    </ul>
+  </details>
+</section>
+
+<footer class="border-t" style="border-color: var(--border);">
+  <div class="mx-auto max-w-7xl px-6 py-6 text-xs muted">
+    Static mock · no JS · all data fictional. Branch: <code>feat/accounts-categories-redesign</code>.
+    Spec: <code>docs/specs/accounts-redesign-explorations.md</code>.
+  </div>
+</footer>
+
+</body>
+</html>
