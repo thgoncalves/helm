@@ -104,160 +104,141 @@ def refresh(
     )
 
     # 2) Accounts — cache the budget's account list. Upstream columns
-    # refresh on every sync; the Helm-side `helm_kind` / `helm_owner`
-    # tags are mutated only by the Accounts page and never overwritten
-    # here.
+    # refresh on every sync; the Helm-side ``helm_kind`` / ``helm_owner``
+    # (and ``bucket_id`` / ``sort_index`` once 0022 lands) are mutated
+    # only by the Accounts page and never overwritten here — they're
+    # not in the EXCLUDED set.
     accounts = client.get_accounts(target_id)
-    accounts_upserted = 0
-    for acct in accounts:
-        db.execute(
-            """
-            INSERT INTO ynab_accounts (
-                id, budget_id, name, type,
-                on_budget, closed, deleted,
-                balance, cleared_balance, uncleared_balance,
-                last_synced_at
-            )
-            VALUES (
-                :id, :budget_id, :name, :type,
-                :on_budget, :closed, :deleted,
-                :balance, :cleared_balance, :uncleared_balance,
-                :now
-            )
-            ON CONFLICT (id) DO UPDATE SET
-                budget_id = EXCLUDED.budget_id,
-                name = EXCLUDED.name,
-                type = EXCLUDED.type,
-                on_budget = EXCLUDED.on_budget,
-                closed = EXCLUDED.closed,
-                deleted = EXCLUDED.deleted,
-                balance = EXCLUDED.balance,
-                cleared_balance = EXCLUDED.cleared_balance,
-                uncleared_balance = EXCLUDED.uncleared_balance,
-                last_synced_at = EXCLUDED.last_synced_at
-            """,
-            {
-                "id": acct["id"],
-                "budget_id": target_id,
-                "name": acct.get("name") or "",
-                "type": acct.get("type") or "otherAsset",
-                "on_budget": bool(acct.get("on_budget", True)),
-                "closed": bool(acct.get("closed", False)),
-                "deleted": bool(acct.get("deleted", False)),
-                "balance": int(acct.get("balance") or 0),
-                "cleared_balance": int(acct.get("cleared_balance") or 0),
-                "uncleared_balance": int(
-                    acct.get("uncleared_balance") or 0
-                ),
-                "now": now,
-            },
+    account_param_sets = [
+        {
+            "id": acct["id"],
+            "budget_id": target_id,
+            "name": acct.get("name") or "",
+            "type": acct.get("type") or "otherAsset",
+            "on_budget": bool(acct.get("on_budget", True)),
+            "closed": bool(acct.get("closed", False)),
+            "deleted": bool(acct.get("deleted", False)),
+            "balance": int(acct.get("balance") or 0),
+            "cleared_balance": int(acct.get("cleared_balance") or 0),
+            "uncleared_balance": int(acct.get("uncleared_balance") or 0),
+            "now": now,
+        }
+        for acct in accounts
+    ]
+    db.execute_many(
+        """
+        INSERT INTO ynab_accounts (
+            id, budget_id, name, type,
+            on_budget, closed, deleted,
+            balance, cleared_balance, uncleared_balance,
+            last_synced_at
         )
-        accounts_upserted += 1
+        VALUES (
+            :id, :budget_id, :name, :type,
+            :on_budget, :closed, :deleted,
+            :balance, :cleared_balance, :uncleared_balance,
+            :now
+        )
+        ON CONFLICT (id) DO UPDATE SET
+            budget_id = EXCLUDED.budget_id,
+            name = EXCLUDED.name,
+            type = EXCLUDED.type,
+            on_budget = EXCLUDED.on_budget,
+            closed = EXCLUDED.closed,
+            deleted = EXCLUDED.deleted,
+            balance = EXCLUDED.balance,
+            cleared_balance = EXCLUDED.cleared_balance,
+            uncleared_balance = EXCLUDED.uncleared_balance,
+            last_synced_at = EXCLUDED.last_synced_at
+        """,
+        account_param_sets,
+    )
+    accounts_upserted = len(account_param_sets)
 
     # 3) Categories (and groups).
     groups = client.get_categories(target_id)
-    categories_upserted = 0
-    for group in groups:
-        for cat in group.get("categories", []) or []:
-            db.execute(
-                """
-                INSERT INTO ynab_categories (
-                    category_id, budget_id, group_name, name, hidden,
-                    last_synced_at
-                )
-                VALUES (
-                    :category_id, :budget_id, :group_name, :name, :hidden,
-                    :now
-                )
-                ON CONFLICT (category_id) DO UPDATE SET
-                    budget_id = EXCLUDED.budget_id,
-                    group_name = EXCLUDED.group_name,
-                    name = EXCLUDED.name,
-                    hidden = EXCLUDED.hidden,
-                    last_synced_at = EXCLUDED.last_synced_at
-                """,
-                {
-                    "category_id": cat["id"],
-                    "budget_id": target_id,
-                    "group_name": group.get("name") or "",
-                    "name": cat.get("name") or "",
-                    "hidden": bool(
-                        cat.get("hidden") or group.get("hidden")
-                    ),
-                    "now": now,
-                },
-            )
-            categories_upserted += 1
+    category_param_sets = [
+        {
+            "category_id": cat["id"],
+            "budget_id": target_id,
+            "group_name": group.get("name") or "",
+            "name": cat.get("name") or "",
+            "hidden": bool(cat.get("hidden") or group.get("hidden")),
+            "now": now,
+        }
+        for group in groups
+        for cat in (group.get("categories", []) or [])
+    ]
+    db.execute_many(
+        """
+        INSERT INTO ynab_categories (
+            category_id, budget_id, group_name, name, hidden,
+            last_synced_at
+        )
+        VALUES (
+            :category_id, :budget_id, :group_name, :name, :hidden,
+            :now
+        )
+        ON CONFLICT (category_id) DO UPDATE SET
+            budget_id = EXCLUDED.budget_id,
+            group_name = EXCLUDED.group_name,
+            name = EXCLUDED.name,
+            hidden = EXCLUDED.hidden,
+            last_synced_at = EXCLUDED.last_synced_at
+        """,
+        category_param_sets,
+    )
+    categories_upserted = len(category_param_sets)
 
     # 4) Current month — assigned / activity / balance per category.
     month_str = date.today().replace(day=1).isoformat()
     month_detail = client.get_month(target_id, month_str)
     month_categories = month_detail.get("categories", []) or []
-    month_rows = 0
-    for cat in month_categories:
-        db.execute(
-            """
-            INSERT INTO ynab_month_categories (
-                budget_id, month, category_id,
-                assigned, activity, balance, last_synced_at
-            )
-            VALUES (
-                :budget_id, :month, :category_id,
-                :assigned, :activity, :balance, :now
-            )
-            ON CONFLICT (budget_id, month, category_id) DO UPDATE SET
-                assigned = EXCLUDED.assigned,
-                activity = EXCLUDED.activity,
-                balance = EXCLUDED.balance,
-                last_synced_at = EXCLUDED.last_synced_at
-            """,
-            {
-                "budget_id": target_id,
-                "month": date.fromisoformat(month_str),
-                "category_id": cat["id"],
-                "assigned": int(cat.get("budgeted") or 0),
-                "activity": int(cat.get("activity") or 0),
-                "balance": int(cat.get("balance") or 0),
-                "now": now,
-            },
+    month_param_sets = [
+        {
+            "budget_id": target_id,
+            "month": date.fromisoformat(month_str),
+            "category_id": cat["id"],
+            "assigned": int(cat.get("budgeted") or 0),
+            "activity": int(cat.get("activity") or 0),
+            "balance": int(cat.get("balance") or 0),
+            "now": now,
+        }
+        for cat in month_categories
+    ]
+    db.execute_many(
+        """
+        INSERT INTO ynab_month_categories (
+            budget_id, month, category_id,
+            assigned, activity, balance, last_synced_at
         )
-        month_rows += 1
+        VALUES (
+            :budget_id, :month, :category_id,
+            :assigned, :activity, :balance, :now
+        )
+        ON CONFLICT (budget_id, month, category_id) DO UPDATE SET
+            assigned = EXCLUDED.assigned,
+            activity = EXCLUDED.activity,
+            balance = EXCLUDED.balance,
+            last_synced_at = EXCLUDED.last_synced_at
+        """,
+        month_param_sets,
+    )
+    month_rows = len(month_param_sets)
 
     # 5) Recent transactions — last TRANSACTION_WINDOW_DAYS days.
+    # Split deleted (DELETE) from live (UPSERT); each goes into its own
+    # batch so we only emit two SQL statements regardless of how many
+    # rows YNAB sent.
     since = (date.today() - timedelta(days=TRANSACTION_WINDOW_DAYS)).isoformat()
     txns = client.get_transactions(target_id, since_date=since)
-    txn_rows = 0
+    deleted_param_sets: list[dict[str, Any]] = []
+    txn_param_sets: list[dict[str, Any]] = []
     for txn in txns:
         if txn.get("deleted"):
-            db.execute(
-                "DELETE FROM ynab_transactions WHERE id = :id",
-                {"id": txn["id"]},
-            )
+            deleted_param_sets.append({"id": txn["id"]})
             continue
-        db.execute(
-            """
-            INSERT INTO ynab_transactions (
-                id, budget_id, account_id, posted_date, amount,
-                payee_name, memo, category_id, transfer_account_id,
-                cleared, approved, last_synced_at
-            )
-            VALUES (
-                :id, :budget_id, :account_id, :posted_date, :amount,
-                :payee_name, :memo, :category_id, :transfer_account_id,
-                :cleared, :approved, :now
-            )
-            ON CONFLICT (id) DO UPDATE SET
-                account_id = EXCLUDED.account_id,
-                posted_date = EXCLUDED.posted_date,
-                amount = EXCLUDED.amount,
-                payee_name = EXCLUDED.payee_name,
-                memo = EXCLUDED.memo,
-                category_id = EXCLUDED.category_id,
-                transfer_account_id = EXCLUDED.transfer_account_id,
-                cleared = EXCLUDED.cleared,
-                approved = EXCLUDED.approved,
-                last_synced_at = EXCLUDED.last_synced_at
-            """,
+        txn_param_sets.append(
             {
                 "id": txn["id"],
                 "budget_id": target_id,
@@ -271,9 +252,39 @@ def refresh(
                 "cleared": txn.get("cleared") or "uncleared",
                 "approved": bool(txn.get("approved", True)),
                 "now": now,
-            },
+            }
         )
-        txn_rows += 1
+    db.execute_many(
+        "DELETE FROM ynab_transactions WHERE id = :id",
+        deleted_param_sets,
+    )
+    db.execute_many(
+        """
+        INSERT INTO ynab_transactions (
+            id, budget_id, account_id, posted_date, amount,
+            payee_name, memo, category_id, transfer_account_id,
+            cleared, approved, last_synced_at
+        )
+        VALUES (
+            :id, :budget_id, :account_id, :posted_date, :amount,
+            :payee_name, :memo, :category_id, :transfer_account_id,
+            :cleared, :approved, :now
+        )
+        ON CONFLICT (id) DO UPDATE SET
+            account_id = EXCLUDED.account_id,
+            posted_date = EXCLUDED.posted_date,
+            amount = EXCLUDED.amount,
+            payee_name = EXCLUDED.payee_name,
+            memo = EXCLUDED.memo,
+            category_id = EXCLUDED.category_id,
+            transfer_account_id = EXCLUDED.transfer_account_id,
+            cleared = EXCLUDED.cleared,
+            approved = EXCLUDED.approved,
+            last_synced_at = EXCLUDED.last_synced_at
+        """,
+        txn_param_sets,
+    )
+    txn_rows = len(txn_param_sets)
 
     # Capture a net-worth snapshot now that the YNAB balances are fresh.
     # Safe even when accounts haven't changed — the helper upserts on

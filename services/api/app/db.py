@@ -185,6 +185,36 @@ def execute(sql: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
     return _execute(sql, params, include_metadata=False)
 
 
+# Aurora Data API caps a single BatchExecuteStatement request at ~1 MB
+# and 1000 parameter sets. We chunk well below the row cap so we stay
+# under the byte limit even for wide rows.
+_BATCH_CHUNK_SIZE = 250
+
+
+def execute_many(
+    sql: str, param_sets: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Execute one SQL with N parameter sets in a single round-trip.
+
+    Used for hot-loop UPSERTs in the YNAB sync, which used to cost one
+    Data API call per row and pushed total sync time past the API
+    Gateway 30s integration timeout. With batches of ~250 rows the
+    sync now fits comfortably under the cap.
+
+    ``RETURNING`` is not supported by ``batch_execute_statement`` — use
+    :func:`fetch_all` if you need rows back.
+
+    Returns an empty dict (Data API's ``BatchExecuteStatement`` only
+    returns generated fields per row, which we don't currently consume).
+    """
+    if not param_sets:
+        return {}
+    for i in range(0, len(param_sets), _BATCH_CHUNK_SIZE):
+        chunk = param_sets[i : i + _BATCH_CHUNK_SIZE]
+        _batch_execute(sql, chunk)
+    return {}
+
+
 def fetch_all(
     sql: str, params: dict[str, Any] | None = None
 ) -> list[dict[str, Any]]:
@@ -213,12 +243,7 @@ _RESUME_INITIAL_DELAY_SEC = 1.0
 _RESUME_MAX_DELAY_SEC = 5.0
 
 
-def _execute(
-    sql: str,
-    params: dict[str, Any] | None,
-    *,
-    include_metadata: bool,
-) -> dict[str, Any]:
+def _require_db_config() -> None:
     if not settings.database_resource_arn or not settings.database_secret_arn:
         raise RuntimeError(
             "HELM_DATABASE_RESOURCE_ARN and HELM_DATABASE_SECRET_ARN must be "
@@ -226,21 +251,19 @@ def _execute(
             "Lambda environment."
         )
 
-    kwargs: dict[str, Any] = {
-        "resourceArn": settings.database_resource_arn,
-        "secretArn": settings.database_secret_arn,
-        "database": settings.database_name,
-        "sql": sql,
-        "includeResultMetadata": include_metadata,
-    }
-    if params:
-        kwargs["parameters"] = _to_params(params)
 
+def _with_resume_retry(call):
+    """Run ``call()`` with auto-resume retry + AWS-auth → 503 mapping.
+
+    Shared between :func:`execute_statement` and
+    :func:`batch_execute_statement` so both code paths behave the same
+    when Aurora is auto-paused or the SSO token has expired.
+    """
     delay = _RESUME_INITIAL_DELAY_SEC
     deadline = time.monotonic() + _RESUME_MAX_WAIT_SEC
     while True:
         try:
-            return _client().execute_statement(**kwargs)
+            return call()
         except ClientError as e:
             code = e.response.get("Error", {}).get("Code")
             if code == "DatabaseResumingException" and time.monotonic() < deadline:
@@ -260,3 +283,38 @@ def _execute(
                     },
                 ) from e
             raise
+
+
+def _execute(
+    sql: str,
+    params: dict[str, Any] | None,
+    *,
+    include_metadata: bool,
+) -> dict[str, Any]:
+    _require_db_config()
+    kwargs: dict[str, Any] = {
+        "resourceArn": settings.database_resource_arn,
+        "secretArn": settings.database_secret_arn,
+        "database": settings.database_name,
+        "sql": sql,
+        "includeResultMetadata": include_metadata,
+    }
+    if params:
+        kwargs["parameters"] = _to_params(params)
+    return _with_resume_retry(lambda: _client().execute_statement(**kwargs))
+
+
+def _batch_execute(
+    sql: str, param_sets: list[dict[str, Any]]
+) -> dict[str, Any]:
+    _require_db_config()
+    kwargs: dict[str, Any] = {
+        "resourceArn": settings.database_resource_arn,
+        "secretArn": settings.database_secret_arn,
+        "database": settings.database_name,
+        "sql": sql,
+        "parameterSets": [_to_params(p) for p in param_sets],
+    }
+    return _with_resume_retry(
+        lambda: _client().batch_execute_statement(**kwargs)
+    )
