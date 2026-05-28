@@ -870,6 +870,16 @@ export interface StockPortfolioRow {
   acb_total_cad: number | string | null;
   current_value_cad: number | string | null;
   unrealized_cad: number | string | null;
+  /** When this ticker's cached quote was last fetched (ISO timestamp), or
+   *  null when no quote has been cached yet. */
+  current_price_as_of: string | null;
+}
+
+export interface RefreshPricesResult {
+  refreshed: number;
+  failed: number;
+  max_fetched_at: string | null;
+  errors: string[];
 }
 
 // ---------------------------------------------------------------------------

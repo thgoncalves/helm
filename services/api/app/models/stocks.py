@@ -195,6 +195,23 @@ class StockPortfolioRow(BaseModel):
     acb_total_cad: Decimal | None = None
     current_value_cad: Decimal | None = None
     unrealized_cad: Decimal | None = None
+    # When this ticker's cached quote was last fetched (stock_quotes.fetched_at).
+    # None when no quote has been cached yet.
+    current_price_as_of: datetime | None = None
+
+
+class RefreshPricesResult(BaseModel):
+    """Summary of a bulk force-refresh of all held tickers' quotes.
+
+    Partial failures don't fail the whole request — ``failed`` and
+    ``errors`` report which tickers couldn't be refreshed so the UI can
+    say e.g. "5 of 7 refreshed".
+    """
+
+    refreshed: int
+    failed: int
+    max_fetched_at: datetime | None = None
+    errors: list[str] = Field(default_factory=list)
 
 
 StockDetailResponse.model_rebuild()
