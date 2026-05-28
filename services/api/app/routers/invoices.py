@@ -496,12 +496,13 @@ async def export_pdf(invoice_id: UUID) -> StreamingResponse:
         invoice=invoice,
         line_items=lines,
         client_name=client["name"],
-        user_name=_get_setting("user_full_name") or _get_setting("company_name", ""),
+        user_name=_get_setting("user_full_name", ""),
         user_address=_get_setting("user_address", ""),
         user_postal_code=_get_setting("user_postal_code", ""),
         user_phone=_get_setting("user_phone", ""),
         user_email=_get_setting("user_email", ""),
         etransfer_email=_get_setting("etransfer_email", _get_setting("user_email", "")),
+        company_name=_get_setting("company_name", ""),
     )
 
     filename = f"{invoice['invoice_number']} Invoice.pdf"
