@@ -22,7 +22,7 @@
  *
  * Spec: docs/specs/investing-dashboard-snapshots-v1.md
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import {
@@ -46,7 +46,9 @@ import type {
   InvestingSnapshotDay,
   InvestingSnapshotHistoryItem,
   InvestingSnapshotRow,
+  RefreshPricesResult,
   StockPortfolioRow,
+  YnabRefreshResponse,
 } from "@/types/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -147,6 +149,31 @@ function fmtSyncTime(value: string | null): string {
   return t.toLocaleDateString("en-CA", { month: "short", day: "numeric" });
 }
 
+const amount2Fmt = new Intl.NumberFormat("en-CA", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+/** Native amount as a plain number, suffixed with the ISO code only when
+ *  it isn't CAD — "44.38" for CAD, "216.51 USD" for USD. Mirrors the
+ *  brokerage statement style. */
+function fmtNativeAmount(v: number | string | null, currency: string): string {
+  const n = amount2Fmt.format(num(v));
+  return currency && currency.toUpperCase() !== "CAD" ? `${n} ${currency}` : n;
+}
+
+/** Tailwind text colour for a signed change — green up, red down, muted flat. */
+function changeClass(n: number): string {
+  if (n > 0) return "text-emerald-600 dark:text-emerald-400";
+  if (n < 0) return "text-red-600 dark:text-red-400";
+  return "text-muted-foreground";
+}
+
+/** CAD with an explicit leading "+" for gains (losses already show "-"). */
+function fmtSignedCAD(v: number): string {
+  return `${v > 0 ? "+" : ""}${fmtCAD(v)}`;
+}
+
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
@@ -187,6 +214,26 @@ export function Investments() {
     },
   });
 
+  const refreshPricesMutation = useMutation({
+    mutationFn: () =>
+      apiFetch<RefreshPricesResult>("/investments/stocks/refresh-prices", {
+        method: "POST",
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["stock-positions"] });
+      qc.invalidateQueries({ queryKey: ["funds-vs-stocks"] });
+    },
+  });
+
+  const syncYnabMutation = useMutation({
+    mutationFn: () =>
+      apiFetch<YnabRefreshResponse>("/accounts/ynab/sync", { method: "POST" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["accounts-all"] });
+      qc.invalidateQueries({ queryKey: ["funds-vs-stocks"] });
+    },
+  });
+
   const fundAccounts = useMemo(
     () =>
       (accountsQ.data?.accounts ?? [])
@@ -198,7 +245,23 @@ export function Investments() {
     [accountsQ.data],
   );
 
+  const manualFunds = useMemo(
+    () => fundAccounts.filter((f) => f.source === "manual"),
+    [fundAccounts],
+  );
+  const ynabFunds = useMemo(
+    () => fundAccounts.filter((f) => f.source === "ynab"),
+    [fundAccounts],
+  );
+
+  const stockPositions = positionsQ.data ?? [];
   const stocksCad = num(comparisonQ.data?.stocks.current_value_cad);
+  const hasAnyPosition =
+    manualFunds.length > 0 ||
+    ynabFunds.length > 0 ||
+    stockPositions.length > 0 ||
+    stocksCad > 0;
+  const snapshotDisabled = fundAccounts.length === 0 && stocksCad === 0;
   const lastSnapshot =
     historyQ.data && historyQ.data.length > 0
       ? historyQ.data[historyQ.data.length - 1]
@@ -212,17 +275,48 @@ export function Investments() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-5 px-4 py-6">
-      {/* Header — title + last snapshot indicator. Action button moved
-       *   to the bottom of the page, next to the positions table. */}
-      <header>
-        <h2 className="text-2xl font-bold">Investing Dashboard</h2>
-        <p className="text-sm text-muted-foreground">
-          {lastSnapshot
-            ? `Last snapshot: ${fmtDate(lastSnapshot.snapshot_date)}`
-            : "No snapshots yet — take your first one to start tracking."}
-        </p>
+      {/* Header — title + last snapshot indicator, with the data-action
+       *   toolbar on the right (sync YNAB, refresh prices, snapshot). */}
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-2xl font-bold">Investing Dashboard</h2>
+          <p className="text-sm text-muted-foreground">
+            {lastSnapshot
+              ? `Last snapshot: ${fmtDate(lastSnapshot.snapshot_date)}`
+              : "No snapshots yet — take your first one to start tracking."}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => syncYnabMutation.mutate()}
+            disabled={syncYnabMutation.isPending}
+          >
+            <i className="ti ti-refresh" aria-hidden />
+            {syncYnabMutation.isPending ? "Syncing…" : "Sync YNAB"}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => refreshPricesMutation.mutate()}
+            disabled={refreshPricesMutation.isPending || stockPositions.length === 0}
+          >
+            <i className="ti ti-cloud-download" aria-hidden />
+            {refreshPricesMutation.isPending ? "Refreshing…" : "Refresh prices"}
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => snapshotMutation.mutate()}
+            disabled={snapshotMutation.isPending || snapshotDisabled}
+          >
+            <i className="ti ti-camera" aria-hidden />
+            {snapshotMutation.isPending ? "Snapshotting…" : "Snapshot today"}
+          </Button>
+        </div>
       </header>
 
+      {/* Action result banners */}
       {snapshotMutation.isError && (
         <p className="text-sm text-destructive">
           Snapshot failed:{" "}
@@ -236,6 +330,34 @@ export function Investments() {
           Snapshot saved · total {fmtCAD(snapshotMutation.data.total_cad)}
         </p>
       )}
+      {syncYnabMutation.isError && (
+        <p className="text-sm text-destructive">
+          YNAB sync failed:{" "}
+          {syncYnabMutation.error instanceof ApiError
+            ? syncYnabMutation.error.message
+            : "Unknown error"}
+        </p>
+      )}
+      {syncYnabMutation.isSuccess && (
+        <p className="text-sm text-emerald-600 dark:text-emerald-400">
+          YNAB synced · {syncYnabMutation.data.accounts_upserted} accounts updated
+        </p>
+      )}
+      {refreshPricesMutation.isError && (
+        <p className="text-sm text-destructive">
+          Price refresh failed:{" "}
+          {refreshPricesMutation.error instanceof ApiError
+            ? refreshPricesMutation.error.message
+            : "Unknown error"}
+        </p>
+      )}
+      {refreshPricesMutation.isSuccess && (
+        <p className="text-sm text-emerald-600 dark:text-emerald-400">
+          Prices refreshed · {refreshPricesMutation.data.refreshed} updated
+          {refreshPricesMutation.data.failed > 0 &&
+            ` · ${refreshPricesMutation.data.failed} failed`}
+        </p>
+      )}
 
       {isLoading && <LoadingBox />}
 
@@ -245,16 +367,16 @@ export function Investments() {
 
       {!isLoading && <HistoryCard history={historyQ.data ?? []} />}
 
-      {!isLoading && (
-        <PositionsCard
-          funds={fundAccounts}
-          stocksCad={stocksCad}
-          stocksAsOf={null}
-          stockPositions={positionsQ.data ?? []}
-          onSnapshot={() => snapshotMutation.mutate()}
-          snapshotPending={snapshotMutation.isPending}
-          snapshotDisabled={fundAccounts.length === 0 && stocksCad === 0}
-        />
+      {!isLoading && !hasAnyPosition && <EmptyPositions />}
+
+      {!isLoading && manualFunds.length > 0 && (
+        <ManualFundsCard funds={manualFunds} />
+      )}
+      {!isLoading && ynabFunds.length > 0 && (
+        <YnabFundsCard funds={ynabFunds} />
+      )}
+      {!isLoading && stockPositions.length > 0 && (
+        <StocksCard positions={stockPositions} />
       )}
 
       {!isLoading && (historyQ.data?.length ?? 0) > 0 && (
@@ -703,165 +825,316 @@ function HistoryCard({
 }
 
 // ---------------------------------------------------------------------------
-// Positions table — funds (split by source) + stocks aggregate
+// Section colour tones — each account source gets a tinted card header so
+// the three tables stay visually distinct (amber=manual, sky=YNAB,
+// emerald=stocks). Mirrors the V1 single-table section bands.
 // ---------------------------------------------------------------------------
-
-function PositionsCard({
-  funds,
-  stocksCad,
-  stocksAsOf,
-  stockPositions,
-  onSnapshot,
-  snapshotPending,
-  snapshotDisabled,
-}: {
-  funds: AccountRow[];
-  stocksCad: number;
-  stocksAsOf: string | null;
-  stockPositions: StockPortfolioRow[];
-  onSnapshot: () => void;
-  snapshotPending: boolean;
-  snapshotDisabled: boolean;
-}) {
-  if (funds.length === 0 && stocksCad === 0) {
-    return <EmptyPositions />;
-  }
-
-  const manualFunds = funds.filter((f) => f.source === "manual");
-  const ynabFunds = funds.filter((f) => f.source === "ynab");
-
-  return (
-    <Card>
-      <CardContent className="p-0">
-        <div className="flex items-center justify-between border-b px-4 py-3">
-          <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-            Positions
-          </h3>
-          <Button
-            onClick={onSnapshot}
-            disabled={snapshotPending || snapshotDisabled}
-            size="sm"
-          >
-            {snapshotPending ? "Snapshotting…" : "Snapshot today"}
-          </Button>
-        </div>
-
-        <table className="w-full text-sm">
-          <thead className="border-b text-left text-xs uppercase text-muted-foreground">
-            <tr>
-              <th className="px-4 py-2 font-medium">Position</th>
-              <th className="px-4 py-2 text-right font-medium">
-                Native balance
-              </th>
-              <th className="px-4 py-2 text-right font-medium">CAD value</th>
-              <th className="px-4 py-2 text-right font-medium">Last synced</th>
-            </tr>
-          </thead>
-          <tbody>
-            {manualFunds.length > 0 && (
-              <>
-                <SectionRow
-                  label="Manual funds — tap any balance to update"
-                  tone="amber"
-                  editable
-                />
-                {manualFunds.map((f) => (
-                  <ManualFundRow key={f.id} fund={f} />
-                ))}
-              </>
-            )}
-            {ynabFunds.length > 0 && (
-              <>
-                <SectionRow
-                  label="YNAB-linked — synced automatically"
-                  tone="sky"
-                />
-                {ynabFunds.map((f) => (
-                  <YnabFundRow key={f.id} fund={f} />
-                ))}
-              </>
-            )}
-            {stocksCad > 0 && (
-              <>
-                <SectionRow
-                  label="Stocks — live from last quote"
-                  tone="emerald"
-                />
-                {stockPositions.length === 0 ? (
-                  <tr className="border-t">
-                    <td className="px-4 py-3 font-medium">
-                      Stocks (aggregate)
-                    </td>
-                    <td className="px-4 py-3 text-right text-muted-foreground">
-                      —
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums">
-                      {fmtCAD(stocksCad)}
-                    </td>
-                    <td className="px-4 py-3 text-right text-xs text-muted-foreground">
-                      {fmtSyncTime(stocksAsOf)}
-                    </td>
-                  </tr>
-                ) : (
-                  stockPositions.map((p) => (
-                    <StockRow key={p.ticker} position={p} />
-                  ))
-                )}
-              </>
-            )}
-          </tbody>
-        </table>
-      </CardContent>
-    </Card>
-  );
-}
 
 type SectionTone = "amber" | "sky" | "emerald";
 
 const SECTION_TONE_CLASSES: Record<
   SectionTone,
-  { row: string; text: string; icon: string }
+  { row: string; text: string; subtext: string; icon: string }
 > = {
   amber: {
     row: "bg-amber-100 dark:bg-amber-500/15 border-l-4 border-amber-500",
     text: "text-amber-900 dark:text-amber-200",
+    subtext: "text-amber-800/80 dark:text-amber-200/70",
     icon: "text-amber-700 dark:text-amber-300",
   },
   sky: {
     row: "bg-sky-100 dark:bg-sky-500/15 border-l-4 border-sky-500",
     text: "text-sky-900 dark:text-sky-200",
+    subtext: "text-sky-800/80 dark:text-sky-200/70",
     icon: "text-sky-700 dark:text-sky-300",
   },
   emerald: {
     row: "bg-emerald-100 dark:bg-emerald-500/15 border-l-4 border-emerald-500",
     text: "text-emerald-900 dark:text-emerald-200",
+    subtext: "text-emerald-800/80 dark:text-emerald-200/70",
     icon: "text-emerald-700 dark:text-emerald-300",
   },
 };
 
-function SectionRow({
-  label,
+// ---------------------------------------------------------------------------
+// Fund tables — manual + YNAB, each its own card with a CAD total
+// ---------------------------------------------------------------------------
+
+function FundsCard({
+  title,
+  subtitle,
   tone,
   editable = false,
+  funds,
+  children,
 }: {
-  label: string;
+  title: string;
+  subtitle?: string;
   tone: SectionTone;
   editable?: boolean;
+  funds: AccountRow[];
+  children: ReactNode;
 }) {
   const t = SECTION_TONE_CLASSES[tone];
+  const totalCad = useMemo(
+    () => funds.reduce((sum, f) => sum + num(f.balance_cad), 0),
+    [funds],
+  );
   return (
-    <tr className={t.row}>
+    <Card>
+      <CardContent className="p-0">
+        <div className={cn("border-b px-4 py-3", t.row)}>
+          <h3
+            className={cn(
+              "text-sm font-semibold uppercase tracking-wider",
+              t.text,
+            )}
+          >
+            {editable && (
+              <i className={cn("ti ti-pencil mr-1.5", t.icon)} aria-hidden />
+            )}
+            {title}
+          </h3>
+          {subtitle && <p className={cn("text-xs", t.subtext)}>{subtitle}</p>}
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="border-b text-left text-xs uppercase text-muted-foreground">
+              <tr>
+                <th className="px-4 py-2 font-medium">Position</th>
+                <th className="px-4 py-2 text-right font-medium">
+                  Native balance
+                </th>
+                <th className="px-4 py-2 text-right font-medium">
+                  Market Value (CAD)
+                </th>
+                <th className="px-4 py-2 text-right font-medium">
+                  Last synced
+                </th>
+              </tr>
+            </thead>
+            <tbody>{children}</tbody>
+            <tfoot>
+              <tr className="border-t bg-muted/30 text-sm font-semibold">
+                <td className="px-4 py-3 uppercase tracking-wider text-muted-foreground">
+                  Total (CAD)
+                </td>
+                <td className="px-4 py-3" />
+                <td className="px-4 py-3 text-right tabular-nums">
+                  {fmtCAD(totalCad)}
+                </td>
+                <td className="px-4 py-3" />
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ManualFundsCard({ funds }: { funds: AccountRow[] }) {
+  return (
+    <FundsCard
+      title="Manual funds"
+      subtitle="Tap any balance to update"
+      tone="amber"
+      editable
+      funds={funds}
+    >
+      {funds.map((f) => (
+        <ManualFundRow key={f.id} fund={f} />
+      ))}
+    </FundsCard>
+  );
+}
+
+function YnabFundsCard({ funds }: { funds: AccountRow[] }) {
+  return (
+    <FundsCard
+      title="YNAB-synced funds"
+      subtitle="Synced automatically from YNAB"
+      tone="sky"
+      funds={funds}
+    >
+      {funds.map((f) => (
+        <YnabFundRow key={f.id} fund={f} />
+      ))}
+    </FundsCard>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Stocks table — detailed, brokerage-style; native price, CAD totals
+// ---------------------------------------------------------------------------
+
+function StocksCard({ positions }: { positions: StockPortfolioRow[] }) {
+  const pricesAsOf = useMemo(() => {
+    let max: string | null = null;
+    for (const p of positions) {
+      const v = p.current_price_as_of;
+      if (v && (max === null || v > max)) max = v;
+    }
+    return max;
+  }, [positions]);
+
+  const totals = useMemo(() => {
+    let book = 0;
+    let market = 0;
+    let change = 0;
+    let hasBook = false;
+    let hasMarket = false;
+    let hasChange = false;
+    for (const p of positions) {
+      if (p.acb_total_cad !== null) {
+        book += num(p.acb_total_cad);
+        hasBook = true;
+      }
+      if (p.current_value_cad !== null) {
+        market += num(p.current_value_cad);
+        hasMarket = true;
+      }
+      if (p.unrealized_cad !== null) {
+        change += num(p.unrealized_cad);
+        hasChange = true;
+      }
+    }
+    const pct = hasBook && book !== 0 ? (change / book) * 100 : null;
+    return { book, market, change, hasBook, hasMarket, hasChange, pct };
+  }, [positions]);
+
+  const t = SECTION_TONE_CLASSES.emerald;
+  return (
+    <Card>
+      <CardContent className="p-0">
+        <div className={cn("border-b px-4 py-3", t.row)}>
+          <h3
+            className={cn(
+              "text-sm font-semibold uppercase tracking-wider",
+              t.text,
+            )}
+          >
+            Stocks
+          </h3>
+          <p className={cn("text-xs", t.subtext)}>
+            Prices as of {fmtSyncTime(pricesAsOf)}
+          </p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="border-b text-left text-xs uppercase text-muted-foreground">
+              <tr>
+                <th className="px-4 py-2 font-medium">Symbol</th>
+                <th className="px-4 py-2 font-medium">Security</th>
+                <th className="px-4 py-2 text-right font-medium">Quantity</th>
+                <th className="px-4 py-2 text-right font-medium">Avg cost</th>
+                <th className="px-4 py-2 text-right font-medium">
+                  Market price
+                </th>
+                <th className="px-4 py-2 text-right font-medium">Book value</th>
+                <th className="px-4 py-2 text-right font-medium">
+                  Market value
+                </th>
+                <th className="px-4 py-2 text-right font-medium">Change ($)</th>
+                <th className="px-4 py-2 text-right font-medium">Change (%)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {positions.map((p) => (
+                <StockDetailRow key={p.ticker} position={p} />
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t bg-muted/30 text-sm font-semibold tabular-nums">
+                <td
+                  className="px-4 py-3 uppercase tracking-wider text-muted-foreground"
+                  colSpan={5}
+                >
+                  Total (CAD)
+                </td>
+                <td className="px-4 py-3 text-right">
+                  {totals.hasBook ? fmtCAD(totals.book) : "—"}
+                </td>
+                <td className="px-4 py-3 text-right">
+                  {totals.hasMarket ? fmtCAD(totals.market) : "—"}
+                </td>
+                <td
+                  className={cn(
+                    "px-4 py-3 text-right",
+                    totals.hasChange ? changeClass(totals.change) : "",
+                  )}
+                >
+                  {totals.hasChange ? fmtSignedCAD(totals.change) : "—"}
+                </td>
+                <td
+                  className={cn(
+                    "px-4 py-3 text-right",
+                    totals.pct !== null ? changeClass(totals.pct) : "",
+                  )}
+                >
+                  {totals.pct === null ? "—" : fmtPct(totals.pct)}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function StockDetailRow({ position }: { position: StockPortfolioRow }) {
+  const shares = num(position.shares);
+  const avgCostNative = shares > 0 ? num(position.acb_total) / shares : null;
+  const bookCad = position.acb_total_cad === null ? null : num(position.acb_total_cad);
+  const changeCad =
+    position.unrealized_cad === null ? null : num(position.unrealized_cad);
+  const pct =
+    bookCad !== null && bookCad !== 0 && changeCad !== null
+      ? (changeCad / bookCad) * 100
+      : null;
+  return (
+    <tr className="border-t">
+      <td className="px-4 py-3 font-medium">{position.ticker}</td>
+      <td className="px-4 py-3 text-muted-foreground">
+        {position.name ?? "—"}
+      </td>
+      <td className="px-4 py-3 text-right tabular-nums">
+        {shares.toLocaleString("en-CA", { maximumFractionDigits: 4 })}
+      </td>
+      <td className="px-4 py-3 text-right tabular-nums">
+        {avgCostNative === null
+          ? "—"
+          : fmtNativeAmount(avgCostNative, position.currency)}
+      </td>
+      <td className="px-4 py-3 text-right tabular-nums">
+        {position.current_price === null
+          ? "—"
+          : fmtNativeAmount(position.current_price, position.currency)}
+      </td>
+      <td className="px-4 py-3 text-right tabular-nums">
+        {bookCad === null ? "—" : fmtCAD(bookCad)}
+      </td>
+      <td className="px-4 py-3 text-right tabular-nums">
+        {position.current_value_cad === null
+          ? "—"
+          : fmtCAD(num(position.current_value_cad))}
+      </td>
       <td
-        colSpan={4}
         className={cn(
-          "px-4 py-2 text-xs font-bold uppercase tracking-wider",
-          t.text,
+          "px-4 py-3 text-right tabular-nums",
+          changeCad !== null ? changeClass(changeCad) : "",
         )}
       >
-        {editable && (
-          <i className={cn("ti ti-pencil mr-1.5", t.icon)} aria-hidden />
+        {changeCad === null ? "—" : fmtSignedCAD(changeCad)}
+      </td>
+      <td
+        className={cn(
+          "px-4 py-3 text-right tabular-nums",
+          pct !== null ? changeClass(pct) : "",
         )}
-        {label}
+      >
+        {pct === null ? "—" : fmtPct(pct)}
       </td>
     </tr>
   );
@@ -960,49 +1233,6 @@ function ManualFundRow({ fund }: { fund: AccountRow }) {
       </td>
       <td className="px-4 py-3 text-right text-xs text-muted-foreground">
         {save.isPending ? "saving…" : fmtSyncTime(fund.balance_as_of)}
-      </td>
-    </tr>
-  );
-}
-
-function StockRow({ position }: { position: StockPortfolioRow }) {
-  const shares = num(position.shares);
-  const cad = num(position.current_value_cad);
-  const cost = num(position.acb_total_cad);
-  const unrealCad = num(position.unrealized_cad);
-  const pct = cost > 0 ? (unrealCad / cost) * 100 : null;
-  return (
-    <tr className="border-t">
-      <td className="px-4 py-3">
-        <div className="font-medium">{position.ticker}</div>
-        {position.name && (
-          <div className="text-xs text-muted-foreground">{position.name}</div>
-        )}
-      </td>
-      <td className="px-4 py-3 text-right tabular-nums">
-        {shares.toLocaleString("en-CA", { maximumFractionDigits: 4 })}
-        <span className="ml-1 text-xs text-muted-foreground">sh</span>
-      </td>
-      <td className="px-4 py-3 text-right tabular-nums">
-        {position.current_value_cad === null ? "—" : fmtCAD(cad)}
-      </td>
-      <td className="px-4 py-3 text-right text-xs tabular-nums">
-        {pct === null ? (
-          <span className="text-muted-foreground">—</span>
-        ) : (
-          <span
-            className={cn(
-              "font-medium",
-              pct > 0
-                ? "text-emerald-600 dark:text-emerald-400"
-                : pct < 0
-                  ? "text-red-600 dark:text-red-400"
-                  : "text-muted-foreground",
-            )}
-          >
-            {fmtPct(pct)}
-          </span>
-        )}
       </td>
     </tr>
   );

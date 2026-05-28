@@ -28,6 +28,7 @@ is no per-row holdings cache.
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any, Literal
@@ -58,6 +59,7 @@ from app.models.stocks import (
     StockSearchHit,
     StockTransactionCreate,
     StockTransactionRead,
+    RefreshPricesResult,
 )
 
 router = APIRouter(tags=["investments"], dependencies=[Depends(get_current_user)])
@@ -324,7 +326,8 @@ def list_positions() -> list[StockPortfolioRow]:
                t.fees,
                t.currency,
                q.last_price AS quote_price,
-               q.name       AS quote_name
+               q.name       AS quote_name,
+               q.fetched_at AS quote_fetched_at
         FROM stock_transactions t
         LEFT JOIN stock_quotes q ON q.ticker = t.ticker
         """
@@ -341,6 +344,7 @@ def list_positions() -> list[StockPortfolioRow]:
                 "cost": Decimal(0),
                 "currency": r.get("currency") or "USD",
                 "quote_price": r.get("quote_price"),
+                "quote_as_of": r.get("quote_fetched_at"),
                 "accounts": set(),
             }
         agg["accounts"].add((r["account_source"], str(r["account_id"])))
@@ -384,6 +388,7 @@ def list_positions() -> list[StockPortfolioRow]:
                 acb_total_cad=_to_cad_strict(acb_total, currency),
                 current_value_cad=_to_cad_strict(current_value, currency),
                 unrealized_cad=_to_cad_strict(unrealized, currency),
+                current_price_as_of=agg["quote_as_of"],
             )
         )
     out.sort(
@@ -481,6 +486,53 @@ def refresh_quote(ticker: str) -> StockQuoteRead:
         last_price=q.last_price,
         previous_close=q.previous_close,
         fetched_at=q.fetched_at,
+    )
+
+
+@router.post("/refresh-prices", response_model=RefreshPricesResult)
+def refresh_prices() -> RefreshPricesResult:
+    """Force-refresh the cached quote for every held ticker.
+
+    Partial failures (a single ticker rate-limited or not found) don't
+    fail the whole request — they're tallied into ``failed``/``errors``
+    so the page can report "5 of 7 refreshed". ``get_quote`` is a
+    blocking httpx call, so we fan out across a small thread pool; the
+    RDS Data API client in ``app.db`` is stateless and safe to call from
+    worker threads.
+    """
+    rows = db.fetch_all("SELECT DISTINCT ticker FROM stock_transactions")
+    tickers = [r["ticker"] for r in rows if r.get("ticker")]
+    if not tickers:
+        return RefreshPricesResult(refreshed=0, failed=0)
+
+    refreshed = 0
+    failed = 0
+    errors: list[str] = []
+    max_at: datetime | None = None
+
+    with ThreadPoolExecutor(max_workers=min(8, len(tickers))) as ex:
+        futures = {
+            ex.submit(get_quote, t, force_refresh=True): t for t in tickers
+        }
+        for fut in as_completed(futures):
+            ticker = futures[fut]
+            try:
+                q = fut.result()
+            except QuoteUpstreamError as e:
+                failed += 1
+                if len(errors) < 5:
+                    detail = getattr(e, "detail", None) or str(e)
+                    errors.append(f"{ticker}: {detail}")
+                continue
+            refreshed += 1
+            if q.fetched_at is not None and (max_at is None or q.fetched_at > max_at):
+                max_at = q.fetched_at
+
+    return RefreshPricesResult(
+        refreshed=refreshed,
+        failed=failed,
+        max_fetched_at=max_at,
+        errors=errors,
     )
 
 
