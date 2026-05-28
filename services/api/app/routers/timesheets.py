@@ -556,9 +556,9 @@ async def submit_timesheet(body: SubmitTimesheetBody) -> SubmitTimesheetResponse
 
     invoice_number = next_invoice_number_for_year(issue_date.year)
     notes = f"Timesheet period: {start.isoformat()} to {end.isoformat()}"
-    description = (
-        f"Consulting Services - {int(total_hours) if total_hours == total_hours.to_integral() else total_hours} hours"
-    )
+    # Hours live in the line item's quantity (shown in the invoice's HOURS
+    # column), so the description doesn't repeat them.
+    description = "Consulting Services"
 
     now = datetime.now(timezone.utc)
     invoice_id = uuid4()
