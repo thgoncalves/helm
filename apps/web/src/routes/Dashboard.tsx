@@ -4,13 +4,16 @@
  * Single GET /business/dashboard call returns everything below. KPI
  * cards are clickable shortcuts into the relevant listing pages.
  *
+ * The charts are cash-basis: amounts register on the date a payment was
+ * received, not when the invoice was issued. (The "FY Invoiced" KPI and the
+ * Aging widget stay invoice-/issue-date based — they're about billing.)
+ *
  * Sections (top→bottom, matching the mock the user drew):
  *  Key Metrics:    FY Invoiced · FY Received · Outstanding · Invoices
  *  Tax / Transfers: GST Collected · GST Owed · Transfers FY · Tax Exposure
- *  Monthly Revenue (stacked by client) + Top Clients (horizontal bars)
- *  Cash Flow: Invoiced vs Received (line/area)
- *  Quarterly Performance (grouped bars)
- *  Total Income by Fiscal Year (bars + value labels)
+ *  Monthly Revenue (cash received, stacked by client) + Top Clients
+ *  Cumulative Cash Received (running total this FY, area)
+ *  Quarterly Performance + Total Income by Fiscal Year (side by side)
  *  Aging — outstanding invoices bucketed 0-30 / 31-60 / 61-90 / 90+ days.
  *
  * Improvements over the user's mock:
@@ -145,7 +148,8 @@ function KPICard({ label, kpi, to, count, valueClass }: KPICardProps) {
   const inner = (
     <Card
       className={
-        "h-full transition-colors " + (to ? "cursor-pointer hover:bg-accent/40" : "")
+        "h-full transition-colors " +
+        (to ? "cursor-pointer hover:bg-accent/40" : "")
       }
       onClick={to ? () => navigate(to) : undefined}
     >
@@ -153,7 +157,9 @@ function KPICard({ label, kpi, to, count, valueClass }: KPICardProps) {
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           {label}
         </p>
-        <p className={"text-2xl font-bold " + (valueClass ?? "text-foreground")}>
+        <p
+          className={"text-2xl font-bold " + (valueClass ?? "text-foreground")}
+        >
           {formattedValue}
         </p>
         <div className="flex items-center gap-2 text-xs">
@@ -212,20 +218,22 @@ export function Dashboard() {
     });
   }, [data, stackClients]);
 
-  const cashFlowRows = useMemo(() => {
+  // Running total of cash received across the FY (Apr→Mar). A trajectory
+  // view: how the year's cash has built up, complementing the per-month
+  // Monthly Revenue bars (whose totals it would otherwise just duplicate).
+  const cumulativeCashRows = useMemo(() => {
     if (!data) return [];
-    return data.cash_flow.map((p: CashFlowPoint) => ({
-      month: p.month,
-      invoiced: num(p.invoiced),
-      received: num(p.received),
-    }));
+    let running = 0;
+    return data.cash_flow.map((p: CashFlowPoint) => {
+      running += num(p.received);
+      return { month: p.month, cumulative: running };
+    });
   }, [data]);
 
   const quarterlyRows = useMemo(() => {
     if (!data) return [];
     return data.quarterly.map((q: QuarterlyPoint) => ({
       quarter: q.quarter,
-      invoiced: num(q.invoiced),
       received: num(q.received),
     }));
   }, [data]);
@@ -235,7 +243,6 @@ export function Dashboard() {
     return data.by_fiscal_year.map((f: FYIncomePoint) => ({
       fy: f.fy_label,
       received: num(f.received),
-      invoiced: num(f.invoiced),
     }));
   }, [data]);
 
@@ -261,9 +268,7 @@ export function Dashboard() {
         <p className="text-sm text-muted-foreground">{fyLabel}</p>
       </div>
 
-      {isLoading && (
-        <LoadingBox />
-      )}
+      {isLoading && <LoadingBox />}
       {isError && (
         <p className="text-destructive">
           Failed to load dashboard:{" "}
@@ -343,9 +348,7 @@ export function Dashboard() {
           <section className="grid grid-cols-1 gap-3 lg:grid-cols-[2fr_1fr]">
             <Card>
               <CardContent className="p-4">
-                <h3 className="mb-3 text-sm font-semibold">
-                  Monthly Revenue
-                </h3>
+                <h3 className="mb-3 text-sm font-semibold">Monthly Revenue</h3>
                 <div className="h-72 w-full">
                   <ResponsiveContainer>
                     <BarChart data={monthlyRows}>
@@ -373,7 +376,9 @@ export function Dashboard() {
                           key={c.client_id}
                           dataKey={c.client_name}
                           stackId="rev"
-                          fill={CHART_COLORS.stack[i % CHART_COLORS.stack.length]}
+                          fill={
+                            CHART_COLORS.stack[i % CHART_COLORS.stack.length]
+                          }
                         />
                       ))}
                     </BarChart>
@@ -388,7 +393,7 @@ export function Dashboard() {
                 <div className="h-72 w-full">
                   {topClientRows.length === 0 ? (
                     <p className="text-sm text-muted-foreground">
-                      No clients invoiced this FY yet.
+                      No payments received this FY yet.
                     </p>
                   ) : (
                     <ResponsiveContainer>
@@ -407,9 +412,7 @@ export function Dashboard() {
                           stroke={CHART_COLORS.muted}
                           fontSize={12}
                           tickFormatter={(v) =>
-                            v >= 1000
-                              ? `$${(v / 1000).toFixed(0)}k`
-                              : `$${v}`
+                            v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v}`
                           }
                         />
                         <YAxis
@@ -429,7 +432,9 @@ export function Dashboard() {
                             <Cell
                               key={idx}
                               fill={
-                                CHART_COLORS.stack[idx % CHART_COLORS.stack.length]
+                                CHART_COLORS.stack[
+                                  idx % CHART_COLORS.stack.length
+                                ]
                               }
                             />
                           ))}
@@ -442,34 +447,19 @@ export function Dashboard() {
             </Card>
           </section>
 
-          {/* Cash Flow */}
+          {/* Cumulative cash received */}
           <Card>
             <CardContent className="p-4">
-              <h3 className="mb-3 text-sm font-semibold">
-                Cash Flow: Invoiced vs Received
+              <h3 className="mb-1 text-sm font-semibold">
+                Cumulative Cash Received
               </h3>
+              <p className="mb-3 text-xs text-muted-foreground">
+                Running total of payments received this FY (Apr→Mar).
+              </p>
               <div className="h-72 w-full">
                 <ResponsiveContainer>
-                  <AreaChart data={cashFlowRows}>
+                  <AreaChart data={cumulativeCashRows}>
                     <defs>
-                      <linearGradient
-                        id="grad-invoiced"
-                        x1="0"
-                        y1="0"
-                        x2="0"
-                        y2="1"
-                      >
-                        <stop
-                          offset="5%"
-                          stopColor={CHART_COLORS.primary}
-                          stopOpacity={0.4}
-                        />
-                        <stop
-                          offset="95%"
-                          stopColor={CHART_COLORS.primary}
-                          stopOpacity={0}
-                        />
-                      </linearGradient>
                       <linearGradient
                         id="grad-received"
                         x1="0"
@@ -507,19 +497,10 @@ export function Dashboard() {
                       }
                     />
                     <Tooltip content={<MoneyTooltip />} />
-                    <Legend wrapperStyle={{ fontSize: 12 }} />
                     <Area
                       type="monotone"
-                      dataKey="invoiced"
-                      name="Invoiced"
-                      stroke={CHART_COLORS.primary}
-                      fill="url(#grad-invoiced)"
-                      strokeWidth={2}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="received"
-                      name="Received"
+                      dataKey="cumulative"
+                      name="Cumulative received"
                       stroke={CHART_COLORS.emerald}
                       fill="url(#grad-received)"
                       strokeWidth={2}
@@ -530,71 +511,23 @@ export function Dashboard() {
             </CardContent>
           </Card>
 
-          {/* Quarterly */}
-          <Card>
-            <CardContent className="p-4">
-              <h3 className="mb-3 text-sm font-semibold">
-                Quarterly Performance
-              </h3>
-              <div className="h-64 w-full">
-                <ResponsiveContainer>
-                  <BarChart data={quarterlyRows}>
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      stroke={CHART_COLORS.muted}
-                      opacity={0.2}
-                    />
-                    <XAxis
-                      dataKey="quarter"
-                      stroke={CHART_COLORS.muted}
-                      fontSize={12}
-                    />
-                    <YAxis
-                      stroke={CHART_COLORS.muted}
-                      fontSize={12}
-                      tickFormatter={(v) =>
-                        v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v}`
-                      }
-                    />
-                    <Tooltip content={<MoneyTooltip />} />
-                    <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Bar
-                      dataKey="invoiced"
-                      name="Invoiced"
-                      fill={CHART_COLORS.stack[3]}
-                    />
-                    <Bar
-                      dataKey="received"
-                      name="Received"
-                      fill={CHART_COLORS.amber}
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Total Income by Fiscal Year */}
-          <Card>
-            <CardContent className="p-4">
-              <h3 className="mb-3 text-sm font-semibold">
-                Total Income by Fiscal Year
-              </h3>
-              <div className="h-64 w-full">
-                {fyRows.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    No historical data yet.
-                  </p>
-                ) : (
+          {/* Quarterly Performance + Total Income by Fiscal Year */}
+          <section className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            <Card>
+              <CardContent className="p-4">
+                <h3 className="mb-3 text-sm font-semibold">
+                  Quarterly Performance
+                </h3>
+                <div className="h-64 w-full">
                   <ResponsiveContainer>
-                    <BarChart data={fyRows}>
+                    <BarChart data={quarterlyRows}>
                       <CartesianGrid
                         strokeDasharray="3 3"
                         stroke={CHART_COLORS.muted}
                         opacity={0.2}
                       />
                       <XAxis
-                        dataKey="fy"
+                        dataKey="quarter"
                         stroke={CHART_COLORS.muted}
                         fontSize={12}
                       />
@@ -606,28 +539,70 @@ export function Dashboard() {
                         }
                       />
                       <Tooltip content={<MoneyTooltip />} />
+                      <Legend wrapperStyle={{ fontSize: 12 }} />
                       <Bar
                         dataKey="received"
                         name="Received"
-                        fill={CHART_COLORS.emerald}
-                        radius={[4, 4, 0, 0]}
+                        fill={CHART_COLORS.amber}
                       />
                     </BarChart>
                   </ResponsiveContainer>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Total Income by Fiscal Year */}
+            <Card>
+              <CardContent className="p-4">
+                <h3 className="mb-3 text-sm font-semibold">
+                  Total Income by Fiscal Year
+                </h3>
+                <div className="h-64 w-full">
+                  {fyRows.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      No historical data yet.
+                    </p>
+                  ) : (
+                    <ResponsiveContainer>
+                      <BarChart data={fyRows}>
+                        <CartesianGrid
+                          strokeDasharray="3 3"
+                          stroke={CHART_COLORS.muted}
+                          opacity={0.2}
+                        />
+                        <XAxis
+                          dataKey="fy"
+                          stroke={CHART_COLORS.muted}
+                          fontSize={12}
+                        />
+                        <YAxis
+                          stroke={CHART_COLORS.muted}
+                          fontSize={12}
+                          tickFormatter={(v) =>
+                            v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v}`
+                          }
+                        />
+                        <Tooltip content={<MoneyTooltip />} />
+                        <Bar
+                          dataKey="received"
+                          name="Received"
+                          fill={CHART_COLORS.emerald}
+                          radius={[4, 4, 0, 0]}
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </section>
 
           {/* Aging */}
           <Card>
             <CardContent className="p-4">
-              <h3 className="mb-1 text-sm font-semibold">
-                Outstanding by Age
-              </h3>
+              <h3 className="mb-1 text-sm font-semibold">Outstanding by Age</h3>
               <p className="mb-3 text-xs text-muted-foreground">
-                Days since the invoice was issued, for invoices not yet
-                paid.
+                Days since the invoice was issued, for invoices not yet paid.
               </p>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                 {data.aging.map((b) => {
@@ -666,6 +641,5 @@ export function Dashboard() {
         </div>
       )}
     </main>
-
   );
 }

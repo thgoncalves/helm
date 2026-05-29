@@ -3,6 +3,12 @@
 V1 dashboard returns every section the landing page needs in a single
 response so the frontend renders without staggered loading states.
 
+The charts are *cash-basis*: money is recognised on the date it was
+actually received (``payments_received.payment_date``), not the date the
+invoice was issued. The KPI cards still carry an invoice-basis "FY
+Invoiced"/"Invoices" figure, and aging is still measured from the issue
+date — both are about billing, not cash in.
+
 Sections:
 
 * ``kpis``                 — FY invoiced/received/outstanding/count + GST
@@ -10,12 +16,12 @@ Sections:
                              Each KPI carries a *same-point-last-FY*
                              comparison (NOT a full-FY-vs-full-FY one)
                              because the current FY isn't over.
-* ``monthly_revenue``      — 12 points (Apr→Mar) with totals and a per-client
-                             breakdown for the stacked bar chart.
-* ``top_clients``          — top 5 clients in the current FY by invoiced.
-* ``cash_flow``            — 12 points (Apr→Mar) with invoiced vs received.
-* ``quarterly``            — 4 points (Q1→Q4) for the current FY.
-* ``by_fiscal_year``       — all-time, grouped by FY label.
+* ``monthly_revenue``      — 12 points (Apr→Mar) of cash received, with a
+                             per-client breakdown for the stacked bar chart.
+* ``top_clients``          — top 5 clients in the current FY by cash received.
+* ``cash_flow``            — 12 points (Apr→Mar) of cash received per month.
+* ``quarterly``            — 4 points (Q1→Q4) of cash received this FY.
+* ``by_fiscal_year``       — all-time cash received, grouped by FY label.
 * ``aging``                — outstanding invoices bucketed 0-30 / 31-60
                              / 61-90 / 90+ days since issue.
 
@@ -97,19 +103,16 @@ class TopClient(BaseModel):
 
 class CashFlowPoint(BaseModel):
     month: str
-    invoiced: Decimal
     received: Decimal
 
 
 class QuarterlyPoint(BaseModel):
     quarter: str
-    invoiced: Decimal
     received: Decimal
 
 
 class FYIncomePoint(BaseModel):
     fy_label: str  # "2024/25"
-    invoiced: Decimal
     received: Decimal
 
 
@@ -258,6 +261,11 @@ async def get_dashboard() -> DashboardResponse:
 
     client_name_by_id: dict[UUID, str] = {c["id"]: c["name"] for c in clients}
     linked_invoice_ids: set[UUID] = {l["invoice_id"] for l in tax_links}
+    # Cash-basis charts attribute a payment to the client of the invoice it
+    # pays, so we need invoice_id → client_id alongside the name lookup.
+    client_id_by_invoice: dict[UUID, UUID] = {
+        inv["id"]: inv["client_id"] for inv in invoices
+    }
 
     # ---- KPIs -------------------------------------------------------------
     def sum_invoices_in(start: date, end: date) -> Decimal:
@@ -382,21 +390,25 @@ async def get_dashboard() -> DashboardResponse:
         tax_exposure=_kpi(fy_tax_exposure, detail="this FY"),
     )
 
-    # ---- Monthly revenue (stacked by client) -----------------------------
-    # Build a (month_idx, client_id) → amount accumulator for the current FY.
+    # ---- Monthly revenue (cash received, stacked by client) ---------------
+    # Build a (month_idx, client_id) → amount accumulator for the current FY,
+    # keyed off when each payment landed and the client of the invoice it pays.
     monthly_by_client: dict[tuple[int, UUID], Decimal] = {}
     monthly_totals: list[Decimal] = [Decimal(0)] * 12
-    for inv in invoices:
-        if not (fy_start <= inv["issue_date"] <= fy_end):
+    for p in payments:
+        if not (fy_start <= p["payment_date"] <= fy_end):
             continue
-        if not isinstance(inv["total"], Decimal):
+        if not isinstance(p["amount"], Decimal):
             continue
-        m_idx = _fy_month_index(inv["issue_date"])
-        key = (m_idx, inv["client_id"])
+        cid = client_id_by_invoice.get(p["invoice_id"])
+        if cid is None:
+            continue
+        m_idx = _fy_month_index(p["payment_date"])
+        key = (m_idx, cid)
         monthly_by_client[key] = (
-            monthly_by_client.get(key, Decimal(0)) + inv["total"]
+            monthly_by_client.get(key, Decimal(0)) + p["amount"]
         )
-        monthly_totals[m_idx] += inv["total"]
+        monthly_totals[m_idx] += p["amount"]
 
     monthly_revenue: list[MonthlyRevenuePoint] = []
     for m_idx, month_label in enumerate(_MONTHS):
@@ -418,16 +430,17 @@ async def get_dashboard() -> DashboardResponse:
             )
         )
 
-    # ---- Top clients (FY) ------------------------------------------------
+    # ---- Top clients (FY, by cash received) ------------------------------
     client_totals: dict[UUID, Decimal] = {}
-    for inv in invoices:
-        if not (fy_start <= inv["issue_date"] <= fy_end):
+    for p in payments:
+        if not (fy_start <= p["payment_date"] <= fy_end):
             continue
-        if not isinstance(inv["total"], Decimal):
+        if not isinstance(p["amount"], Decimal):
             continue
-        client_totals[inv["client_id"]] = (
-            client_totals.get(inv["client_id"], Decimal(0)) + inv["total"]
-        )
+        cid = client_id_by_invoice.get(p["invoice_id"])
+        if cid is None:
+            continue
+        client_totals[cid] = client_totals.get(cid, Decimal(0)) + p["amount"]
     top_clients = [
         TopClient(
             client_id=cid,
@@ -439,14 +452,8 @@ async def get_dashboard() -> DashboardResponse:
         )[:5]
     ]
 
-    # ---- Cash flow (invoiced vs received per month, FY) -------------------
-    invoiced_per_month = [Decimal(0)] * 12
+    # ---- Cash flow (cash received per month, FY) -------------------------
     received_per_month = [Decimal(0)] * 12
-    for inv in invoices:
-        if fy_start <= inv["issue_date"] <= fy_end and isinstance(
-            inv["total"], Decimal
-        ):
-            invoiced_per_month[_fy_month_index(inv["issue_date"])] += inv["total"]
     for p in payments:
         if fy_start <= p["payment_date"] <= fy_end and isinstance(
             p["amount"], Decimal
@@ -455,20 +462,13 @@ async def get_dashboard() -> DashboardResponse:
     cash_flow = [
         CashFlowPoint(
             month=_MONTHS[i],
-            invoiced=_quantize(invoiced_per_month[i]),
             received=_quantize(received_per_month[i]),
         )
         for i in range(12)
     ]
 
-    # ---- Quarterly (FY) --------------------------------------------------
-    q_invoiced = [Decimal(0)] * 4
+    # ---- Quarterly (FY, cash received) -----------------------------------
     q_received = [Decimal(0)] * 4
-    for inv in invoices:
-        if fy_start <= inv["issue_date"] <= fy_end and isinstance(
-            inv["total"], Decimal
-        ):
-            q_invoiced[_fy_quarter_index(inv["issue_date"])] += inv["total"]
     for p in payments:
         if fy_start <= p["payment_date"] <= fy_end and isinstance(
             p["amount"], Decimal
@@ -477,33 +477,24 @@ async def get_dashboard() -> DashboardResponse:
     quarterly = [
         QuarterlyPoint(
             quarter=_QUARTERS[i],
-            invoiced=_quantize(q_invoiced[i]),
             received=_quantize(q_received[i]),
         )
         for i in range(4)
     ]
 
-    # ---- By fiscal year (all-time) ---------------------------------------
-    fy_invoiced_map: dict[int, Decimal] = {}
+    # ---- By fiscal year (all-time cash received) -------------------------
     fy_received_map: dict[int, Decimal] = {}
-    for inv in invoices:
-        if not isinstance(inv["total"], Decimal):
-            continue
-        y = _fiscal_year_for(inv["issue_date"])
-        fy_invoiced_map[y] = fy_invoiced_map.get(y, Decimal(0)) + inv["total"]
     for p in payments:
         if not isinstance(p["amount"], Decimal):
             continue
         y = _fiscal_year_for(p["payment_date"])
         fy_received_map[y] = fy_received_map.get(y, Decimal(0)) + p["amount"]
-    all_years = sorted(set(fy_invoiced_map.keys()) | set(fy_received_map.keys()))
     by_fiscal_year = [
         FYIncomePoint(
             fy_label=_fy_label(y),
-            invoiced=_quantize(fy_invoiced_map.get(y, Decimal(0))),
-            received=_quantize(fy_received_map.get(y, Decimal(0))),
+            received=_quantize(fy_received_map[y]),
         )
-        for y in all_years
+        for y in sorted(fy_received_map)
     ]
 
     # ---- Aging buckets ---------------------------------------------------
