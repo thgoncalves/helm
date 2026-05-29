@@ -1037,6 +1037,9 @@ function StocksCard({ positions }: { positions: StockPortfolioRow[] }) {
                 </th>
                 <th className="px-4 py-2 text-right font-medium">Change ($)</th>
                 <th className="px-4 py-2 text-right font-medium">Change (%)</th>
+                <th className="px-4 py-2 text-right font-medium">
+                  Last synced
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -1074,6 +1077,7 @@ function StocksCard({ positions }: { positions: StockPortfolioRow[] }) {
                 >
                   {totals.pct === null ? "—" : fmtPct(totals.pct)}
                 </td>
+                <td className="px-4 py-3" />
               </tr>
             </tfoot>
           </table>
@@ -1135,6 +1139,9 @@ function StockDetailRow({ position }: { position: StockPortfolioRow }) {
         )}
       >
         {pct === null ? "—" : fmtPct(pct)}
+      </td>
+      <td className="px-4 py-3 text-right text-xs text-muted-foreground">
+        {fmtSyncTime(position.current_price_as_of)}
       </td>
     </tr>
   );
