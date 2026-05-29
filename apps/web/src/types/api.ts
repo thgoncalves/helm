@@ -409,19 +409,16 @@ export interface TopClient {
 
 export interface CashFlowPoint {
   month: string;
-  invoiced: number | string;
   received: number | string;
 }
 
 export interface QuarterlyPoint {
   quarter: string;
-  invoiced: number | string;
   received: number | string;
 }
 
 export interface FYIncomePoint {
   fy_label: string;
-  invoiced: number | string;
   received: number | string;
 }
 

@@ -231,10 +231,12 @@ class TestKPIs:
 
 @freeze_time("2026-05-11")
 class TestCharts:
-    def test_monthly_revenue_breaks_down_by_client(
+    def test_monthly_revenue_uses_payment_date_and_client(
         self, client: TestClient
     ) -> None:
-        _invoice(
+        # Two invoices paid in April land in the Apr bucket, split by the
+        # client of the invoice each payment settles.
+        inv_sulp = _invoice(
             client,
             client_id=str(SEED_ID_1),  # Sulpetro
             invoice_number="INV-2026-D050",
@@ -242,58 +244,96 @@ class TestCharts:
             unit_price="100",
             is_taxable=False,
             tax_rate=None,
-            issue_date="2026-04-15",
+            issue_date="2026-04-15",  # total = 1000
         )
-        _invoice(
+        inv_cp = _invoice(
             client,
-            client_id=str(SEED_ID_CP),
+            client_id=str(SEED_ID_CP),  # CP
             invoice_number="INV-2026-D051",
             qty="5",
             unit_price="100",
             is_taxable=False,
             tax_rate=None,
-            issue_date="2026-04-20",
+            issue_date="2026-04-20",  # total = 500
         )
-
-        data = client.get("/business/dashboard/").json()
-        apr = next(m for m in data["monthly_revenue"] if m["month"] == "Apr")
-        assert apr["total"] == "1500.00"
-        names = {s["client_name"]: s["amount"] for s in apr["by_client"]}
-        assert names == {"Sulpetro": "1000.00", "CP": "500.00"}
-
-    def test_top_clients_ranks_descending(self, client: TestClient) -> None:
+        # An issued-but-unpaid invoice contributes nothing on a cash basis.
         _invoice(
             client,
-            client_id=str(SEED_ID_CP),
-            invoice_number="INV-2026-D060",
+            client_id=str(SEED_ID_1),
+            invoice_number="INV-2026-D052",
             qty="20",
             unit_price="100",
             is_taxable=False,
             tax_rate=None,
-            issue_date="2026-04-15",
+            issue_date="2026-04-25",  # total = 2000, never paid
         )
-        _invoice(
+        _payment(
             client,
-            client_id=str(SEED_ID_1),
-            invoice_number="INV-2026-D061",
+            invoice_id=inv_sulp["id"],
+            amount=inv_sulp["total"],
+            payment_date="2026-04-28",
+        )
+        _payment(
+            client,
+            invoice_id=inv_cp["id"],
+            amount=inv_cp["total"],
+            payment_date="2026-04-29",
+        )
+
+        data = client.get("/business/dashboard/").json()
+        apr = next(m for m in data["monthly_revenue"] if m["month"] == "Apr")
+        assert apr["total"] == "1500.00"  # unpaid 2000 excluded
+        names = {s["client_name"]: s["amount"] for s in apr["by_client"]}
+        assert names == {"Sulpetro": "1000.00", "CP": "500.00"}
+
+    def test_top_clients_rank_by_cash_received(self, client: TestClient) -> None:
+        # CP is invoiced more (5000) but pays only 1000; Sulpetro is invoiced
+        # less (2000) but pays in full → Sulpetro ranks first on a cash basis.
+        inv_cp = _invoice(
+            client,
+            client_id=str(SEED_ID_CP),
+            invoice_number="INV-2026-D060",
             qty="50",
             unit_price="100",
             is_taxable=False,
             tax_rate=None,
-            issue_date="2026-04-20",
+            issue_date="2026-04-15",  # total = 5000
+        )
+        inv_sulp = _invoice(
+            client,
+            client_id=str(SEED_ID_1),
+            invoice_number="INV-2026-D061",
+            qty="20",
+            unit_price="100",
+            is_taxable=False,
+            tax_rate=None,
+            issue_date="2026-04-20",  # total = 2000
+        )
+        _payment(
+            client,
+            invoice_id=inv_cp["id"],
+            amount="1000",  # partial
+            payment_date="2026-04-25",
+        )
+        _payment(
+            client,
+            invoice_id=inv_sulp["id"],
+            amount=inv_sulp["total"],
+            payment_date="2026-04-26",
         )
 
         data = client.get("/business/dashboard/").json()
         top = data["top_clients"]
         assert len(top) == 2
         assert top[0]["client_name"] == "Sulpetro"
-        assert top[0]["total"] == "5000.00"
+        assert top[0]["total"] == "2000.00"
         assert top[1]["client_name"] == "CP"
-        assert top[1]["total"] == "2000.00"
+        assert top[1]["total"] == "1000.00"
 
-    def test_cash_flow_separates_invoiced_from_received(
+    def test_cash_flow_registers_on_payment_month(
         self, client: TestClient
     ) -> None:
+        # Issued in April, paid in May → the money shows up in May only.
         inv = _invoice(
             client,
             client_id=str(SEED_ID_CP),
@@ -313,13 +353,16 @@ class TestCharts:
 
         data = client.get("/business/dashboard/").json()
         cf = {p["month"]: p for p in data["cash_flow"]}
-        assert cf["Apr"]["invoiced"] == "1000.00"
+        assert "invoiced" not in cf["Apr"]  # cash-basis: invoiced series dropped
         assert cf["Apr"]["received"] == "0.00"
-        assert cf["May"]["invoiced"] == "0.00"
         assert cf["May"]["received"] == "1000.00"
 
-    def test_quarterly_buckets_apr_jun_as_q1(self, client: TestClient) -> None:
-        _invoice(
+    def test_quarterly_registers_on_payment_quarter(
+        self, client: TestClient
+    ) -> None:
+        # Issued in Q1 (May) but paid in Q2 (Aug) → lands in Q2. The FY window
+        # (not "today") bounds the chart, so a later-dated payment still counts.
+        inv = _invoice(
             client,
             client_id=str(SEED_ID_CP),
             invoice_number="INV-2026-D080",
@@ -329,38 +372,63 @@ class TestCharts:
             tax_rate=None,
             issue_date="2026-05-15",
         )
-        data = client.get("/business/dashboard/").json()
-        q1 = next(q for q in data["quarterly"] if q["quarter"] == "Q1")
-        assert q1["invoiced"] == "1000.00"
-
-    def test_by_fiscal_year_groups_correctly(self, client: TestClient) -> None:
-        # 2025/26 invoice (Apr 1 2025 → Mar 31 2026).
-        _invoice(
+        _payment(
             client,
-            client_id=str(SEED_ID_CP),
-            invoice_number="INV-2025-D090",
-            qty="10",
-            unit_price="100",
-            is_taxable=False,
-            tax_rate=None,
-            issue_date="2025-09-01",
+            invoice_id=inv["id"],
+            amount=inv["total"],
+            payment_date="2026-08-01",
         )
-        # 2026/27 invoice.
-        _invoice(
+
+        data = client.get("/business/dashboard/").json()
+        q = {p["quarter"]: p for p in data["quarterly"]}
+        assert "invoiced" not in q["Q1"]
+        assert q["Q1"]["received"] == "0.00"
+        assert q["Q2"]["received"] == "1000.00"
+
+    def test_by_fiscal_year_groups_by_payment_date(
+        self, client: TestClient
+    ) -> None:
+        # Issued in FY 2025/26 (Mar 2026) but paid in FY 2026/27 (Apr 2026) →
+        # its cash lands in 2026/27, proving payment-date grouping.
+        inv_late = _invoice(
             client,
             client_id=str(SEED_ID_CP),
             invoice_number="INV-2026-D090",
             qty="10",
-            unit_price="200",
+            unit_price="100",
             is_taxable=False,
             tax_rate=None,
-            issue_date="2026-04-15",
+            issue_date="2026-03-20",  # FY 2025/26
+        )
+        # Issued and paid within FY 2025/26.
+        inv_early = _invoice(
+            client,
+            client_id=str(SEED_ID_CP),
+            invoice_number="INV-2025-D090",
+            qty="20",
+            unit_price="100",
+            is_taxable=False,
+            tax_rate=None,
+            issue_date="2025-09-01",  # FY 2025/26
+        )
+        _payment(
+            client,
+            invoice_id=inv_late["id"],
+            amount=inv_late["total"],
+            payment_date="2026-04-20",  # FY 2026/27
+        )
+        _payment(
+            client,
+            invoice_id=inv_early["id"],
+            amount=inv_early["total"],
+            payment_date="2025-10-01",  # FY 2025/26
         )
 
         data = client.get("/business/dashboard/").json()
         rows = {r["fy_label"]: r for r in data["by_fiscal_year"]}
-        assert rows["2025/26"]["invoiced"] == "1000.00"
-        assert rows["2026/27"]["invoiced"] == "2000.00"
+        assert "invoiced" not in rows["2025/26"]
+        assert rows["2025/26"]["received"] == "2000.00"  # inv_early
+        assert rows["2026/27"]["received"] == "1000.00"  # inv_late, paid Apr
 
     def test_aging_buckets_use_days_since_issue(
         self, client: TestClient
