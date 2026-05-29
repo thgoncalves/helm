@@ -661,6 +661,13 @@ export interface AccountListResponse {
   buckets: AccountBucket[];
 }
 
+/** One day's balance for the account detail 30-day sparkline. */
+export interface AccountBalancePoint {
+  snapshot_date: string;
+  native_amount: number | string;
+  cad_amount: number | string | null;
+}
+
 /** Body for `PATCH /accounts/{source}/{id}/tags`. */
 export interface AccountTagsUpdate {
   kind?: AccountKind;

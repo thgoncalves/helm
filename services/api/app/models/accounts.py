@@ -82,6 +82,18 @@ class AccountListResponse(BaseModel):
     buckets: list[AccountBucketRead] = Field(default_factory=list)
 
 
+class AccountBalancePoint(BaseModel):
+    """One day's balance for an account, for the 30-day sparkline.
+
+    ``cad_amount`` is ``None`` when the FX conversion was unavailable the
+    day the snapshot was taken.
+    """
+
+    snapshot_date: date
+    native_amount: Decimal
+    cad_amount: Decimal | None = None
+
+
 class AccountTagsUpdate(BaseModel):
     """Body for ``PATCH /accounts/{source}/{id}/tags``.
 
