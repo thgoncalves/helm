@@ -237,9 +237,10 @@ async def invoice_options(
     open_only: bool = Query(
         default=False,
         description=(
-            "If True, exclude invoices whose status is already 'paid' AND "
-            "balance_due <= 0. The edit form keeps them visible (open_only=False) "
-            "so the user can adjust historical payments."
+            "If True, exclude any invoice with balance_due <= 0 (fully "
+            "settled — nothing left to pay). The edit form keeps them "
+            "visible (open_only=False) so the user can adjust historical "
+            "payments."
         ),
     ),
 ) -> list[InvoiceOption]:
@@ -254,7 +255,7 @@ async def invoice_options(
         LEFT JOIN payments_received p ON p.invoice_id = i.id
         GROUP BY i.id, i.invoice_number, i.client_id, i.total, i.status,
                  c.name
-        ORDER BY i.issue_date DESC, i.invoice_number DESC
+        ORDER BY i.issue_date ASC, i.invoice_number ASC
         """,
     )
     out: list[InvoiceOption] = []
@@ -262,7 +263,11 @@ async def invoice_options(
         total = row["total"] if isinstance(row["total"], Decimal) else Decimal(0)
         paid = row["paid"] if isinstance(row["paid"], Decimal) else Decimal(0)
         balance = (total - paid).quantize(Decimal("0.01"))
-        if open_only and row["status"] == "paid" and balance <= 0:
+        # When recording a new payment, drop fully-settled invoices —
+        # there's nothing left to pay on them. (The edit form passes
+        # open_only=False so a historical payment on a now-paid invoice
+        # stays selectable.)
+        if open_only and balance <= 0:
             continue
         out.append(
             InvoiceOption(

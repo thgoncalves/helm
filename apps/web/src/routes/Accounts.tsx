@@ -48,6 +48,7 @@ import { CSS } from "@dnd-kit/utilities";
 
 import { apiFetch, ApiError } from "@/lib/api";
 import type {
+  AccountBalancePoint,
   AccountBucket,
   AccountBucketCreate,
   AccountBucketUpdate,
@@ -943,7 +944,7 @@ function AccountDetail({
           <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
             30-day balance
           </div>
-          <Sparkline />
+          <Sparkline account={account} />
         </div>
       </div>
 
@@ -1056,19 +1057,58 @@ function ReadField({ label, value }: { label: string; value: string }) {
   );
 }
 
-/** Decorative-only 30-day balance sparkline. We don't yet persist
- *  per-account balance history; the line is a placeholder so the
- *  detail pane has the visual weight Concept C calls for. Swap for
- *  real data once we wire account snapshots. */
-function Sparkline() {
-  // Deterministic-looking polyline; same shape regardless of account
-  // so it never claims to be more accurate than it is.
-  const points = "0,40 20,38 40,42 60,36 80,30 100,32 120,28 140,30 160,24 180,20 200,22 220,28 240,24 260,18 280,22 300,16 320,14 340,18 360,12 380,10";
+/** Real 30-day balance sparkline, fed by per-account daily snapshots
+ *  (GET /accounts/{source}/{id}/balance-history). History is captured
+ *  forward-only, so a brand-new account shows a flat line at its current
+ *  balance until a few days of snapshots accrue — by design. A flat line
+ *  is also drawn whenever the balance hasn't moved in the window. */
+function Sparkline({ account }: { account: AccountRow }) {
+  const source = account.source;
+  const rawId = account.id.slice(source.length + 1); // strip "source:" prefix
+  const { data } = useQuery<AccountBalancePoint[]>({
+    queryKey: ["account-balance-history", account.id],
+    queryFn: () =>
+      apiFetch<AccountBalancePoint[]>(
+        `/accounts/${source}/${rawId}/balance-history?days=30`,
+      ),
+    staleTime: 60_000,
+  });
+
+  const W = 380;
+  const H = 60;
+  const PAD = 4;
+
+  // Prefer the CAD series so a multi-currency account's line is comparable
+  // with the headline balance; fall back to native if FX was unavailable.
+  const values = (data ?? []).map((p) =>
+    Number(p.cad_amount ?? p.native_amount),
+  );
+  const min = values.length ? Math.min(...values) : 0;
+  const max = values.length ? Math.max(...values) : 0;
+
+  let points: string;
+  if (values.length >= 2 && max !== min) {
+    const span = max - min;
+    const stepX = (W - PAD * 2) / (values.length - 1);
+    points = values
+      .map((v, i) => {
+        const x = PAD + i * stepX;
+        // Invert Y so larger balances sit higher in the box.
+        const y = PAD + (1 - (v - min) / span) * (H - PAD * 2);
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      })
+      .join(" ");
+  } else {
+    // 0/1 point, or no movement → honest flat line at mid-height.
+    const y = H / 2;
+    points = `${PAD},${y} ${W - PAD},${y}`;
+  }
+
   return (
     <svg
-      viewBox="0 0 380 60"
+      viewBox={`0 0 ${W} ${H}`}
       width="100%"
-      height={60}
+      height={H}
       className="mt-2 block"
       aria-hidden
     >
@@ -1077,6 +1117,7 @@ function Sparkline() {
         stroke="hsl(var(--primary))"
         strokeWidth="2"
         strokeLinejoin="round"
+        strokeLinecap="round"
         points={points}
         opacity="0.85"
       />

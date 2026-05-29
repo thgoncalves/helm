@@ -28,6 +28,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from app import db
+from app.money.account_snapshots import record_account_snapshots
 from app.money.snapshots import record_snapshot
 from app.ynab.client import YnabClient
 
@@ -290,6 +291,9 @@ def refresh(
     # Safe even when accounts haven't changed — the helper upserts on
     # snapshot_month and swallows its own errors.
     record_snapshot()
+    # Same for the per-account daily balance points behind the 30-day
+    # sparkline (upserts on (snapshot_date, account_id), errors swallowed).
+    record_account_snapshots()
 
     return SyncResult(
         budget_id=target_id,
