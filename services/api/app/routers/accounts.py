@@ -21,17 +21,19 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app import db
 from app.deps import get_current_user
 from app.investments.fx import FxRateUnavailable, get_rate
+from app.money.account_snapshots import fetch_history, record_account_snapshots
 from app.money.snapshots import record_snapshot
 from app.models.account_buckets import (
     AccountBucketRead,
     AccountPlacementUpdate,
 )
 from app.models.accounts import (
+    AccountBalancePoint,
     AccountListResponse,
     AccountRow,
     AccountTagsUpdate,
@@ -81,6 +83,9 @@ def list_accounts() -> AccountListResponse:
     rows.extend(_load_ynab_rows())
     rows.extend(_load_manual_rows())
     buckets = _load_buckets()
+    # Seed today's per-account balance point on every page load so the
+    # 30-day sparkline accrues history even on days with no edits/sync.
+    record_account_snapshots()
     return AccountListResponse(accounts=rows, buckets=buckets)
 
 
@@ -93,6 +98,31 @@ def _load_buckets() -> list[AccountBucketRead]:
         """
     )
     return [AccountBucketRead(**r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# GET /{source}/{id}/balance-history — daily balance points for the sparkline
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/{source}/{account_id}/balance-history",
+    response_model=list[AccountBalancePoint],
+    summary="Daily balance snapshots for one account (oldest first)",
+)
+def balance_history(
+    source: str,
+    account_id: str,
+    days: int = Query(default=30, ge=1, le=365),
+) -> list[AccountBalancePoint]:
+    """Per-account daily balance points behind the 30-day sparkline.
+
+    Forward-only: returns whatever daily snapshots have accrued for this
+    account in the window (empty until the first capture). The id is the
+    namespaced ``"<source>:<account_id>"`` used on the Accounts page.
+    """
+    rows = fetch_history(f"{source}:{account_id}", days)
+    return [AccountBalancePoint(**r) for r in rows]
 
 
 # ---------------------------------------------------------------------------
@@ -145,6 +175,7 @@ def update_tags(
                 status_code=404, detail="YNAB account not cached."
             )
         record_snapshot()
+        record_account_snapshots()
         return _ynab_row_to_account(row)
 
     if source == "manual":
@@ -176,6 +207,7 @@ def update_tags(
                 status_code=404, detail="Manual account not found."
             )
         record_snapshot()
+        record_account_snapshots()
         return _manual_row_to_account(row)
 
     raise HTTPException(
