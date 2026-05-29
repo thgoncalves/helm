@@ -198,21 +198,35 @@ class TestInvoiceOptions:
         assert opt["balance_due"] == "600.00"
         assert opt["status"] == "sent"  # partial payment, not flipped
 
-    def test_open_only_filters_paid_zero_balance(self, client: TestClient) -> None:
-        inv = _make_invoice(
+    def test_open_only_excludes_settled_keeps_partial(
+        self, client: TestClient
+    ) -> None:
+        # Fully paid → balance 0 → excluded when recording a new payment.
+        settled = _make_invoice(
             client,
             client_id=str(SEED_ID_CP),
             invoice_number="INV-2026-1021",
             qty="5",
             unit_price="100",
         )["invoice"]
-        _record_payment(client, invoice_id=inv["id"], amount=inv["total"])
+        _record_payment(client, invoice_id=settled["id"], amount=settled["total"])
+
+        # Partially paid → balance still owing → stays in the list.
+        partial = _make_invoice(
+            client,
+            client_id=str(SEED_ID_CP),
+            invoice_number="INV-2026-1022",
+            qty="5",
+            unit_price="100",  # total 500
+        )["invoice"]
+        _record_payment(client, invoice_id=partial["id"], amount="200.00")
 
         response = client.get(
             "/business/payments/invoice-options", params={"open_only": "true"}
         )
         ids = [o["invoice_id"] for o in response.json()]
-        assert inv["id"] not in ids
+        assert settled["id"] not in ids
+        assert partial["id"] in ids
 
 
 class TestDelete:

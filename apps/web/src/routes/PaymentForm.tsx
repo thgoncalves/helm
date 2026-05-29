@@ -109,10 +109,16 @@ function PaymentFormInner({
     setState(initialState);
   }, [initialState]);
 
+  // When recording a new payment, only show invoices that still owe money
+  // (fully-paid ones are done). The edit form shows all so a historical
+  // payment on an already-settled invoice stays selectable.
+  const openOnly = mode === "create";
   const { data: invoices } = useQuery<InvoiceOption[]>({
-    queryKey: ["invoice-options"],
+    queryKey: ["invoice-options", { openOnly }],
     queryFn: () =>
-      apiFetch<InvoiceOption[]>("/business/payments/invoice-options"),
+      apiFetch<InvoiceOption[]>(
+        `/business/payments/invoice-options?open_only=${openOnly}`,
+      ),
     staleTime: 30_000,
   });
 
