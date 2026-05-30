@@ -852,6 +852,20 @@ export interface FundsVsStocksRow {
   stale_days: number | null;
 }
 
+/** One manual/YNAB investing fund's original vs current value. */
+export interface FundPerformanceRow {
+  source: "manual" | "ynab";
+  account_id: string; // namespaced "manual:<id>" / "ynab:<id>"
+  label: string;
+  native_currency: string;
+  current_native: number | string;
+  current_cad: number | string;
+  original_cad: number | string | null;
+  original_date: string | null;
+  change_cad: number | string | null;
+  change_pct: number | string | null;
+}
+
 export interface FundsVsStocksResponse {
   funds: FundsVsStocksRow;
   stocks: FundsVsStocksRow;

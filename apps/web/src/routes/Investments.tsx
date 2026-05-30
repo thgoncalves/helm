@@ -42,6 +42,7 @@ import { apiFetch, ApiError } from "@/lib/api";
 import type {
   AccountListResponse,
   AccountRow,
+  FundPerformanceRow,
   FundsVsStocksResponse,
   InvestingSnapshotDay,
   InvestingSnapshotHistoryItem,
@@ -204,6 +205,14 @@ export function Investments() {
       apiFetch<StockPortfolioRow[]>("/investments/stocks/positions"),
   });
 
+  const fundPerfQ = useQuery<FundPerformanceRow[]>({
+    queryKey: ["fund-performance"],
+    queryFn: () =>
+      apiFetch<FundPerformanceRow[]>(
+        "/investments/stocks/funds-performance",
+      ),
+  });
+
   const snapshotMutation = useMutation({
     mutationFn: () =>
       apiFetch<InvestingSnapshotDay>("/investments/snapshots", {
@@ -211,6 +220,8 @@ export function Investments() {
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["investing-snapshots-history"] });
+      // A fund's first-ever snapshot becomes its "original value".
+      qc.invalidateQueries({ queryKey: ["fund-performance"] });
     },
   });
 
@@ -231,6 +242,7 @@ export function Investments() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["accounts-all"] });
       qc.invalidateQueries({ queryKey: ["funds-vs-stocks"] });
+      qc.invalidateQueries({ queryKey: ["fund-performance"] });
     },
   });
 
@@ -253,6 +265,13 @@ export function Investments() {
     () => fundAccounts.filter((f) => f.source === "ynab"),
     [fundAccounts],
   );
+
+  // Per-fund original/current/change, keyed by namespaced account id.
+  const perfById = useMemo(() => {
+    const m = new Map<string, FundPerformanceRow>();
+    for (const p of fundPerfQ.data ?? []) m.set(p.account_id, p);
+    return m;
+  }, [fundPerfQ.data]);
 
   const stockPositions = positionsQ.data ?? [];
   const stocksCad = num(comparisonQ.data?.stocks.current_value_cad);
@@ -370,10 +389,10 @@ export function Investments() {
       {!isLoading && !hasAnyPosition && <EmptyPositions />}
 
       {!isLoading && manualFunds.length > 0 && (
-        <ManualFundsCard funds={manualFunds} />
+        <ManualFundsCard funds={manualFunds} perfById={perfById} />
       )}
       {!isLoading && ynabFunds.length > 0 && (
-        <YnabFundsCard funds={ynabFunds} />
+        <YnabFundsCard funds={ynabFunds} perfById={perfById} />
       )}
       {!isLoading && stockPositions.length > 0 && (
         <StocksCard positions={stockPositions} />
@@ -866,6 +885,7 @@ function FundsCard({
   tone,
   editable = false,
   funds,
+  perfById,
   children,
 }: {
   title: string;
@@ -873,13 +893,28 @@ function FundsCard({
   tone: SectionTone;
   editable?: boolean;
   funds: AccountRow[];
+  perfById: Map<string, FundPerformanceRow>;
   children: ReactNode;
 }) {
   const t = SECTION_TONE_CLASSES[tone];
-  const totalCad = useMemo(
-    () => funds.reduce((sum, f) => sum + num(f.balance_cad), 0),
-    [funds],
-  );
+  const totals = useMemo(() => {
+    let current = 0;
+    let original = 0;
+    let change = 0;
+    let hasOriginal = false;
+    for (const f of funds) {
+      current += num(f.balance_cad);
+      const p = perfById.get(f.id);
+      if (p && p.original_cad !== null) {
+        hasOriginal = true;
+        original += num(p.original_cad);
+        change += num(p.change_cad);
+      }
+    }
+    const pct =
+      hasOriginal && original !== 0 ? (change / original) * 100 : null;
+    return { current, original, change, hasOriginal, pct };
+  }, [funds, perfById]);
   return (
     <Card>
       <CardContent className="p-0">
@@ -906,8 +941,13 @@ function FundsCard({
                   Native balance
                 </th>
                 <th className="px-4 py-2 text-right font-medium">
-                  Market Value (CAD)
+                  Original (CAD)
                 </th>
+                <th className="px-4 py-2 text-right font-medium">
+                  Current Value (CAD)
+                </th>
+                <th className="px-4 py-2 text-right font-medium">Change ($)</th>
+                <th className="px-4 py-2 text-right font-medium">Change (%)</th>
                 <th className="px-4 py-2 text-right font-medium">
                   Last synced
                 </th>
@@ -915,13 +955,34 @@ function FundsCard({
             </thead>
             <tbody>{children}</tbody>
             <tfoot>
-              <tr className="border-t bg-muted/30 text-sm font-semibold">
-                <td className="px-4 py-3 uppercase tracking-wider text-muted-foreground">
+              <tr className="border-t bg-muted/30 text-sm font-semibold tabular-nums">
+                <td
+                  className="px-4 py-3 uppercase tracking-wider text-muted-foreground"
+                  colSpan={2}
+                >
                   Total (CAD)
                 </td>
-                <td className="px-4 py-3" />
-                <td className="px-4 py-3 text-right tabular-nums">
-                  {fmtCAD(totalCad)}
+                <td className="px-4 py-3 text-right">
+                  {totals.hasOriginal ? fmtCAD(totals.original) : "—"}
+                </td>
+                <td className="px-4 py-3 text-right">
+                  {fmtCAD(totals.current)}
+                </td>
+                <td
+                  className={cn(
+                    "px-4 py-3 text-right",
+                    totals.hasOriginal ? changeClass(totals.change) : "",
+                  )}
+                >
+                  {totals.hasOriginal ? fmtSignedCAD(totals.change) : "—"}
+                </td>
+                <td
+                  className={cn(
+                    "px-4 py-3 text-right",
+                    totals.pct !== null ? changeClass(totals.pct) : "",
+                  )}
+                >
+                  {totals.pct === null ? "—" : fmtPct(totals.pct)}
                 </td>
                 <td className="px-4 py-3" />
               </tr>
@@ -933,34 +994,90 @@ function FundsCard({
   );
 }
 
-function ManualFundsCard({ funds }: { funds: AccountRow[] }) {
+function ManualFundsCard({
+  funds,
+  perfById,
+}: {
+  funds: AccountRow[];
+  perfById: Map<string, FundPerformanceRow>;
+}) {
   return (
     <FundsCard
       title="Manual funds"
-      subtitle="Tap any balance to update"
+      subtitle="Tap any balance to update · change since first snapshot"
       tone="amber"
       editable
       funds={funds}
+      perfById={perfById}
     >
       {funds.map((f) => (
-        <ManualFundRow key={f.id} fund={f} />
+        <ManualFundRow key={f.id} fund={f} perf={perfById.get(f.id)} />
       ))}
     </FundsCard>
   );
 }
 
-function YnabFundsCard({ funds }: { funds: AccountRow[] }) {
+function YnabFundsCard({
+  funds,
+  perfById,
+}: {
+  funds: AccountRow[];
+  perfById: Map<string, FundPerformanceRow>;
+}) {
   return (
     <FundsCard
       title="YNAB-synced funds"
-      subtitle="Synced automatically from YNAB"
+      subtitle="Synced automatically from YNAB · change since first snapshot"
       tone="sky"
       funds={funds}
+      perfById={perfById}
     >
       {funds.map((f) => (
-        <YnabFundRow key={f.id} fund={f} />
+        <YnabFundRow key={f.id} fund={f} perf={perfById.get(f.id)} />
       ))}
     </FundsCard>
+  );
+}
+
+/** The four perf cells — Original · Current · Change $ · Change % —
+ *  shared by both fund rows, in the same order as the Stocks table.
+ *  Original/Change render "—" until the first snapshot exists.
+ *  ``fallbackCurrentCad`` is the account's live CAD balance, used when
+ *  the performance payload hasn't loaded yet. */
+function FundPerfCells({
+  perf,
+  fallbackCurrentCad,
+}: {
+  perf: FundPerformanceRow | undefined;
+  fallbackCurrentCad: number | string | null;
+}) {
+  const original = perf && perf.original_cad !== null ? num(perf.original_cad) : null;
+  const current = perf ? num(perf.current_cad) : num(fallbackCurrentCad);
+  const change = perf && perf.change_cad !== null ? num(perf.change_cad) : null;
+  const pct = perf && perf.change_pct !== null ? num(perf.change_pct) : null;
+  return (
+    <>
+      <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
+        {original === null ? "—" : fmtCAD(original)}
+      </td>
+      <td className="px-4 py-3 text-right tabular-nums">{fmtCAD(current)}</td>
+      <td
+        className={cn(
+          "px-4 py-3 text-right tabular-nums",
+          change !== null ? changeClass(change) : "",
+        )}
+      >
+        {change === null ? "—" : fmtSignedCAD(change)}
+      </td>
+      <td
+        className={cn(
+          "px-4 py-3 text-right tabular-nums",
+          pct !== null ? changeClass(pct) : "",
+        )}
+      >
+        {pct === null ? "—" : fmtPct(pct)}
+      </td>
+    </>
   );
 }
 
@@ -1147,7 +1264,13 @@ function StockDetailRow({ position }: { position: StockPortfolioRow }) {
   );
 }
 
-function ManualFundRow({ fund }: { fund: AccountRow }) {
+function ManualFundRow({
+  fund,
+  perf,
+}: {
+  fund: AccountRow;
+  perf: FundPerformanceRow | undefined;
+}) {
   const qc = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(String(fund.balance));
@@ -1162,6 +1285,7 @@ function ManualFundRow({ fund }: { fund: AccountRow }) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["accounts-all"] });
       qc.invalidateQueries({ queryKey: ["funds-vs-stocks"] });
+      qc.invalidateQueries({ queryKey: ["fund-performance"] });
       setEditing(false);
     },
   });
@@ -1235,9 +1359,7 @@ function ManualFundRow({ fund }: { fund: AccountRow }) {
           </button>
         )}
       </td>
-      <td className="px-4 py-3 text-right tabular-nums">
-        {fund.balance_cad === null ? "—" : fmtCAD(fund.balance_cad)}
-      </td>
+      <FundPerfCells perf={perf} fallbackCurrentCad={fund.balance_cad} />
       <td className="px-4 py-3 text-right text-xs text-muted-foreground">
         {save.isPending ? "saving…" : fmtSyncTime(fund.balance_as_of)}
       </td>
@@ -1245,7 +1367,13 @@ function ManualFundRow({ fund }: { fund: AccountRow }) {
   );
 }
 
-function YnabFundRow({ fund }: { fund: AccountRow }) {
+function YnabFundRow({
+  fund,
+  perf,
+}: {
+  fund: AccountRow;
+  perf: FundPerformanceRow | undefined;
+}) {
   return (
     <tr className="border-t">
       <td className="px-4 py-3">
@@ -1255,9 +1383,7 @@ function YnabFundRow({ fund }: { fund: AccountRow }) {
       <td className="px-4 py-3 text-right tabular-nums">
         {fmtNative(fund.balance, fund.currency)}
       </td>
-      <td className="px-4 py-3 text-right tabular-nums">
-        {fund.balance_cad === null ? "—" : fmtCAD(fund.balance_cad)}
-      </td>
+      <FundPerfCells perf={perf} fallbackCurrentCad={fund.balance_cad} />
       <td className="px-4 py-3 text-right text-xs text-muted-foreground">
         {fmtSyncTime(fund.last_synced_at)}
       </td>
