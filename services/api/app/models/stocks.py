@@ -165,6 +165,27 @@ class FundsVsStocksResponse(BaseModel):
     total_cad: Decimal
     funds_pct: Decimal
     stocks_pct: Decimal
+
+
+class FundPerformanceRow(BaseModel):
+    """One manual/YNAB investing fund's original vs current value.
+
+    Funds have no cost-basis ledger, so the "original value" is taken
+    from the earliest ``investing_snapshots`` row for this source — i.e.
+    the value when Helm first started tracking it. ``original_*`` and the
+    change fields are ``None`` until at least one snapshot exists.
+    """
+
+    source: Literal["manual", "ynab"]
+    account_id: str  # namespaced "manual:<id>" / "ynab:<id>"
+    label: str
+    native_currency: str
+    current_native: Decimal
+    current_cad: Decimal
+    original_cad: Decimal | None = None
+    original_date: date | None = None
+    change_cad: Decimal | None = None
+    change_pct: Decimal | None = None
     base_currency: str = "CAD"
 
 
