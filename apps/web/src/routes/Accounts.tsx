@@ -21,7 +21,7 @@
  * category dropdown, not drag — keeps the dnd surface simple and the
  * affordance unambiguous.
  */
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   useMutation,
   useQuery,
@@ -30,12 +30,15 @@ import {
 import { Link } from "react-router-dom";
 import {
   DndContext,
+  DragOverlay,
   KeyboardSensor,
   PointerSensor,
-  closestCenter,
+  closestCorners,
+  useDroppable,
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragStartEvent,
 } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -498,6 +501,82 @@ function OutlineRail({
   onCreateBucket: (name: string) => void;
 }) {
   const [newBucketOpen, setNewBucketOpen] = useState(false);
+  const [activeId, setActiveId] = useState<string | null>(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  );
+
+  // The rail's drop containers, in render order. The uncategorized bin is
+  // always present so an account can be dragged out of a category, even
+  // when nothing is uncategorized yet.
+  const UNCAT_KEY = "__uncat__";
+  const itemsForKey = (key: string): AccountRow[] =>
+    key === UNCAT_KEY ? uncategorized : (accountsByBucket.get(key) ?? []);
+  const bucketIdForKey = (key: string): string | null =>
+    key === UNCAT_KEY ? null : key;
+  const containerKeyOf = (accountId: string): string | null => {
+    for (const b of buckets) {
+      if ((accountsByBucket.get(b.id) ?? []).some((a) => a.id === accountId))
+        return b.id;
+    }
+    if (uncategorized.some((a) => a.id === accountId)) return UNCAT_KEY;
+    return null;
+  };
+  const isContainerKey = (id: string): boolean =>
+    id === UNCAT_KEY || buckets.some((b) => b.id === id);
+
+  const activeAccount = activeId
+    ? [...accountsByBucket.values()].flat().concat(uncategorized).find(
+        (a) => a.id === activeId,
+      ) ?? null
+    : null;
+
+  function handleDragEnd(e: DragEndEvent) {
+    setActiveId(null);
+    const { active, over } = e;
+    if (!over) return;
+    const activeKey = containerKeyOf(String(active.id));
+    if (activeKey === null) return;
+    const overId = String(over.id);
+    const overKey = isContainerKey(overId) ? overId : containerKeyOf(overId);
+    if (overKey === null) return;
+
+    const fromItems = itemsForKey(activeKey);
+    const moved = fromItems.find((a) => a.id === String(active.id));
+    if (!moved) return;
+
+    if (activeKey === overKey) {
+      // Reorder within the same container.
+      const oldIdx = fromItems.findIndex((a) => a.id === String(active.id));
+      const overIdx = isContainerKey(overId)
+        ? fromItems.length - 1
+        : fromItems.findIndex((a) => a.id === overId);
+      if (oldIdx === overIdx || overIdx === -1) return;
+      onReorderAccounts(
+        bucketIdForKey(activeKey),
+        arrayMove(fromItems, oldIdx, overIdx),
+      );
+      return;
+    }
+
+    // Move across containers: splice into the target, drop from the source.
+    const toItems = itemsForKey(overKey);
+    const insertAt = isContainerKey(overId)
+      ? toItems.length
+      : Math.max(0, toItems.findIndex((a) => a.id === overId));
+    const newTo = [...toItems];
+    newTo.splice(insertAt, 0, moved);
+    onReorderAccounts(bucketIdForKey(overKey), newTo);
+    onReorderAccounts(
+      bucketIdForKey(activeKey),
+      fromItems.filter((a) => a.id !== String(active.id)),
+    );
+  }
+
   return (
     <div className="space-y-0.5 px-2 pb-3">
       <div className="flex items-center justify-between px-2 pb-1 pt-3">
@@ -523,30 +602,50 @@ function OutlineRail({
         />
       )}
 
-      {buckets.map((b) => (
-        <BucketSection
-          key={b.id}
-          bucket={b}
-          accounts={accountsByBucket.get(b.id) ?? []}
-          total={bucketTotals.get(b.id) ?? 0}
-          selection={selection}
-          onSelectBucket={() => onSelectBucket(b.id)}
-          onSelectAccount={onSelectAccount}
-          onReorderAccounts={(next) => onReorderAccounts(b.id, next)}
-        />
-      ))}
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCorners}
+        onDragStart={(e: DragStartEvent) => setActiveId(String(e.active.id))}
+        onDragEnd={handleDragEnd}
+        onDragCancel={() => setActiveId(null)}
+      >
+        {buckets.map((b) => (
+          <BucketSection
+            key={b.id}
+            containerKey={b.id}
+            bucket={b}
+            accounts={accountsByBucket.get(b.id) ?? []}
+            total={bucketTotals.get(b.id) ?? 0}
+            selection={selection}
+            isDragging={activeId !== null}
+            onSelectBucket={() => onSelectBucket(b.id)}
+            onSelectAccount={onSelectAccount}
+          />
+        ))}
 
-      {uncategorized.length > 0 && (
         <BucketSection
+          containerKey={UNCAT_KEY}
           bucket={null}
           accounts={uncategorized}
           total={uncategorizedTotal}
           selection={selection}
+          isDragging={activeId !== null}
           onSelectBucket={() => onSelectBucket("__uncat__")}
           onSelectAccount={onSelectAccount}
-          onReorderAccounts={(next) => onReorderAccounts(null, next)}
         />
-      )}
+
+        <DragOverlay>
+          {activeAccount ? (
+            <div className="flex items-center gap-1.5 rounded border bg-popover px-2 py-1 text-[13px] shadow-md">
+              <i
+                className="ti ti-grip-vertical text-xs text-muted-foreground"
+                aria-hidden
+              />
+              <span className="truncate">{activeAccount.name}</span>
+            </div>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
     </div>
   );
 }
@@ -581,21 +680,25 @@ function NewBucketInput({
 }
 
 function BucketSection({
+  containerKey,
   bucket,
   accounts,
   total,
   selection,
+  isDragging,
   onSelectBucket,
   onSelectAccount,
-  onReorderAccounts,
 }: {
+  /** Drop-container id: a bucket UUID, or "__uncat__" for the uncategorized bin. */
+  containerKey: string;
   bucket: AccountBucket | null;
   accounts: AccountRow[];
   total: number;
   selection: Selection;
+  /** True while any account is mid-drag — used to reveal empty drop zones. */
+  isDragging: boolean;
   onSelectBucket: () => void;
   onSelectAccount: (id: string) => void;
-  onReorderAccounts: (next: AccountRow[]) => void;
 }) {
   const [expanded, setExpanded] = useState(true);
   const isUncat = bucket === null;
@@ -607,22 +710,22 @@ function BucketSection({
       selection?.kind === "bucket" &&
       selection.bucketId === bucket!.id);
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
+  // The whole section is a drop target so an account can be dropped onto
+  // the header or an empty body, not just onto a sibling row.
+  const { setNodeRef, isOver } = useDroppable({ id: containerKey });
 
-  function handleDragEnd(e: DragEndEvent) {
-    const { active, over } = e;
-    if (!over || active.id === over.id) return;
-    const oldIdx = accounts.findIndex((a) => a.id === active.id);
-    const newIdx = accounts.findIndex((a) => a.id === over.id);
-    if (oldIdx === -1 || newIdx === -1) return;
-    onReorderAccounts(arrayMove(accounts, oldIdx, newIdx));
-  }
+  // Hide an empty uncategorized bin unless something is being dragged (so it
+  // doesn't add clutter when every account is already categorised).
+  if (isUncat && accounts.length === 0 && !isDragging) return null;
 
   return (
-    <div className="rounded-md">
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "rounded-md",
+        isOver && "bg-primary/5 ring-1 ring-primary/30",
+      )}
+    >
       <div
         className={cn(
           "group flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1.5 cursor-pointer",
@@ -663,16 +766,12 @@ function BucketSection({
         </span>
       </div>
 
-      {expanded && accounts.length > 0 && (
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={handleDragEnd}
+      {expanded && (
+        <SortableContext
+          items={accounts.map((a) => a.id)}
+          strategy={verticalListSortingStrategy}
         >
-          <SortableContext
-            items={accounts.map((a) => a.id)}
-            strategy={verticalListSortingStrategy}
-          >
+          {accounts.length > 0 ? (
             <ul className="ml-6 mt-0.5 space-y-0.5">
               {accounts.map((a) => (
                 <OutlineAccount
@@ -685,8 +784,14 @@ function BucketSection({
                 />
               ))}
             </ul>
-          </SortableContext>
-        </DndContext>
+          ) : (
+            isDragging && (
+              <div className="ml-6 mt-0.5 rounded border border-dashed border-muted-foreground/30 px-2 py-2 text-center text-[11px] text-muted-foreground">
+                Drop here
+              </div>
+            )
+          )}
+        </SortableContext>
       )}
     </div>
   );
@@ -1446,6 +1551,45 @@ export function Accounts() {
 
   const [selection, setSelection] = useState<Selection>(null);
 
+  // Resizable left rail. Width persists across visits via localStorage and
+  // is clamped to a sensible range so the rail can't be dragged away.
+  const RAIL_MIN = 240;
+  const RAIL_MAX = 640;
+  const [railWidth, setRailWidth] = useState<number>(() => {
+    const stored = Number(
+      typeof window !== "undefined"
+        ? window.localStorage.getItem("accounts.railWidth")
+        : NaN,
+    );
+    return Number.isFinite(stored)
+      ? Math.min(RAIL_MAX, Math.max(RAIL_MIN, stored))
+      : 320;
+  });
+  const resizeStart = useRef<{ x: number; w: number } | null>(null);
+
+  function onResizeDown(e: React.PointerEvent) {
+    resizeStart.current = { x: e.clientX, w: railWidth };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+  function onResizeMove(e: React.PointerEvent) {
+    if (!resizeStart.current) return;
+    const next = Math.min(
+      RAIL_MAX,
+      Math.max(RAIL_MIN, resizeStart.current.w + (e.clientX - resizeStart.current.x)),
+    );
+    setRailWidth(next);
+  }
+  function onResizeUp(e: React.PointerEvent) {
+    if (!resizeStart.current) return;
+    resizeStart.current = null;
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    // Persist the latest width (read via the functional setter to dodge stale closure).
+    setRailWidth((w) => {
+      window.localStorage.setItem("accounts.railWidth", String(w));
+      return w;
+    });
+  }
+
   const data = accountsQ.data;
   const accounts = data?.accounts ?? [];
 
@@ -1514,11 +1658,13 @@ export function Accounts() {
   }, [accounts]);
 
   function handleReorder(bucketId: string | null, newOrder: AccountRow[]) {
-    // Issue one PATCH per row whose index changed. Optimistic: the
-    // invalidate at the end of each mutation will re-fetch and re-render.
+    // Issue one PATCH per row whose (bucket, index) changed. A cross-category
+    // move can land at the same numeric index, so we compare bucket too.
+    // Optimistic: each mutation invalidates ["accounts"] and re-renders.
     for (let i = 0; i < newOrder.length; i++) {
       const a = newOrder[i];
-      if (a.sort_index !== i) {
+      const curBucket = a.bucket_id ?? null;
+      if (a.sort_index !== i || curBucket !== bucketId) {
         placementMutation.mutate({
           source: a.source,
           id: unwrapId(a.id),
@@ -1590,9 +1736,22 @@ export function Accounts() {
 
             <div
               className="grid"
-              style={{ gridTemplateColumns: "320px 1fr", minHeight: "70vh" }}
+              style={{
+                gridTemplateColumns: `${railWidth}px 1fr`,
+                minHeight: "70vh",
+              }}
             >
-              <aside className="border-r">
+              <aside className="relative border-r">
+                {/* Drag the divider to resize the rail. */}
+                <div
+                  role="separator"
+                  aria-orientation="vertical"
+                  title="Drag to resize"
+                  onPointerDown={onResizeDown}
+                  onPointerMove={onResizeMove}
+                  onPointerUp={onResizeUp}
+                  className="absolute right-0 top-0 z-10 h-full w-2 -mr-1 cursor-col-resize touch-none transition-colors hover:bg-primary/30"
+                />
                 <div className="p-3">
                   <div className="mb-2 text-[10px] uppercase tracking-wider text-muted-foreground">
                     Portfolio map
