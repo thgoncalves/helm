@@ -48,6 +48,7 @@ from app.investments.stocks_quotes import (
     search_symbols,
 )
 from app.models.stocks import (
+    FundPerformanceRow,
     FundsVsStocksResponse,
     FundsVsStocksRow,
     StockAccountRow,
@@ -286,6 +287,119 @@ def comparison() -> FundsVsStocksResponse:
         funds_pct=funds_share,
         stocks_pct=stocks_share,
     )
+
+
+def _first_snapshot(source_kind: str, source_id: str) -> dict[str, Any] | None:
+    """Earliest investing snapshot for one fund — its "original value"."""
+    return db.fetch_one(
+        """
+        SELECT cad_amount, snapshot_date
+        FROM investing_snapshots
+        WHERE source_kind = :kind AND source_id = :id
+        ORDER BY snapshot_date ASC
+        LIMIT 1
+        """,
+        {"kind": source_kind, "id": source_id},
+    )
+
+
+def _fund_perf(
+    *,
+    source: str,
+    source_kind: str,
+    source_id: str,
+    label: str,
+    native_currency: str,
+    current_native: Decimal,
+    current_cad: Decimal,
+) -> FundPerformanceRow:
+    first = _first_snapshot(source_kind, source_id)
+    original_cad: Decimal | None = None
+    original_date = None
+    if first is not None and first.get("cad_amount") is not None:
+        original_cad = Decimal(first["cad_amount"])
+        original_date = first.get("snapshot_date")
+
+    change_cad: Decimal | None = None
+    change_pct: Decimal | None = None
+    if original_cad is not None:
+        change_cad = (current_cad - original_cad).quantize(Decimal("0.01"))
+        if original_cad != 0:
+            change_pct = (change_cad / original_cad * Decimal(100)).quantize(
+                Decimal("0.01")
+            )
+
+    return FundPerformanceRow(
+        source=source,  # type: ignore[arg-type]
+        account_id=f"{source}:{source_id}",
+        label=label,
+        native_currency=native_currency,
+        current_native=current_native.quantize(Decimal("0.01")),
+        current_cad=current_cad.quantize(Decimal("0.01")),
+        original_cad=original_cad,
+        original_date=original_date,
+        change_cad=change_cad,
+        change_pct=change_pct,
+    )
+
+
+@router.get("/funds-performance", response_model=list[FundPerformanceRow])
+def funds_performance() -> list[FundPerformanceRow]:
+    """Per-fund original vs current value for the Investing dashboard.
+
+    Mirrors the Stocks section's original/current/change figures for the
+    Manual and YNAB fund sections. "Current" is the live balance (manual
+    edit or YNAB sync); "original" is the earliest investing snapshot for
+    that fund. Change is current − original, in CAD.
+    """
+    rows: list[FundPerformanceRow] = []
+
+    for r in db.fetch_all(
+        """
+        SELECT id, name, balance, currency
+        FROM manual_accounts
+        WHERE is_active = TRUE AND kind = 'investing_fund'
+        ORDER BY name
+        """
+    ):
+        ccy = r.get("currency") or "CAD"
+        current_native = Decimal(r["balance"] or 0)
+        rows.append(
+            _fund_perf(
+                source="manual",
+                source_kind="manual_fund",
+                source_id=str(r["id"]),
+                label=r.get("name") or "",
+                native_currency=ccy,
+                current_native=current_native,
+                current_cad=_to_cad(current_native, ccy),
+            )
+        )
+
+    for r in db.fetch_all(
+        """
+        SELECT id, name, balance
+        FROM ynab_accounts
+        WHERE closed = FALSE AND deleted = FALSE
+          AND helm_kind = 'investing_fund'
+        ORDER BY name
+        """
+    ):
+        # YNAB balance is milliunits; treated as CAD (matches comparison()).
+        current_native = Decimal(r["balance"] or 0) / Decimal(1000)
+        rows.append(
+            _fund_perf(
+                source="ynab",
+                source_kind="ynab_fund",
+                source_id=str(r["id"]),
+                label=r.get("name") or "",
+                native_currency="CAD",
+                current_native=current_native,
+                current_cad=current_native,
+            )
+        )
+
+    return rows
 
 
 def _max_age(current: int | None, as_of: Any, today: date) -> int | None:
