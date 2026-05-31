@@ -852,6 +852,17 @@ export interface FundsVsStocksRow {
   stale_days: number | null;
 }
 
+/** A currency-pair rate with its short-term direction. */
+export interface FxQuote {
+  pair: string;
+  rate: number | string;
+  prev_rate: number | string | null;
+  change: number | string | null;
+  change_pct: number | string | null;
+  direction: "up" | "down" | "flat" | null;
+  as_of: string;
+}
+
 /** One manual/YNAB investing fund's original vs current value. */
 export interface FundPerformanceRow {
   source: "manual" | "ynab";
