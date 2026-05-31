@@ -10,7 +10,7 @@ in-memory snapshot store that models the ``ON CONFLICT`` upsert.
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -87,7 +87,9 @@ def test_records_one_row_per_account_and_is_idempotent(
     record_account_snapshots()
     assert len(snap_store) == 3
 
-    today = date.today()
+    # The writer keys snapshots by the UTC date, so assert on the same
+    # basis — otherwise this flakes at the local/UTC day boundary.
+    today = datetime.now(timezone.utc).date()
     assert snap_store[(today, "ynab:a1")]["native_amount"] == Decimal("100.00")
     assert snap_store[(today, "manual:m1")]["cad_amount"] == Decimal("81.00")
 

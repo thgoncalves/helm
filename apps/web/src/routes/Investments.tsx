@@ -29,8 +29,11 @@ import {
   Area,
   AreaChart,
   CartesianGrid,
+  Cell,
   Line,
   LineChart,
+  Pie,
+  PieChart,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -44,6 +47,7 @@ import type {
   AccountRow,
   FundPerformanceRow,
   FundsVsStocksResponse,
+  FxQuote,
   InvestingSnapshotDay,
   InvestingSnapshotHistoryItem,
   InvestingSnapshotRow,
@@ -213,6 +217,12 @@ export function Investments() {
       ),
   });
 
+  const fxQ = useQuery<FxQuote>({
+    queryKey: ["fx-cad-brl"],
+    queryFn: () => apiFetch<FxQuote>("/investments/fx/cad-brl"),
+    staleTime: 5 * 60_000,
+  });
+
   const snapshotMutation = useMutation({
     mutationFn: () =>
       apiFetch<InvestingSnapshotDay>("/investments/snapshots", {
@@ -272,6 +282,54 @@ export function Investments() {
     for (const p of fundPerfQ.data ?? []) m.set(p.account_id, p);
     return m;
   }, [fundPerfQ.data]);
+
+  // Three-way split (Manual / YNAB / Stocks) of current value + gains,
+  // derived client-side: funds from /funds-performance, stocks from the
+  // comparison summary. "Gain" is change-since-first-snapshot for funds
+  // and unrealized-vs-cost for stocks — what each section already shows.
+  const split = useMemo(() => {
+    let manualValue = 0;
+    let ynabValue = 0;
+    let manualGain = 0;
+    let ynabGain = 0;
+    let manualCount = 0;
+    let ynabCount = 0;
+    for (const p of fundPerfQ.data ?? []) {
+      const value = num(p.current_cad);
+      const gain = p.change_cad === null ? 0 : num(p.change_cad);
+      if (p.source === "manual") {
+        manualValue += value;
+        manualGain += gain;
+        manualCount += 1;
+      } else {
+        ynabValue += value;
+        ynabGain += gain;
+        ynabCount += 1;
+      }
+    }
+    const stocks = comparisonQ.data?.stocks;
+    const stocksValue = num(stocks?.current_value_cad);
+    const stocksGain =
+      stocks?.unrealized_cad == null ? 0 : num(stocks.unrealized_cad);
+    return {
+      manualValue,
+      ynabValue,
+      stocksValue,
+      manualGain,
+      ynabGain,
+      stocksGain,
+      manualCount,
+      ynabCount,
+      stocksHoldings: stocks?.holdings_count ?? 0,
+      stocksCost: stocks?.cost_basis_cad ?? null,
+      stocksUnrealPct: stocks?.unrealized_pct ?? null,
+      total: manualValue + ynabValue + stocksValue,
+    };
+  }, [fundPerfQ.data, comparisonQ.data]);
+
+  // Lifted so both the History chart (click a day) and the Snapshots list
+  // (click a row) can open the same snapshot modal.
+  const [openDate, setOpenDate] = useState<string | null>(null);
 
   const stockPositions = positionsQ.data ?? [];
   const stocksCad = num(comparisonQ.data?.stocks.current_value_cad);
@@ -381,10 +439,29 @@ export function Investments() {
       {isLoading && <LoadingBox />}
 
       {!isLoading && comparisonQ.data && (
-        <KpiStrip data={comparisonQ.data} />
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+          <div className="lg:col-span-3">
+            <KpiStrip split={split} />
+          </div>
+          <div className="lg:col-span-1">
+            <FxCard fx={fxQ.data} />
+          </div>
+        </div>
       )}
 
-      {!isLoading && <HistoryCard history={historyQ.data ?? []} />}
+      {!isLoading && (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <div className="lg:col-span-2">
+            <HistoryCard
+              history={historyQ.data ?? []}
+              onSelectDate={setOpenDate}
+            />
+          </div>
+          <div className="lg:col-span-1">
+            <GainsDonut split={split} />
+          </div>
+        </div>
+      )}
 
       {!isLoading && !hasAnyPosition && <EmptyPositions />}
 
@@ -399,7 +476,14 @@ export function Investments() {
       )}
 
       {!isLoading && (historyQ.data?.length ?? 0) > 0 && (
-        <SnapshotsCard history={historyQ.data ?? []} />
+        <SnapshotsCard history={historyQ.data ?? []} onSelectDate={setOpenDate} />
+      )}
+
+      {openDate && (
+        <SnapshotModal
+          snapshotDate={openDate}
+          onClose={() => setOpenDate(null)}
+        />
       )}
     </div>
   );
@@ -409,112 +493,285 @@ export function Investments() {
 // Compact KPI strip — single card, full width
 // ---------------------------------------------------------------------------
 
-function KpiStrip({ data }: { data: FundsVsStocksResponse }) {
-  const fundsPct = num(data.funds_pct);
-  const stocksPct = num(data.stocks_pct);
-  const total = num(data.total_cad);
+interface PortfolioSplit {
+  manualValue: number;
+  ynabValue: number;
+  stocksValue: number;
+  manualGain: number;
+  ynabGain: number;
+  stocksGain: number;
+  manualCount: number;
+  ynabCount: number;
+  stocksHoldings: number;
+  stocksCost: number | string | null;
+  stocksUnrealPct: number | string | null;
+  total: number;
+}
 
+/** Shared category styling for the portfolio split + gains donut. */
+const CATEGORY_STYLE = {
+  manual: { label: "Manual", bar: "bg-amber-500", border: "border-amber-500", hex: "hsl(38 92% 50%)" },
+  ynab: { label: "YNAB", bar: "bg-sky-500", border: "border-sky-500", hex: "hsl(199 89% 48%)" },
+  stocks: { label: "Stocks", bar: "bg-emerald-500", border: "border-emerald-500", hex: "hsl(158 64% 45%)" },
+} as const;
+
+function KpiStrip({ split }: { split: PortfolioSplit }) {
+  const { total } = split;
   if (total === 0) return null;
 
-  const unreal = data.stocks.unrealized_cad;
-  const unrealNum = num(unreal);
-  const unrealPctNum = num(data.stocks.unrealized_pct);
+  const parts = [
+    {
+      key: "manual" as const,
+      value: split.manualValue,
+      gain: split.manualGain,
+      meta: `${split.manualCount} acct${split.manualCount === 1 ? "" : "s"}`,
+    },
+    {
+      key: "ynab" as const,
+      value: split.ynabValue,
+      gain: split.ynabGain,
+      meta: `${split.ynabCount} acct${split.ynabCount === 1 ? "" : "s"}`,
+    },
+    {
+      key: "stocks" as const,
+      value: split.stocksValue,
+      gain: split.stocksGain,
+      meta:
+        `${split.stocksHoldings} holding${split.stocksHoldings === 1 ? "" : "s"}` +
+        (split.stocksCost !== null ? ` · cost ${fmtCAD(split.stocksCost)}` : ""),
+    },
+  ];
 
   return (
-    <Card>
+    <Card className="h-full">
       <CardContent className="space-y-3 p-4">
-        {/* Row 1 — total */}
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <div className="flex flex-wrap items-start justify-between gap-2">
           <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
             Portfolio
           </h3>
-          <span className="text-2xl font-bold tabular-nums">
+          <span className="text-2xl font-bold leading-none tabular-nums">
             {fmtCAD(total)}
           </span>
         </div>
 
-        {/* Row 2 — split bar */}
+        {/* Split bar — Manual · YNAB · Stocks */}
         <div
           className="flex h-2.5 w-full overflow-hidden rounded bg-muted"
           role="img"
-          aria-label={`${fundsPct.toFixed(0)}% funds, ${stocksPct.toFixed(0)}% stocks`}
+          aria-label={parts
+            .map((p) => `${((p.value / total) * 100).toFixed(0)}% ${CATEGORY_STYLE[p.key].label}`)
+            .join(", ")}
         >
-          {fundsPct > 0 && (
-            <div
-              className="bg-sky-500"
-              style={{ width: `${fundsPct}%` }}
-            />
-          )}
-          {stocksPct > 0 && (
-            <div
-              className="bg-emerald-500"
-              style={{ width: `${stocksPct}%` }}
-            />
+          {parts.map((p) =>
+            p.value > 0 ? (
+              <div
+                key={p.key}
+                className={CATEGORY_STYLE[p.key].bar}
+                style={{ width: `${(p.value / total) * 100}%` }}
+              />
+            ) : null,
           )}
         </div>
 
-        {/* Row 3 — side-by-side sub-stats */}
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div className="border-l-2 border-sky-500 pl-3">
-            <div className="flex items-baseline justify-between text-xs text-muted-foreground">
-              <span>Funds · {fundsPct.toFixed(0)}%</span>
-              <span>
-                {data.funds.accounts_count} accts
-                {data.funds.stale_days !== null && (
-                  <>
-                    {" · "}
-                    <span
-                      className={cn(
-                        data.funds.stale_days > 30
-                          ? "text-amber-600 dark:text-amber-400"
-                          : "",
-                      )}
-                    >
-                      {data.funds.stale_days === 0
-                        ? "fresh today"
-                        : `oldest ${data.funds.stale_days}d`}
-                    </span>
-                  </>
-                )}
-              </span>
-            </div>
-            <div className="text-base font-semibold tabular-nums">
-              {fmtCAD(data.funds.current_value_cad)}
-            </div>
-          </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {parts.map((p) => {
+            const pct = (p.value / total) * 100;
+            return (
+              <div
+                key={p.key}
+                className={cn("border-l-2 pl-3", CATEGORY_STYLE[p.key].border)}
+              >
+                <div className="flex items-baseline justify-between gap-2 text-xs text-muted-foreground">
+                  <span>
+                    {CATEGORY_STYLE[p.key].label} · {pct.toFixed(0)}%
+                  </span>
+                  <span className="truncate">{p.meta}</span>
+                </div>
+                <div className="flex flex-wrap items-baseline gap-2">
+                  <span className="text-base font-semibold tabular-nums">
+                    {fmtCAD(p.value)}
+                  </span>
+                  <span
+                    className={cn(
+                      "text-xs font-medium tabular-nums",
+                      p.gain > 0
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : p.gain < 0
+                          ? "text-red-600 dark:text-red-400"
+                          : "text-muted-foreground",
+                    )}
+                  >
+                    {p.gain > 0 ? "+" : ""}
+                    {fmtCADPrecise(p.gain)}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
-          <div className="border-l-2 border-emerald-500 pl-3">
-            <div className="flex items-baseline justify-between text-xs text-muted-foreground">
-              <span>Stocks · {stocksPct.toFixed(0)}%</span>
-              <span>
-                {data.stocks.holdings_count} holdings
-                {data.stocks.cost_basis_cad !== null && (
-                  <> · cost {fmtCAD(data.stocks.cost_basis_cad)}</>
-                )}
-              </span>
-            </div>
-            <div className="flex flex-wrap items-baseline gap-2">
-              <span className="text-base font-semibold tabular-nums">
-                {fmtCAD(data.stocks.current_value_cad)}
-              </span>
-              {unreal !== null && (
+/** CAD/BRL exchange KPI — green when CAD strengthens (ratio up). */
+function FxCard({ fx }: { fx: FxQuote | undefined }) {
+  if (!fx) {
+    return (
+      <Card className="h-full">
+        <CardContent className="flex h-full items-center justify-center p-4 text-xs text-muted-foreground">
+          Exchange rate unavailable
+        </CardContent>
+      </Card>
+    );
+  }
+  const up = fx.direction === "up";
+  const down = fx.direction === "down";
+  const dirClass = up
+    ? "text-emerald-600 dark:text-emerald-400"
+    : down
+      ? "text-red-600 dark:text-red-400"
+      : "text-muted-foreground";
+  return (
+    <Card className="h-full">
+      <CardContent className="flex h-full flex-col p-4">
+        <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+          {fx.pair}
+        </h3>
+        {/* Rate centred both ways in the space below the header. */}
+        <div className="flex flex-1 flex-col items-center justify-center text-center">
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl font-bold tabular-nums">
+              {Number(fx.rate).toFixed(4)}
+            </span>
+            <span className={cn("text-sm font-semibold tabular-nums", dirClass)}>
+              {up ? "▲" : down ? "▼" : "▬"}
+              {fx.change_pct !== null && (
+                <> {Math.abs(Number(fx.change_pct)).toFixed(2)}%</>
+              )}
+            </span>
+          </div>
+          <p className="mt-1 text-[10px] text-muted-foreground/70">
+            BRL per CAD · as of {fmtDate(fx.as_of)}
+          </p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Donut of each category's share of gains, sized by absolute impact so it
+ *  renders cleanly even with a losing category. Center shows net gain;
+ *  the legend carries the real signed amounts. */
+function GainsDonut({ split }: { split: PortfolioSplit }) {
+  const rows = [
+    { key: "manual" as const, gain: split.manualGain },
+    { key: "ynab" as const, gain: split.ynabGain },
+    { key: "stocks" as const, gain: split.stocksGain },
+  ];
+  const absTotal = rows.reduce((s, r) => s + Math.abs(r.gain), 0);
+  const net = rows.reduce((s, r) => s + r.gain, 0);
+  const pieData = rows
+    .filter((r) => Math.abs(r.gain) > 0)
+    .map((r) => ({
+      name: CATEGORY_STYLE[r.key].label,
+      value: Math.abs(r.gain),
+      gain: r.gain,
+      fill: CATEGORY_STYLE[r.key].hex,
+    }));
+
+  return (
+    <Card className="h-full">
+      <CardContent className="flex h-full flex-col p-4">
+        <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+          Gains by source
+        </h3>
+        {absTotal === 0 ? (
+          <div className="flex flex-1 items-center justify-center py-8 text-center text-xs text-muted-foreground">
+            No gains yet — take snapshots to start tracking change.
+          </div>
+        ) : (
+          <div className="flex flex-1 flex-col justify-center">
+            <div className="relative mx-auto h-44 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={pieData}
+                    dataKey="value"
+                    nameKey="name"
+                    innerRadius="62%"
+                    outerRadius="92%"
+                    paddingAngle={2}
+                    stroke="none"
+                  >
+                    {pieData.map((d) => (
+                      <Cell key={d.name} fill={d.fill} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    formatter={(_v, _n, item) => {
+                      const g = (item?.payload as { gain?: number })?.gain ?? 0;
+                      const pct = absTotal ? (Math.abs(g) / absTotal) * 100 : 0;
+                      return [
+                        `${g >= 0 ? "+" : ""}${fmtCADPrecise(g)} (${pct.toFixed(0)}%)`,
+                        item?.name as string,
+                      ];
+                    }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+              {/* Center: net gain */}
+              <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Net
+                </span>
                 <span
                   className={cn(
-                    "text-xs font-medium tabular-nums",
-                    unrealNum > 0
+                    "text-base font-bold tabular-nums",
+                    net > 0
                       ? "text-emerald-600 dark:text-emerald-400"
-                      : unrealNum < 0
+                      : net < 0
                         ? "text-red-600 dark:text-red-400"
                         : "",
                   )}
                 >
-                  {unrealNum > 0 ? "+" : ""}
-                  {fmtCADPrecise(unreal)} ({fmtPct(unrealPctNum)})
+                  {net > 0 ? "+" : ""}
+                  {compactCAD(net)}
                 </span>
-              )}
+              </div>
             </div>
+            <ul className="mt-2 space-y-1 text-xs">
+              {rows.map((r) => (
+                <li
+                  key={r.key}
+                  className="flex items-center justify-between gap-2"
+                >
+                  <span className="flex items-center gap-1.5">
+                    <span
+                      aria-hidden
+                      className="inline-block h-2.5 w-2.5 shrink-0 rounded-sm"
+                      style={{ backgroundColor: CATEGORY_STYLE[r.key].hex }}
+                    />
+                    {CATEGORY_STYLE[r.key].label}
+                  </span>
+                  <span
+                    className={cn(
+                      "tabular-nums",
+                      r.gain > 0
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : r.gain < 0
+                          ? "text-red-600 dark:text-red-400"
+                          : "text-muted-foreground",
+                    )}
+                  >
+                    {r.gain > 0 ? "+" : ""}
+                    {fmtCADPrecise(r.gain)}
+                  </span>
+                </li>
+              ))}
+            </ul>
           </div>
-        </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -536,13 +793,33 @@ function pctKey(label: string): string {
   return `${label}${PCT_SUFFIX}`;
 }
 
+interface TipEntry {
+  dataKey?: string | number;
+  name?: string | number;
+  value?: number | string;
+  color?: string;
+}
+
 function HistoryCard({
   history,
+  onSelectDate,
 }: {
   history: InvestingSnapshotHistoryItem[];
+  onSelectDate: (date: string) => void;
 }) {
   const [view, setView] = useState<ChartView>("total");
   const [scale, setScale] = useState<ChartScale>("cad");
+  // Which line the cursor is over — drives the hovered-only tooltip.
+  const [activeKey, setActiveKey] = useState<string | null>(null);
+  // Series toggled off via the legend (by source label).
+  const [hiddenSeries, setHiddenSeries] = useState<Set<string>>(new Set());
+  const toggleSeries = (label: string) =>
+    setHiddenSeries((prev) => {
+      const next = new Set(prev);
+      if (next.has(label)) next.delete(label);
+      else next.add(label);
+      return next;
+    });
 
   const sourceLabels = useMemo(() => {
     const set = new Set<string>();
@@ -644,6 +921,53 @@ function HistoryCard({
       ? `${Number(v) >= 0 ? "+" : ""}${Number(v).toFixed(2)}%`
       : fmtCAD(Number(v));
 
+  // Custom tooltip: show only the line under the cursor — plus any lines
+  // that overlap it at that point (same plotted value).
+  function HoverTooltip(props: {
+    active?: boolean;
+    payload?: TipEntry[];
+    label?: string | number;
+  }) {
+    const { active, payload, label } = props;
+    if (!active || !payload || payload.length === 0) return null;
+    let shown = payload;
+    if (activeKey) {
+      const hit = payload.find((p) => p.dataKey === activeKey);
+      shown = hit
+        ? payload.filter(
+            (p) => Math.abs(Number(p.value) - Number(hit.value)) < 1e-9,
+          )
+        : [];
+    }
+    if (shown.length === 0) return null;
+    return (
+      <div className="rounded-md border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md">
+        <p className="mb-1 font-medium">{fmtDate(String(label))}</p>
+        {shown.map((p) => (
+          <p key={String(p.dataKey)} className="flex items-center gap-2">
+            <span
+              aria-hidden
+              className="inline-block h-2 w-2 shrink-0 rounded-full"
+              style={{ backgroundColor: p.color }}
+            />
+            <span className="text-muted-foreground">{String(p.name)}:</span>
+            <span className="font-medium tabular-nums">
+              {tooltipFmt(p.value ?? 0)}
+            </span>
+          </p>
+        ))}
+      </div>
+    );
+  }
+
+  // Click a day → open its snapshot modal (recharts puts the x value of
+  // the clicked point in ``activeLabel``).
+  const handleChartClick = (state: { activeLabel?: string | number } | null) => {
+    if (state && state.activeLabel != null) {
+      onSelectDate(String(state.activeLabel));
+    }
+  };
+
   return (
     <Card>
       <CardContent className="space-y-3 p-4">
@@ -734,6 +1058,8 @@ function HistoryCard({
               <AreaChart
                 data={data}
                 margin={{ top: 8, right: 16, left: 8, bottom: 0 }}
+                onClick={handleChartClick}
+                className="cursor-pointer"
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                 <XAxis
@@ -747,23 +1073,27 @@ function HistoryCard({
                   labelFormatter={(label) => fmtDate(String(label))}
                   wrapperStyle={{ zIndex: 10 }}
                 />
-                {sourceLabels.map((label, i) => (
-                  <Area
-                    key={label}
-                    type="monotone"
-                    dataKey={label}
-                    stackId="1"
-                    stroke={CHART_PALETTE[i % CHART_PALETTE.length]}
-                    fill={CHART_PALETTE[i % CHART_PALETTE.length]}
-                    fillOpacity={0.55}
-                  />
-                ))}
+                {sourceLabels.map((label, i) =>
+                  hiddenSeries.has(label) ? null : (
+                    <Area
+                      key={label}
+                      type="monotone"
+                      dataKey={label}
+                      stackId="1"
+                      stroke={CHART_PALETTE[i % CHART_PALETTE.length]}
+                      fill={CHART_PALETTE[i % CHART_PALETTE.length]}
+                      fillOpacity={0.55}
+                    />
+                  ),
+                )}
               </AreaChart>
             ) : (
               // Three of four modes are line charts; only stacked+CAD is areas.
               <LineChart
                 data={data}
                 margin={{ top: 8, right: 16, left: 8, bottom: 0 }}
+                onClick={handleChartClick}
+                className="cursor-pointer"
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                 <XAxis
@@ -772,11 +1102,7 @@ function HistoryCard({
                   fontSize={11}
                 />
                 <YAxis tickFormatter={yTick} fontSize={11} width={56} />
-                <Tooltip
-                  formatter={tooltipFmt}
-                  labelFormatter={(label) => fmtDate(String(label))}
-                  wrapperStyle={{ zIndex: 10 }}
-                />
+                <Tooltip content={<HoverTooltip />} wrapperStyle={{ zIndex: 10 }} />
                 {isPct && (
                   <ReferenceLine
                     y={0}
@@ -793,20 +1119,28 @@ function HistoryCard({
                     dot={{ r: 3 }}
                     activeDot={{ r: 5 }}
                     name="Total"
+                    onMouseEnter={() =>
+                      setActiveKey(isPct ? pctKey("total") : "total")
+                    }
+                    onMouseLeave={() => setActiveKey(null)}
                   />
                 ) : (
-                  pctSourceLabels.map((label, i) => (
-                    <Line
-                      key={label}
-                      type="monotone"
-                      dataKey={pctKey(label)}
-                      stroke={CHART_PALETTE[i % CHART_PALETTE.length]}
-                      strokeWidth={1.5}
-                      dot={false}
-                      activeDot={{ r: 4 }}
-                      name={label}
-                    />
-                  ))
+                  pctSourceLabels.map((label, i) =>
+                    hiddenSeries.has(label) ? null : (
+                      <Line
+                        key={label}
+                        type="monotone"
+                        dataKey={pctKey(label)}
+                        stroke={CHART_PALETTE[i % CHART_PALETTE.length]}
+                        strokeWidth={1.5}
+                        dot={false}
+                        activeDot={{ r: 4 }}
+                        name={label}
+                        onMouseEnter={() => setActiveKey(pctKey(label))}
+                        onMouseLeave={() => setActiveKey(null)}
+                      />
+                    ),
+                  )
                 )}
               </LineChart>
             )}
@@ -817,18 +1151,32 @@ function HistoryCard({
          *  Only needed when there are multiple series. */}
         {view === "stacked" && (
           <ul className="flex flex-wrap gap-x-3 gap-y-1 pt-1 text-xs text-muted-foreground">
-            {(scale === "cad" ? sourceLabels : pctSourceLabels).map((label, i) => (
-              <li key={label} className="flex items-center gap-1.5">
-                <span
-                  aria-hidden
-                  className="inline-block h-2.5 w-2.5 shrink-0 rounded-sm"
-                  style={{
-                    backgroundColor: CHART_PALETTE[i % CHART_PALETTE.length],
-                  }}
-                />
-                <span>{label}</span>
-              </li>
-            ))}
+            {(scale === "cad" ? sourceLabels : pctSourceLabels).map((label, i) => {
+              const hidden = hiddenSeries.has(label);
+              return (
+                <li key={label}>
+                  <button
+                    type="button"
+                    onClick={() => toggleSeries(label)}
+                    aria-pressed={!hidden}
+                    title={hidden ? "Click to show" : "Click to hide"}
+                    className={cn(
+                      "flex items-center gap-1.5 rounded px-1 py-0.5 hover:bg-muted",
+                      hidden && "opacity-40",
+                    )}
+                  >
+                    <span
+                      aria-hidden
+                      className="inline-block h-2.5 w-2.5 shrink-0 rounded-sm"
+                      style={{
+                        backgroundColor: CHART_PALETTE[i % CHART_PALETTE.length],
+                      }}
+                    />
+                    <span className={cn(hidden && "line-through")}>{label}</span>
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         )}
 
@@ -1425,15 +1773,16 @@ function EmptyPositions() {
 
 function SnapshotsCard({
   history,
+  onSelectDate,
 }: {
   history: InvestingSnapshotHistoryItem[];
+  onSelectDate: (date: string) => void;
 }) {
   // Newest first in the list — the modal can still re-fetch if needed.
   const sorted = useMemo(
     () => [...history].sort((a, b) => b.snapshot_date.localeCompare(a.snapshot_date)),
     [history],
   );
-  const [openDate, setOpenDate] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -1479,7 +1828,7 @@ function SnapshotsCard({
                   >
                     <button
                       type="button"
-                      onClick={() => setOpenDate(item.snapshot_date)}
+                      onClick={() => onSelectDate(item.snapshot_date)}
                       className={cn(
                         "flex w-full items-center justify-between gap-2 px-4 py-2.5 text-left",
                         "hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none",
@@ -1509,12 +1858,6 @@ function SnapshotsCard({
           )}
         </CardContent>
       </Card>
-      {openDate && (
-        <SnapshotModal
-          snapshotDate={openDate}
-          onClose={() => setOpenDate(null)}
-        />
-      )}
     </>
   );
 }

@@ -14,6 +14,7 @@ from app.routers import accounts_manual as accounts_manual_router
 from app.routers import clients as clients_router
 from app.routers import dashboard as dashboard_router
 from app.routers import expenses as expenses_router
+from app.routers import investments_fx as investments_fx_router
 from app.routers import investments_research as investments_research_router
 from app.routers import investments_snapshots as investments_snapshots_router
 from app.routers import investments_stocks as investments_stocks_router
@@ -77,6 +78,7 @@ app.include_router(
 app.include_router(
     investments_snapshots_router.router, prefix="/investments/snapshots"
 )
+app.include_router(investments_fx_router.router, prefix="/investments/fx")
 
 # Accounts — cross-cutting management page. Manual-accounts CRUD lives
 # at /accounts/manual; user-defined category CRUD at /accounts/buckets;
